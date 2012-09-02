@@ -1,0 +1,13 @@
+#!/usr/bin/env escript
+
+-include("../apps/erlmedia/include/video_frame.hrl").
+
+-mode(compile).
+
+main(Args) ->
+  Root = filename:join(filename:dirname(escript:script_name()), ".."),
+  [code:add_pathz(LoadPath) || LoadPath <- filelib:wildcard(Root ++ "/apps/*/ebin")],
+  segmenter:main(Args).
+  
+
+

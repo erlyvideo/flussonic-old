@@ -1,0 +1,21 @@
+{application, flussonic,
+ [
+  {description, ""},
+  {vsn, "3.34"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  amf,
+                  erlmedia,
+                  gen_tracker,
+                  mpegts,
+                  rtmp,
+                  cowboy
+                 ]},
+  {mod, { flussonic_app, []}},
+  {env, [
+    {cookie, "flussonic_session"},
+    {escript_files, []}
+  ]}
+ ]}.

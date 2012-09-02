@@ -1,0 +1,39 @@
+#!/usr/bin/env ERL_LIBS=apps escript
+
+-include_lib("erlmedia/include/video_frame.hrl").
+
+main([Path]) ->
+  {ok, F} = file:open(Path, [binary, read]),
+  Offset = flv:data_offset(),
+  dump(F, Offset).
+  
+dump(F, Offset) ->
+  try flv:read_frame({file, F}, Offset) of
+    #video_frame{next_id = Next} = Frame ->
+      dump_frame(Frame),
+      dump(F, Next);
+    eof ->
+      ok
+  catch
+    Class:Error ->
+      {ok, Size} = file:position(F, eof),
+      {ok, Bin} = file:pread(F, Offset, Size - Offset),
+      io:format("ERROR ~p:~p ~p~n~p~n", [Class,Error, erlang:get_stacktrace(), Bin])    
+  end.
+
+limit(Body, Limit) ->
+  case Body of
+    <<Data:Limit/binary, _/binary>> -> Data;
+    _ -> Body
+  end.
+
+dump_frame(#video_frame{content = Content, stream_id = StreamId, codec = Codec, flavor = Flavor, dts = DTS, pts = PTS, body = Body, sound = Sound}) ->
+  Info = case Codec of
+    _ when Flavor == config -> io_lib:format("~240p", [Body]);
+    _ when Content == video -> io_lib:format("~p ctime, ~240p bytes: ~240p", [round(PTS - DTS), size(Body), limit(Body, 20)]);
+    _ when Content == audio -> io_lib:format("~240p", [Sound]);
+    _ when Content == metadata -> io_lib:format("~240p", [Body])
+  end,
+    
+  io:format("~8.s ~8.B ~5.s ~9.s ~15.B ~s~n", [Content, StreamId, Codec, Flavor, round(DTS), Info]).
+

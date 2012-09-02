@@ -1,0 +1,19 @@
+#!/bin/bash
+
+FLUDIR=/opt/flussonic
+
+function copy_binaries {
+  cd $FLUDIR
+  
+  echo "Copy prebuilt binaries"
+  find apps -name *.so -delete
+  mkdir -p apps/mpegts/priv/ apps/flussonic/priv/
+  [ -e apps/mpegts/priv/mpegts_reader.so ] || cp -f priv/binaries/linux/mpegts_reader.so apps/mpegts/priv/mpegts_reader.so
+  [ -e apps/mpegts/priv/mpeg2_crc32.so ] || cp -f priv/binaries/linux/mpeg2_crc32.so apps/mpegts/priv/mpeg2_crc32.so
+  [ -e apps/flussonic/priv/mmap.so ] || cp -f priv/binaries/linux/mmap.so apps/flussonic/priv/mmap.so
+}
+
+
+copy_binaries
+
+update-rc.d flussonic defaults

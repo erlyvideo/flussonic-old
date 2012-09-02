@@ -1,0 +1,25 @@
+#!/usr/bin/env escript
+
+-mode(compile).
+
+-include("../apps/erlmedia/include/video_frame.hrl").
+
+main([Path]) ->
+  Root = filename:join(filename:dirname(escript:script_name()), ".."),
+  [code:add_pathz(P) || P <- filelib:wildcard(Root ++ "/apps/*/ebin")],
+	{ok, F} = file:open(Path, [read,binary,raw]),
+	{ok, Reader} = mpegts_reader:init([]),
+  loop(F, Reader),
+  ok.
+
+
+loop(F, Reader) ->
+  case file:read(F, 20*188) of
+    {ok, Bin} ->
+      {ok, Reader1, Frames} = mpegts_reader:decode(Bin, Reader),
+      [io:format("~-10.s ~p ~p~n", [Codec, round(DTS), round(PTS)]) || #video_frame{codec = Codec, dts = DTS, pts = PTS} <- Frames],
+      loop(F, Reader1);
+    eof ->
+      ok
+  end.
+  

@@ -1,0 +1,91 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <title>Flussonic server</title>
+  <link rel="stylesheet" type="text/css" href="/flu/stylesheets/base.css" />
+  <link rel="stylesheet" type="text/css" href="/flu/stylesheets/themes/default/style.css" />
+  <link rel="stylesheet" type="text/css" href="/flu/stylesheets/override.css"/>
+	<link rel="stylesheet" type="text/css" href="/flu/stylesheets/smoothness/jquery-ui-1.8.14.custom.css" />	
+	<script type="text/javascript" src="/flu/js/jquery-1.5.1.min.js"></script>
+	<script type="text/javascript" src="/flu/js/jquery-ui-1.8.14.custom.min.js"></script>
+
+
+</head>
+<body>
+  <div id="container">
+    <div id="header">
+      <h1><a href="index.html">Flussonic <span id="flu_version"></span> admin panel</a></h1>
+    </div>
+    <div id="wrapper" class="wat-cf">
+      <div id="main">
+        <div class="block">
+          <div class="secondary-navigation">
+            <ul class="wat-cf tabbed-menu">
+              <li class="first"><a href="/#streams">Streams</a></li>
+              <li><a href="/#play">Play</a></li>
+							<li class="active"><a href="/flu/docs/index.html">Documentation</a></li>
+            </ul>
+          </div>
+          <div class="content" id="streams-tab">
+            <h2 class="title">Documentation</h2>
+						
+            <div class="inner">
+	<h3>Description</h3>
+	<p><strong>Flussonic</strong> is a third version of streaming server <a href="http://erlyvideo.org/"><strong>Erlyvideo</strong></a> that allows you to stream video and audio in the internet to Flash player, iPad, Android and Set-Top-Boxes.</p>
+	
+	<p>Flussonic is distributed in two flavors: GPL version with basic features described below and commercial version.</p>
+	
+	<h4>Basic features</h4>
+		<ul>
+			<li>Support of following formats and codecs: MP4, FLV, H264, AAC, VP6, RTSP/RTP/RTCP, MPEG-TS, HDS, HLS.</li>
+			<li>Streaming local files (mp4/flv) via RTMP/HDS/HLS. Flussonic has unique feature: it can stream FLV (h264) files via HLS.</li>
+			<li>Take MPEG-TS stream from VLC or satellite.</li>
+			<li>Take RTSP video from surveillance cameras.</li>
+		</ul>
+	
+	<h4>Additional commercial features</h4>
+	
+	<ul>
+		<li>Additional support of HLS.</li>
+		<li>Streaming local files HLS. Flussonic has unique feature: it can stream FLV (h264) files via HLS.</li>
+		<li>Streaming files located on remote HTTP server.</li>
+		<li>Recording streams into endless archives with instant cleanup of old files, extracting content to mp4 files, etc.</li>
+	</ul>	
+	
+	<p><a href="mailto:info@erlyvideo.org">Request trial license right now</a></p>
+	
+	<h3>Difference between erlyvideo 2 and flussonic</h3>
+	
+	<p>Erlyvideo 2 was an RTMP server. RTMP is an abandoned protocol with major design problems, used only by Flash Player.
+		It is not developed anymore.</p>
+		
+	<p>Flussonic is a superior server: it is built with HTTP streaming in mind.</p>
+		
+	<p>HTTP streaming is an approach for video distribution,
+		when video is split into chunks that are downloaded as separate small files.
+		These chunks can be cached by intermediate cache servers like Varnish and thus you can easily distribute load
+		between servers.</p>
+	
+	
+	
+	<h3>Configuration</h3>
+	
+	
+            </div>
+						
+          </div>
+
+        </div>
+
+        <div id="footer">
+          <div class="block">
+            <p>Copyright &copy; 2010-2012 Max Lapshin, Flussonic.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+

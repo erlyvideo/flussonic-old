@@ -1,0 +1,46 @@
+
+.hour_thumbnails {
+  width: 1500px;
+}
+
+.dvr_archive {
+	width: 1263px;
+	margin: 10px;
+	border-color: #303030;
+	border-style: solid;
+	border-width: 1px 0 0 1px;
+}
+.dvr_archive div {
+	width: 20px;
+	height: 20px;
+	float: left;
+}
+.dvr_archive div.ok {
+	background: green;
+	cursor: pointer;
+}
+.dvr_archive div.ok:hover {
+	border: 1px dashed black;
+	width: 18px;
+	height: 18px;
+}
+
+.dvr_archive div.fail {
+	background: red;
+}
+.dvr_archive div.first-col {
+	width: 50px;
+	border-right: 1px #303030 solid;
+}
+.dvr_archive div.five {
+	border-right: 1px #303030 dashed;
+}
+.dvr_archive div.ten {
+	border-right: 1px #303030 solid;
+}
+.dvr_archive div.line {
+	width: auto;
+	float: none;
+	clear: both;
+	border-bottom: 1px #303030 solid;
+}
