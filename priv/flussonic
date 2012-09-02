@@ -19,7 +19,7 @@ case $1 in
   mkdir -p /var/log/flussonic
   mkdir -p /var/run/flussonic
   export RUN_ERL_LOG_GENERATIONS=100
-  export RUN_ERL_LOG_MAXSIZE=1000000
+  export RUN_ERL_LOG_MAXSIZE=10000000
 	run_erl -daemon /var/run/flussonic/ /var/log/flussonic "exec $0 launch"
 	while [ ! -e /var/run/flussonic.pid ] ; do sleep 1; echo -n "."; done
 	echo ""
