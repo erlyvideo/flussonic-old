@@ -358,7 +358,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
     hls -> hls:read(URL, Options);
     file -> file_source:read(URL, Options);
     rtmp -> flu_rtmp:play_url(URL);
-    playlist -> playlist:read(URL, Options);
+    playlist -> playlist:read(Name, URL, Options);
     passive -> {ok, undefined}
   end,
   case Result of

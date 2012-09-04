@@ -1,4 +1,4 @@
-{"apps/cowboy/src/*", [debug_info, {outdir, "apps/cowboy/ebin"}, {i, "deps/cowboy"}]}.
+{"deps/cowboy/src/*", [debug_info, {outdir, "deps/cowboy/ebin"}, {i, "deps/cowboy/include"}]}.
 {"apps/flussonic/src/*", [debug_info, {outdir, "apps/flussonic/ebin"}, {i, "apps/flussonic/src"}]}.
 {"apps/http_router/src/*", [debug_info, {outdir, "apps/http_router/ebin"}, {i, "apps/http_router/src"}]}.
 {"apps/dvr/src/*", [debug_info, {outdir, "apps/dvr/ebin"}, {i, "apps/dvr/src"}]}.

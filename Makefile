@@ -75,7 +75,7 @@ archive: release
 upload:
 	./contrib/license_pack $(VERSION)
 	scp *$(VERSION)* root@erlyvideo.tv:/vz/erlyhub/apps/erlyvideo/debian/public/binary
-	#ssh root@erlyvideo.tv "cd /apps/erlyvideo/debian ; chown git.git public/binary/*; ./update ; cd public/binary ; ln -sf flussonic-$(VERSION).tgz flussonic-latest.tgz "
+	ssh erlyhub@erlyvideo.org "cd /apps/erlyvideo/debian ; ./update ; cd public/binary ; ln -sf flussonic-$(VERSION).tgz flussonic-latest.tgz "
 	@#echo "Erlyvideo version ${VERSION} uploaded to debian repo http://debian.erlyvideo.org/ ." | mail -r "Erlybuild <build@erlyvideo.org>" -s "Erlyvideo version ${VERSION}" -v erlyvideo-dev@googlegroups.com
 
 new_version: opensource package upload

@@ -46,9 +46,11 @@ init({_Any,http}, Req, Opts) ->
   {Method, Req2} = cowboy_http_req:method(Req1),
   {ok, Req2, #mpegts{name = Name, method = Method, options = Opts}}.
 
-handle(Req, #mpegts{name = Name, options = Options, method = 'GET'} = State) ->
+handle(Req, #mpegts{name = RawName, options = Options, method = 'GET'} = State) ->
   Socket = Req#http_req.socket,
   Transport = Req#http_req.transport,
+  
+  Name = media_handler:check_sessions(Req, RawName, Options),
 
   case flu_stream:autostart(Name, Options) of
     {ok, Pid} ->

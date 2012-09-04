@@ -24,6 +24,8 @@ start_link(RTMP, Stream) ->
 -define(AUDIO, 201).
 -define(META, 202).
 
+-define(LIMIT, 100).
+
 init([StartSpec, Stream]) ->
   RTMP = if
     is_pid(StartSpec) ->
@@ -90,7 +92,10 @@ handle_info({'DOWN', _, _, _, _}, #proxy{} = Proxy) ->
 
 handle_frame(#video_frame{} = Frame, #proxy{} = Proxy) ->
   Frame1 = rewrite_track_id(Frame),
-  handle_frame1(Frame1, Proxy).
+  Proxy1 = #proxy{delayed = Delayed} = handle_frame1(Frame1, Proxy),
+  if length(Delayed) > ?LIMIT -> throw({stop, too_much_delayed_frames, Proxy1#proxy{delayed = []}});
+    true -> Proxy1
+  end.
 
 rewrite_track_id(#video_frame{content = Content} = Frame) -> Frame#video_frame{track_id = rewrite_track_id(Content)};
 rewrite_track_id(video) -> ?VIDEO;

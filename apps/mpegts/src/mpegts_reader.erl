@@ -270,6 +270,7 @@ media_info(Decoder) when is_pid(Decoder) -> gen_server:call(Decoder, media_info)
 
 
 % -spec decode(Bin::binary(), Decoder::decoder()) -> {ok, Decoder, Frames}
+
 decode(Bin, #decoder{buffer = <<>>} = Decoder) when is_binary(Bin) ->
   decode(Bin, Decoder#decoder{}, []);
 
@@ -277,7 +278,7 @@ decode(Bin, #decoder{buffer = Buffer} = Decoder) when is_binary(Bin) ->
   decode(<<Buffer/binary, Bin/binary>>, Decoder, []).
 
 decode(<<16#47, Packet:187/binary, Rest/binary>>, Decoder, Frames) ->
-  case decode_ts(Packet, Decoder, size(Rest) == 0) of
+  case decode_ts(Packet, Decoder, false) of
     {ok, Decoder1, undefined} ->
       decode(Rest, Decoder1, Frames);
     {ok, Decoder1, #pes_packet{} = PESPacket} ->

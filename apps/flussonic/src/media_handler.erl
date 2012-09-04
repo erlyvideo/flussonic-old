@@ -28,6 +28,8 @@
 -behaviour(cowboy_http_handler).
 -export([init/3, handle/2, terminate/2]).
 
+-export([check_sessions/3]).
+
 % -export([backend_request/4]).
 
 init({_Any,http}, Req, Opts) ->

@@ -142,15 +142,16 @@ load_config() ->
 
   ProtoOpts = [{dispatch, Dispatch},{max_keepalive,4096}],
   
-  case current_cowboy_port(http) of
-    HTTPPort ->
-      cowboy:set_protocol_options(http, ProtoOpts);
-    undefined ->
+  % case current_cowboy_port(http) of
+  %   HTTPPort ->
+  %     cowboy:set_protocol_options(http, ProtoOpts);
+  %   undefined ->
+  (catch cowboy:stop_listener(http)),
       cowboy:start_listener(http, 100, 
         cowboy_tcp_transport, [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
         cowboy_http_protocol, ProtoOpts
-      )
-  end,
+      ),
+  % end,
   
   
   [flu_stream:update_options(Stream, [{url,URL}|StreamOpts]) || {stream, Stream, URL, StreamOpts} <- Env],
@@ -181,6 +182,7 @@ expand_entry({rewrite, Path, URL, Options}) -> {stream, list_to_binary(Path), li
 expand_entry({stream, Path, URL}) -> {stream, list_to_binary(Path), list_to_binary(URL), [{static,true}]};
 expand_entry({stream, Path, URL, Options}) -> {stream, list_to_binary(Path), list_to_binary(URL), [{static,true}|Options]};
 expand_entry({mpegts, Prefix}) -> {mpegts, Prefix, []};
+expand_entry({mpegts, Prefix, Options}) -> {mpegts, Prefix, Options};
 expand_entry({live, Prefix}) -> {live, Prefix, []};
 expand_entry({live, Prefix, Options}) -> {live, Prefix, Options};
 expand_entry(Entry) -> Entry.

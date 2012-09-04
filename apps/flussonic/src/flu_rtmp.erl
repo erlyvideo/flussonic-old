@@ -248,7 +248,9 @@ publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _
   {ok, Recorder} = flu_stream:autostart(StreamName, [{clients_timeout,false},{static,false}|Options]),
   gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,rtmp_session:get(Session, path)}]),
   flu_stream:set_source(Recorder, self()),
-  {ok, Proxy} = flussonic_sup:start_publish_proxy(self(), Recorder),
+  
+  {ok, Proxy} = flussonic_sup:start_stream_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder]}),
+  
   Ref = erlang:monitor(process, Recorder),
   Socket = rtmp_session:get(Session, socket),
   ?D({publish,StreamName,Name,StreamId}),

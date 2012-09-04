@@ -19,4 +19,4 @@ cd "$PUBLIC"
 
 git add .
 git commit -m "$LAST_COMMIT_MESSAGE"
-# git push
+git push
