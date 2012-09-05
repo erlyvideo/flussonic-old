@@ -91,6 +91,9 @@ hr {
 #main .block .content .inner {
   padding: 0 15px 15px;
 }
+#main .block .content .inner ul, #main .block .content .inner ol {
+  margin-left: 40px;
+}
 #main .block .content h2 {
   margin-left: 15px;
   font-size: 22px;
