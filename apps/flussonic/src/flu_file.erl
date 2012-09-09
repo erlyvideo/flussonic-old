@@ -26,7 +26,7 @@
 
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([start_link/2, autostart/2, media_info/1]).
--export([hds_manifest/1, hds_segment/2, bootstrap/1,hls_playlist/1,hls_segment/2, hds_lang_segment/2]).
+-export([hds_manifest/1, hds_segment/2, bootstrap/1,hls_playlist/1,hls_segment/2, hds_lang_segment/3]).
 -export([hls_segment/3]).
 -export([mbr_files/1, mbr_bitrates/1, mbr_hds_manifest/1]).
 -export([get/2]).
@@ -34,6 +34,7 @@
 -include("log.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
+-include_lib("erlmedia/include/mp4.hrl").
 -define(SEGMENT_DURATION,10000).
 
 -record(state, {
@@ -118,10 +119,19 @@ hds_segment(File, Fragment) ->
       {error, Error}
   end.
 
-hds_lang_segment(File, Fragment) -> 
-  case get(File, {hds_lang_segment, Fragment}) of
-    {ok, {Format, Reader, Id, StopDTS}} ->
-      Reply = hds:segment(Format, Reader, Id, [{stop_dts, StopDTS}]),
+hds_lang_segment(File, Lang_, Fragment) -> 
+  % case get(File, reader) of
+    % {ok, {Format, Reader}} ->
+    %   Lang = list_to_integer(binary_to_list(Lang_)),
+    %   StartDTS = Fragment * hds:lang_frag_duration(),
+    %   StopDTS = (Fragment+1) * hds:lang_frag_duration(),
+    %   {Id, _} = Format:seek(Reader, StartDTS, [{language,Lang},{bitrate,false}]),
+    %   Reply = hds:segment(Format, Reader, Id, [{stop_dts, StopDTS},{hardstop,true}]),
+    %   Reply;
+  case get(File, {hds_segment, Fragment}) of
+    {ok, {Format = mp4_reader, Reader, #frame_id{} = Id, StopDTS}} ->
+      Lang = list_to_integer(binary_to_list(Lang_)),
+      Reply = hds:segment(Format, Reader, Id#frame_id{v = undefined, a = Lang}, [{stop_dts, StopDTS},{hardstop,true}]),
       Reply;
     {error, Error} ->
       {error, Error}
@@ -164,7 +174,7 @@ init([Path, Options]) ->
     _ -> flv_reader
   end,
   
-  Timeout = proplists:get_value(timeout, Options, 10000),
+  Timeout = proplists:get_value(timeout, Options, 60000),
   
   State = #state{
     access = Access,
@@ -222,6 +232,9 @@ handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Tim
   true -> 0
   end,  
   {reply, {ok, {Format, Reader, Id, StopDTS}}, State, Timeout};
+
+handle_call(reader, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
+  {reply, {ok, {Format, Reader}}, State, Timeout};
 
 handle_call(hls_playlist, _From, #state{path=Path, keyframes = Keyframes, hls_playlist = undefined, 
   bitrates = Bitrates, media_info = #media_info{duration = Duration}} = State) ->

@@ -572,6 +572,6 @@ digest_auth(Digest, Username, Password, URL, Request) ->
 -include_lib("eunit/include/eunit.hrl").
 
 digest_auth_test() ->
-  ?assertEqual("Authorization: Digest username=\"admin\", realm=\"Avigilon-12045784\", nonce=\"dh9U5wffmjzbGZguCeXukieLz277ckKgelszUk86230000\", uri=\"rtsp://admin:admin@94.80.16.122:554/defaultPrimary0?streamType=u\", response=\"4b77931c824ebdfb6e47984be6e76a22\"\r\n",
+  ?assertEqual("Authorization: Digest username=\"admin\", realm=\"Avigilon-12045784\", nonce=\"dh9U5wffmjzbGZguCeXukieLz277ckKgelszUk86230000\", uri=\"rtsp://admin:admin@94.80.16.122:554/defaultPrimary0?streamType=u\", response=\"99a9e6b080a96e25547b9425ff5d68bf\"\r\n",
   digest_auth([{realm, <<"Avigilon-12045784">>}, {nonce, <<"dh9U5wffmjzbGZguCeXukieLz277ckKgelszUk86230000">>}, {qop, <<"auth">>}], "admin", "admin", "rtsp://admin:admin@94.80.16.122:554/defaultPrimary0?streamType=u", "OPTIONS")).
 

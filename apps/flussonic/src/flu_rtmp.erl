@@ -26,6 +26,7 @@
 -include_lib("rtmp/include/rtmp.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -include("log.hrl").
 
 -export([create_client/1]).

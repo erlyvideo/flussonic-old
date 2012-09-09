@@ -1106,8 +1106,8 @@ build_index(Tracks) when is_tuple(Tracks) ->
 %   ?assertEqual(<<1, 0:24, 2, 0:24, 1, 1:24, 2, 1:24, 2, 2:24, 1, 2:24>>, build_index(test_tracks())).
 
 mp4_desc_tag_with_length_test() ->
-  ?assertEqual({3, <<0,2,0,4,13,64,21,0,0,0,0,0,100,239,0,0,0,0,6,1,2>>, <<>>}, mp4_read_tag(<<3,21,0,2,0,4,13,64,21,0,0,0,0,0,100,239,0,0,0,0,6,1,2>>)),
-  ?assertEqual({4, <<64,21,0,0,0,0,0,100,239,0,0,0,0>>, <<6,1,2>>}, mp4_read_tag(<<4,13,64,21,0,0,0,0,0,100,239,0,0,0,0,6,1,2>>)).
+  ?assertEqual({es_descr, <<0,2,0,4,13,64,21,0,0,0,0,0,100,239,0,0,0,0,6,1,2>>, <<>>}, mp4_read_tag(<<3,21,0,2,0,4,13,64,21,0,0,0,0,0,100,239,0,0,0,0,6,1,2>>)),
+  ?assertEqual({decoder_config, <<64,21,0,0,0,0,0,100,239,0,0,0,0>>, <<6,1,2>>}, mp4_read_tag(<<4,13,64,21,0,0,0,0,0,100,239,0,0,0,0,6,1,2>>)).
   
 
 unpack_chunk_samples_test() ->
@@ -1124,22 +1124,22 @@ esds_tag1_test() ->
 esds_tag2_test() ->
   ?assertEqual(#esds{object_type = aac, stream_type = 21, buffer_size = 428, max_bitrate = 139608, avg_bitrate = 101944, specific = <<18,16>>}, config_from_esds_tag(<<3,25,0,0,0,4,17,64,21,0,1,172,0,2,33,88,0,1,142,56,5,2,18,16,6,1,2>>)).
 
-get_coverart_validMeta_test () ->
-  {ok,Dev} = file:open("test/files/tag_coverart.mp4",[read,raw,binary]),
-  Reader = {file,Dev},
-  Metadata = get_coverart(Reader),
-  ?assertMatch(<<_:6/binary,"JFIF",_/binary>>, Metadata).
-
-get_coverart_sizeMeta_test () ->
-  {ok,Dev} = file:open("test/files/tag_coverart.mp4",[read,raw,binary]),
-  Reader = {file,Dev},
-  Metadata = get_coverart(Reader),
-  ?assertEqual(114121,size(Metadata)).
-
-get_coverart_unvalid_test () ->
-  {ok,Dev} = file:open("test/files/without_coverart.mp4",[read,raw,binary]),
-  Reader = {file,Dev},
-  Metadata = get_coverart(Reader),
-  ?assertEqual(<<>>,Metadata).
+% get_coverart_validMeta_test () ->
+%   {ok,Dev} = file:open("test/files/tag_coverart.mp4",[read,raw,binary]),
+%   Reader = {file,Dev},
+%   Metadata = get_coverart(Reader),
+%   ?assertMatch(<<_:6/binary,"JFIF",_/binary>>, Metadata).
+% 
+% get_coverart_sizeMeta_test () ->
+%   {ok,Dev} = file:open("test/files/tag_coverart.mp4",[read,raw,binary]),
+%   Reader = {file,Dev},
+%   Metadata = get_coverart(Reader),
+%   ?assertEqual(114121,size(Metadata)).
+% 
+% get_coverart_unvalid_test () ->
+%   {ok,Dev} = file:open("test/files/without_coverart.mp4",[read,raw,binary]),
+%   Reader = {file,Dev},
+%   Metadata = get_coverart(Reader),
+%   ?assertEqual(<<>>,Metadata).
 
 

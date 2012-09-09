@@ -32,6 +32,7 @@
 
 %% External API
 -export([start_link/2, start_link/3, publish/3, continue_publish/1, wait_for_end/1]).
+-export([send_frame/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).

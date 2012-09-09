@@ -84,7 +84,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       {{DefaultModule, bootstrap, []}, [], Stream};
     [<<"hds">>, <<"lang-", Lang/binary>>, SegmentPath] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "Seg(\\d+)-Frag(\\d+)", [{capture,all_but_first,list}]),
-      {{DefaultModule, hds_lang_segment, [list_to_integer(Fragment), Lang]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
+      {{DefaultModule, hds_lang_segment, [Lang, list_to_integer(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
     [<<"hds">>, _Bitrate, SegmentPath] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "Seg(\\d+)-Frag(\\d+)", [{capture,all_but_first,list}]),
       {{DefaultModule, hds_segment, [list_to_integer(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};

@@ -14,13 +14,19 @@
 -export([stream_bootstrap/2, file_bootstrap/3, file_bootstrap/2]).
 -export([metadata/1, abst_info/2, asrt_info/1]).
 
+-export([lang_frag_duration/0]).
+
 -record(info, {
   first_dts,
   last_dts,
   shift_dts,
   stop_dts,
+  hardstop,
   duration
 }).
+
+lang_frag_duration() ->
+  10000.
 
 file_bootstrap(Format,Reader,Options) ->
   #media_info{duration = Duration} = Format:media_info(Reader),
@@ -47,14 +53,16 @@ manifest(#media_info{streams = Streams, duration = Duration} = MediaInfo, Option
   Meta64 = metadata(MediaInfo),
 
   
-  AlternativeAudio = case [Stream || #stream_info{content = audio} = Stream <- Streams] of
+  Streams1 = lists:zip(Streams, lists:seq(1, length(Streams))),
+  AlternativeAudio = case [{Stream,Num} || {#stream_info{content = audio} = Stream, Num} <- Streams1] of
     [_Head|AudioStreams] when StreamType == "recorded" ->
-      {ok, BS} = file_bootstrap([{N*10000,N} || N <- lists:seq(0,round(Duration) div 10000)], [{duration,Duration}]),
+      % {ok, BS} = file_bootstrap([{N*lang_frag_duration(),N} || N <- lists:seq(0,round(Duration) div lang_frag_duration())], [{duration,Duration}]),
+      BS = proplists:get_value(bootstrap, Options),
       AlternativeBS = base64:encode(BS),
-      L = fun(undefined) -> "none"; (Lang_) -> Lang_ end,
-      lists:map(fun(#stream_info{language = Lang}) -> [
-      "  <bootstrapInfo profile=\"named\" id=\"bootstrap-",L(Lang),"\">",AlternativeBS,"</bootstrapInfo>\n"
-      "  <media alternate=\"true\" type=\"audio\" lang=\"",L(Lang),"\" bootstrapInfoId=\"bootstrap-",L(Lang),"\" streamId=\"audio",L(Lang),"\" url=\"hds/lang-",L(Lang),"/\" bitrate=\"500\">\n",
+      L = fun(undefined) -> "none"; (Num) when is_number(Num) -> integer_to_list(Num); (Lang_) -> Lang_ end,
+      lists:map(fun({#stream_info{}, Num}) -> [
+      "  <bootstrapInfo profile=\"named\" id=\"bootstrap-",L(Num),"\">",AlternativeBS,"</bootstrapInfo>\n"
+      "  <media alternate=\"true\" type=\"audio\" lang=\"",L(Num),"\" bootstrapInfoId=\"bootstrap-",L(Num),"\" streamId=\"audio",L(Num),"\" url=\"hds/lang-",L(Num),"/\" bitrate=\"500\">\n",
       "    <metadata>",Meta64,"</metadata>\n"
       "  </media>\n"]
       end, AudioStreams);
@@ -162,7 +170,8 @@ segment(Format, Reader, Id, Options) ->
   #media_info{duration = FileDuration} = MediaInfo = Format:media_info(Reader),
   ShiftDts = proplists:get_value(shift_dts, Options, 0),
   StopDts = proplists:get_value(stop_dts, Options, 0),
-  {Frames, #info{first_dts = DTS}} = collect_frames(fun(Key) -> Format:read_frame(Reader, Key) end, Id, ShiftDts, StopDts),
+  Hardstop = proplists:get_value(hardstop, Options, false),
+  {Frames, #info{first_dts = DTS}} = collect_frames(fun(Key) -> Format:read_frame(Reader, Key) end, Id, ShiftDts, StopDts, Hardstop),
   Duration = proplists:get_value(duration, Options, FileDuration),
   segment(Frames, MediaInfo#media_info{duration = Duration}, DTS).
   
@@ -182,20 +191,24 @@ segment(Frames0, #media_info{} = MediaInfo, DTS) ->
   Segment = [<<(iolist_size(Blocks) + 8):32, "mdat">>, Blocks],
   {ok, iolist_to_binary(Segment)}.
   
-collect_frames(ReadFun, FrameId, ShiftDts, StopDts) when is_number(ShiftDts) ->
-  {List, Info} = collect_frames(ReadFun, FrameId, [], #info{shift_dts = ShiftDts, stop_dts = StopDts}),
+collect_frames(ReadFun, FrameId, ShiftDts, StopDts, Hardstop) when is_number(ShiftDts) ->
+  {List, Info} = collect_frames(ReadFun, FrameId, [], #info{shift_dts = ShiftDts, stop_dts = StopDts, hardstop = Hardstop}),
   #info{first_dts = FirstDTS, last_dts = LastDTS} = Info,
-  % ?D({segment,ShiftDts,round(FirstDTS),round(LastDTS)}),
-  {List, Info#info{duration = round(LastDTS - FirstDTS)}};
+  % ?D({segment,FrameId, ShiftDts,round(FirstDTS),round(LastDTS)}),
+  {List, Info#info{duration = round(LastDTS - FirstDTS)}}.
 
-collect_frames(ReadFun, FrameId, List, #info{first_dts = FDTS, shift_dts = ShiftDts, stop_dts = StopDts} = Info) ->
+collect_frames(ReadFun, FrameId, List, #info{first_dts = FDTS, shift_dts = ShiftDts, stop_dts = StopDts, hardstop = Hardstop} = Info) ->
   case ReadFun(FrameId) of
     #video_frame{flavor = keyframe, dts = DTS} when length(List) > 2 andalso DTS >= StopDts ->
+      % ?D({stop,keyframe,round(DTS)}),
+      {lists:reverse(List), Info#info{last_dts = DTS + ShiftDts}};
+    #video_frame{dts = DTS} when Hardstop andalso DTS >= StopDts ->
+      % ?D({stop,hardstop,round(DTS)}),
       {lists:reverse(List), Info#info{last_dts = DTS + ShiftDts}};
     eof ->
       {lists:reverse(List), Info};
     #video_frame{next_id=NextId, dts = DTS, pts = PTS} = Frame ->
-      % ?D({collect, Frame#video_frame.codec, Frame#video_frame.flavor, round(Frame#video_frame.dts)}),
+      % ?D({collect, Frame#video_frame.codec, Frame#video_frame.flavor, round(Frame#video_frame.dts), StopDts, Hardstop}),
       FirstDTS = case FDTS of
         undefined -> DTS + ShiftDts;
         _ -> FDTS

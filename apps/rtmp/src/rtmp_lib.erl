@@ -113,9 +113,24 @@ fail(RTMP, AMF) -> rtmp_socket:invoke(RTMP, AMF#rtmp_funcall{command = '_error',
 %% @spec (RTMP::rtmp_socket()) -> any()
 %% @doc Send connect request to server with some predefined params
 -spec connect(RTMP::rtmp_socket_pid()) -> ok.
-connect(RTMP) ->
+connect(RTMP) when is_pid(RTMP) ->
   {url, URL} = rtmp_socket:getopts(RTMP, url),
-  connect(RTMP, default_connect_options(URL)).
+  connect(RTMP, default_connect_options(URL));
+
+connect(URL) when is_list(URL) orelse is_binary(URL) ->
+  case rtmp_socket:connect(URL) of
+    {ok, RTMP} ->
+      receive
+        {rtmp, RTMP, connected} -> ok
+      after
+        10000 -> erlang:error({timeout,{rtmp,URL}})
+      end,
+      rtmp_socket:setopts(RTMP, [{active,true}]),
+      connect(RTMP);
+    {error, Error} ->
+      erlang:error(Error)
+  end.
+  
 
 %% @spec (RTMP::rtmp_socket(), Options::[{Key::atom(), Value::any()}]) -> any()
 %% @doc Send connect request to server
@@ -133,7 +148,7 @@ connect(RTMP, Options) ->
   % io:format("~p -> ~p~n", [{connect, Options}, ConnectArgs]),
   rtmp_socket:invoke(RTMP, AMF),
   wait_for_reply(RTMP, InvokeId),
-  ok.
+  {ok, RTMP}.
   
 createStream(RTMP) ->
   InvokeId = 1,

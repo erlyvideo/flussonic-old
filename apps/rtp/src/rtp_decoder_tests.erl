@@ -59,13 +59,15 @@ rtp_decode_test() ->
 %%%%%%%%%  Tests %%%%%%%%%
 
 decode_video_h264_test() ->
-  #media_info{streams = [Video]} = sdp:decode(wirecast_sdp()),
+  #media_info{streams = Streams} = sdp:decode(wirecast_sdp()),
+  Video = hd([Stream || #stream_info{content = video} = Stream <- Streams]),
   ?assertMatch({ok, #rtp_channel{}, [
 
   ]}, rtp_decoder:decode(wirecast_video_rtp(), rtp_decoder:init(Video))).
 
 decode_audio_aac_test() ->
-  #media_info{streams = [Audio]} = sdp:decode(wirecast_sdp()),
+  #media_info{streams = Streams} = sdp:decode(wirecast_sdp()),
+  Audio = hd([Stream || #stream_info{content = audio} = Stream <- Streams]),
   Decoder = rtp:rtcp(wirecast_sr1(), rtp_decoder:init(Audio)),
   ?assertMatch({ok, #rtp_channel{}, [
     #video_frame{codec = aac, dts = 1300205206514.12},

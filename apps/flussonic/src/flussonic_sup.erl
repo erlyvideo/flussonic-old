@@ -27,7 +27,7 @@
 
 %% API
 -export([start_link/0]).
--export([start_flu_file/2, start_flu_stream/2, start_stream_helper/3, stop_stream_helper/2]).
+-export([start_flu_file/2, start_flu_stream/2, stop_stream/1, start_stream_helper/3, stop_stream_helper/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -42,16 +42,27 @@
 start_link() ->
   supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_flu_file(Name, Options) ->
+start_flu_file(Name, Options) when is_binary(Name) ->
   supervisor:start_child(flu_file_sup, [Name, Options]).
 
-start_flu_stream(Name, Options) ->
+start_flu_stream(Name, Options) when is_binary(Name) ->
   StreamSup = {Name, {supervisor, start_link, [?MODULE, [flu_stream,Name, Options]]}, temporary, infinity, supervisor, []},
   {ok, Sup} = supervisor:start_child(flu_streams_sup, StreamSup),
   {stream, Pid, _, _} = lists:keyfind(stream, 1, supervisor:which_children(Sup)),
   {ok, Pid}.
 
-start_stream_helper(Stream, Id, {M,F,A}) ->
+
+stop_stream(Stream) when is_binary(Stream) ->
+  case lists:keyfind(Stream, 1, supervisor:which_children(flu_streams_sup)) of
+    {Stream, _Sup, _, _} ->
+      supervisor:terminate_child(flu_streams_sup, Stream),
+      supervisor:delete_child(flu_streams_sup, Stream),
+      ok;
+    false ->
+      {error, no_stream}
+  end.
+
+start_stream_helper(Stream, Id, {M,F,A}) when is_binary(Stream) ->
   case lists:keyfind(Stream, 1, supervisor:which_children(flu_streams_sup)) of
     {Stream, Sup, _, _} ->
       {helper, Helper, _, _} = lists:keyfind(helper, 1, supervisor:which_children(Sup)),

@@ -29,6 +29,7 @@
 -include_lib("erlmedia/include/media_info.hrl").
 -include("flu_stream.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %% API
 -export([start_link/2,hds_segment/2,hls_segment/2,hds_manifest/1,bootstrap/1,hls_playlist/1, hls_key/2]).
@@ -292,6 +293,10 @@ handle_call({subscribe, Pid}, _From, #stream{clients = Clients} = Stream) ->
 handle_call({set_source, Source}, _From, #stream{source = undefined} = Stream) ->
   erlang:monitor(process, Source),
   {reply, ok, Stream#stream{source = Source}};
+
+handle_call({set, #media_info{} = MediaInfo}, _From, #stream{} = Stream) ->
+  {noreply, Stream1} = handle_info(MediaInfo, Stream),
+  {reply, ok, Stream1};
 
 handle_call({get, media_info}, _From, #stream{name = Name, media_info = MediaInfo} = Stream) ->
   Now = os:timestamp(),

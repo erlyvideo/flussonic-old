@@ -3,6 +3,7 @@
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
 -include_lib("rtmp/include/rtmp.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -include("log.hrl").
 
 -export([start_link/2]).
@@ -25,6 +26,8 @@ start_link(RTMP, Stream) ->
 -define(META, 202).
 
 -define(LIMIT, 100).
+
+-define(START_FRAMES, 5).
 
 init([StartSpec, Stream]) ->
   RTMP = if
@@ -151,7 +154,7 @@ handle_frame1({metadata, Meta1, Frame}, #proxy{media_info = undefined, delayed =
 handle_frame1(#video_frame{} = Frame, #proxy{media_info = MI1, delaying = true, delayed = Delayed, stream = Stream} = Proxy) ->
 
   MI2 = video_frame:define_media_info(MI1, Frame),
-  Delaying = not video_frame:has_media_info(MI2),
+  Delaying = not video_frame:has_media_info(MI2) orelse length(Delayed) =< ?START_FRAMES,
   
   Delayed1 = Delayed ++ [Frame],
   case Delaying of
@@ -163,9 +166,17 @@ handle_frame1(#video_frame{} = Frame, #proxy{media_info = MI1, delaying = true, 
       Proxy#proxy{media_info = MI2, delaying = false, delayed = []}
   end;
 
-handle_frame1(#video_frame{} = Frame, #proxy{delaying = false, stream = Stream} = Proxy) ->
-  Stream ! Frame,
-  Proxy.
+handle_frame1(#video_frame{} = Frame, #proxy{delaying = false, media_info = MI1, stream = Stream} = Proxy) ->
+  MI2 = video_frame:define_media_info(MI1, Frame),
+  case MI2 of
+    MI1 ->
+      Stream ! Frame,
+      Proxy;
+    _ ->
+      gen_server:call(Stream, {set, MI2}),
+      Stream ! Frame,
+      Proxy#proxy{media_info = MI2}
+  end.
 
 to_b(Atom) when is_atom(Atom) -> atom_to_binary(Atom, latin1);
 to_b(Bin) when is_binary(Bin) -> Bin.

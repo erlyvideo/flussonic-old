@@ -25,7 +25,7 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 
 
--export([start/0, main/1]).
+-export([start/0, main/1, test/0]).
 
 main(["-h"]) ->
   io:format(
@@ -94,3 +94,29 @@ start_app(App) ->
 load_app(App) ->
   {ok, Mods} = application:get_key(App, modules),
   [code:load_file(Mod) || Mod <- Mods].
+
+
+test() ->
+  eunit:test([
+    aac
+    ,flv_video_frame
+    ,h264
+    ,mp4
+    % mp4_writer,
+    ,packet_codec
+    % sdp, 
+    ,sdp_encoder
+    ,license_client
+    ,mpeg2_crc32
+    ,mpegts_psi
+    ,mpegts_reader
+    ,rtmp
+    ,rtmp_handshake
+    ,rtp
+    ,rtp_decoder
+    % ,rtsp  % Camera snapshots are required
+    ,rtsp_inbound
+    ,rtsp_socket
+    ,flu_rtmp
+  ]).
+

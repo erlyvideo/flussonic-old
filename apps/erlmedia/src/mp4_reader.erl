@@ -133,8 +133,18 @@ media_info(#mp4_media{additional = Additional, duration = Duration, tracks = Tra
   }.
   
 
+track_for_bitrate(#mp4_media{}, false) ->
+  undefined;
+
+track_for_bitrate(#mp4_media{}, Number) when is_number(Number) ->
+  Number;
+  
 track_for_bitrate(#mp4_media{tracks = Tracks}, Bitrate) ->
   find_track(Tracks, #mp4_track.bitrate, Bitrate, video).
+
+
+track_for_language(#mp4_media{}, Language) when is_number(Language) ->
+  Language;
 
 track_for_language(#mp4_media{tracks = Tracks}, Language) ->
   find_track(Tracks, #mp4_track.language, Language, audio).
@@ -154,7 +164,7 @@ find_track(Tracks, Pos, Value, Index, Content, _Default) when element(Pos,elemen
 
 find_track(Tracks, Pos, Value, Index, Content, _Default) when (element(Index,Tracks))#mp4_track.content == Content ->
   % ?D({default,Content,Index}),
-  find_track(Tracks, Pos, Value, Index+1, Content, Index);
+  find_track(Tracks, Pos, Value, Index+1, Content, case _Default of undefined -> Index; _ -> _Default end);
 
 find_track(Tracks, Pos, Value, Index, Content, Default) ->
   find_track(Tracks, Pos, Value, Index + 1, Content, Default).
