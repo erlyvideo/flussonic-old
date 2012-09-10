@@ -261,9 +261,26 @@ code_change(_OldVsn, State, _Extra) ->
 connect_udp(URL) ->
   {_, _, Host, Port, _Path, _Query} = http_uri2:parse(URL),
   {ok, Addr} = inet_parse:address(Host),
-  {ok, Socket} = gen_udp:open(Port, [binary,{active,once},{recbuf,65536},inet,{ip,Addr}]),
-  {ok, Socket}.
-  
+  Common = [binary,{active,once},{recbuf,65536},inet,{ip,Addr}],
+  case is_multicast(Addr) of
+    true ->
+      Multicast = [{reuseaddr,true},{multicast_ttl,4},{multicast_loop,false}],
+      {ok, Socket} = gen_udp:open(Port, Common ++ Multicast),
+      inet:setopts(Socket,[{add_membership,{Addr,{0,0,0,0}}}]),
+      {ok, Socket};
+    false ->
+      {ok, Socket} = gen_udp:open(Port, Common),
+      {ok, Socket}
+  end.
+
+
+is_multicast(Addr) when is_tuple(Addr) ->
+  Leading = element(1, Addr),
+  case tuple_size(Addr) of
+    4 -> (Leading bsr 4) == 14; % IPv4
+    8 -> (Leading bsr 8) == 255 % IPv6
+  end.
+
 
 media_info(#decoder{media_info = MediaInfo}) -> MediaInfo;
 media_info(Decoder) when is_pid(Decoder) -> gen_server:call(Decoder, media_info).
