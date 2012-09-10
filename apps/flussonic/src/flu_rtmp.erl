@@ -33,7 +33,7 @@
 -export([init/1, handle_control/2, handle_rtmp_call/2, handle_info/2]).
 -export([no_function/2, publish/2, play/2]).
 
--export([play_url/1]).
+-export([play_url/2]).
 
 
 -export([clients/0]).
@@ -56,10 +56,10 @@ clients() ->
   end || Pid <- Pids],
   [Client || Client <- Clients, Client =/= undefined].
 
-play_url(URL) ->
-  {ok, Proxy} = flussonic_sup:start_publish_proxy(fun() ->
+play_url(Name, URL) ->
+  {ok, Proxy} = flussonic_sup:start_stream_helper(Name, publish_proxy, {flu_publish_proxy, start_link, [fun() ->
     rtmp_lib:play(URL)
-  end, self()),
+  end, self()]}),
   {ok, Proxy}.
   
 
