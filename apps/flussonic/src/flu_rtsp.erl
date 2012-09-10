@@ -45,33 +45,60 @@ hostpath(URL) ->
 
 
 announce(URL, Headers, MediaInfo) ->
-  {Host, Path} = hostpath(URL),
-  ?D({"ANNOUNCE", Host, Path, Headers}),
-  {Module, Function} = ems:check_app(Host, auth, 3),
-
-  case Module:Function(Host, rtsp, proplists:get_value('Authorization', Headers)) of
-    undefined ->
-      {error, authentication};
-    _Session ->
-      {ok, Media} = media_provider:open(Host, Path, [{type, live}]),
-      ems_media:set_media_info(Media, MediaInfo),
-      ems_media:set_source(Media, self()),
-      {ok, Media}
+  try announce0(URL, Headers, MediaInfo) of
+    Reply -> Reply
+  catch
+    throw:Error -> {error, Error};
+    Class:Error ->
+      error_logger:error_msg("Error in flu_rtsp:announce/3: ~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()]),
+      {error, error}
   end.
 
 
-record(URL, Headers, _Body) ->
-  {Host, Path} = hostpath(URL),
-  ?D({"RECORD", Host, Path, Headers}),
-  {Module, Function} = ems:check_app(Host, auth, 3),
-
-  case Module:Function(Host, rtsp, proplists:get_value('Authorization', Headers)) of
+announce0(URL, Headers, #media_info{streams = Streams} = MediaInfo1) ->
+  Streams1 = [Info#stream_info{track_id = TrackId + 199} || #stream_info{track_id = TrackId} = Info <- Streams],
+  MediaInfo = MediaInfo1#media_info{streams = Streams1},
+  ?D({rtsp_announce, URL}),
+  
+  {ok, Env} = application:get_env(flussonic, config),
+  {Prefix, Options} = case [Entry || {live,_Pref,_Options} = Entry <- Env] of
+    [{live, _Prefix, Opts}|_] -> {_Prefix, Opts};
+    [] -> []
+  end,
+  
+  {rtsp, _Auth, _Host, _Port, "/" ++ StreamName1, _Query} = http_uri2:parse(URL),
+  StreamName = case re:run(StreamName1, "(.*)\\.sdp", [{capture,all_but_first,binary}]) of
+    {match, [S]} -> S;
+    nomatch -> list_to_binary(StreamName1)
+  end,
+  
+  case proplists:get_value(publish_password, Env) of
     undefined ->
-      {error, authentication};
-    _Else ->
-      ems_log:access(Host, "RTSP RECORD ~s ~s", [Host, Path]),
-      ok
-  end.
+      ok;
+    PasswordSpec ->
+      case proplists:get_value('Authorization', Headers) of
+        <<"Basic ", Basic64/binary>> ->
+          Basic = binary_to_list(base64:decode(Basic64)),
+          Basic == PasswordSpec orelse throw(authentication);
+        undefined ->
+          throw(authentication)
+      end
+  end,
+
+
+  {ok, Recorder} = flu_stream:autostart(StreamName, [{clients_timeout,false},{static,false}|Options]),
+  Recorder ! MediaInfo,
+  gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,list_to_binary(Prefix)}]),
+  flu_stream:set_source(Recorder, self()),
+  
+  {ok, Proxy} = flussonic_sup:start_stream_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder]}),
+  erlang:monitor(process, Recorder),
+  {ok, Proxy}.
+  
+
+record(URL, _Headers, _Body) ->
+  ?D({record, URL}),
+  ok.
 
 describe(URL, Headers, _Body) ->
   {Host, Path} = hostpath(URL),

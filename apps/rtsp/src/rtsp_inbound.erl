@@ -41,6 +41,7 @@
 -include("rtsp.hrl").
 
 -export([handle_call/3, sync_rtp/2, handle_announce_request/4, handle_receive_setup/4]).
+-export([handle_pause/4]).
 -export([dump_io/2]).
 
 
@@ -147,7 +148,7 @@ handle_announce_request(#rtsp_socket{callback = Callback} = Socket, URL, Headers
     {ok, Media} ->
       ?D({"Announced to", Media}),
       erlang:monitor(process, Media),
-      rtsp_socket:reply(Socket1#rtsp_socket{session = rtsp_socket:generate_session(), rtp = rtp:init(remote,MediaInfo),
+      rtsp_socket:reply(Socket1#rtsp_socket{session = rtsp_socket:generate_session(), rtp = rtp:init(local,MediaInfo),
                         media = Media, direction = in}, "200 OK", [{'Cseq', seq(Headers)}]);
     {error, authentication} ->
       rtsp_socket:reply(Socket1, "401 Unauthorized", [{"WWW-Authenticate", "Basic realm=\"Erlyvideo Streaming Server\""}, {'Cseq', seq(Headers)}])
@@ -161,6 +162,9 @@ handle_receive_setup(#rtsp_socket{socket = Sock, rtp = RTP} = Socket, URL, Heade
 
   rtsp_socket:reply(Socket#rtsp_socket{rtp = RTP1}, "200 OK", [{'Cseq', seq(Headers)}, {'Transport', proplists:get_value('Transport', Headers)}]).
 
+
+handle_pause(#rtsp_socket{} = Socket, _URL, Headers, _Body) ->
+  rtsp_socket:reply(Socket, "200 OK", [{'Cseq', seq(Headers)}]).
 
 
 seq(Headers) ->

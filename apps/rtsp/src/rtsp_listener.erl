@@ -36,11 +36,11 @@
 %% @end
 %%----------------------------------------------------------------------
 start_link(Port, Name, Callback) ->
-  gen_listener:start_link(Name, Port, ?MODULE, [Callback]).
+  rtsp_gen_listener:start_link(Name, Port, ?MODULE, [Callback]).
 
 
 accept(CliSocket, [Callback]) ->
-  {ok, Pid} = rtsp_sup:start_rtsp_socket(Callback),
+  {ok, Pid} = rtsp_sup:start_rtsp_socket([{callback,Callback}]),
   rtsp_socket:set_socket(Pid, CliSocket),
   ok.
 

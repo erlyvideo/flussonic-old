@@ -117,7 +117,7 @@ init([Options]) ->
     undefined -> ok;
     _ -> erlang:monitor(process, Consumer)
   end,
-  {ok, #rtsp_socket{callback = Callback, media = Consumer, timeout = ?DEFAULT_TIMEOUT}}.
+  {ok, #rtsp_socket{callback = Callback, options = Options, media = Consumer, auth = fun empty_auth/2, timeout = ?DEFAULT_TIMEOUT}}.
 
 
 %%-------------------------------------------------------------------------
@@ -347,7 +347,10 @@ handle_sdp(#rtsp_socket{media = Consumer, content_base = OldContentBase, url = U
       "rtsp://" ++ Host ++ "/" ++ BasePath
   end,
   Socket1 = save_media_info(Socket#rtsp_socket{rtp = RTP, content_base = ContentBase}, MediaInfo),
-  Consumer ! Socket1#rtsp_socket.media_info,
+  case Consumer of
+    undefined -> ok;
+    _ -> Consumer ! Socket1#rtsp_socket.media_info
+  end,
   Socket1.
   
 
@@ -436,7 +439,10 @@ handle_request({request, 'OPTIONS', _URL, Headers, _Body}, State) ->
 handle_request({request, 'ANNOUNCE', URL, Headers, Body}, Socket) ->
   rtsp_inbound:handle_announce_request(Socket, URL, Headers, Body);
 
-handle_request({request, 'PAUSE', _URL, Headers, _Body}, #rtsp_socket{} = State) ->
+handle_request({request, 'PAUSE', _URL, Headers, _Body}, #rtsp_socket{direction = in} = State) ->
+  rtsp_inbound:handle_pause(State, _URL, Headers, _Body);
+
+handle_request({request, 'PAUSE', _URL, Headers, _Body}, #rtsp_socket{direction = out} = State) ->
   rtsp_outbound:handle_pause_request(State, _URL, Headers, _Body);
 %
 % handle_request({request, 'PAUSE', _URL, Headers, _Body}, #rtsp_socket{rtp = Consumer} = State) ->
@@ -548,6 +554,10 @@ hex(N) when N < 10 ->
   $0+N;
 hex(N) when N >= 10, N < 16 ->
   $a + (N-10).
+
+empty_auth(_Method, _URL) ->
+  "".
+
 
 digest_auth(Digest, Username, Password, URL, Request) ->
   Realm = proplists:get_value(realm, Digest),
