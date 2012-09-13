@@ -1,8 +1,6 @@
 -record(frame_id, {
   id,
-  a,
-  v,
-  t
+  tracks = []
 }).
 
 -record(mp4_media, {

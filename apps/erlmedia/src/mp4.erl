@@ -60,8 +60,8 @@
 }).
 
 
--export([mp4_desc_length/1, open/2, read_frame/2, frame_count/1, seek/4, seek/5, mp4_read_tag/1]).
--export([keyframes/3, data_borders/1, parse_esds/1]).
+-export([mp4_desc_length/1, open/2, read_frame/2, frame_count/1, seek/3, seek/4, mp4_read_tag/1]).
+-export([keyframes/2, data_borders/1, parse_esds/1]).
 -export([dump/1]).
 
 -define(FRAMESIZE, 32).
@@ -333,65 +333,62 @@ read_atom_header({Module, Device}, Pos) ->
       {error, Error}
   end.
 
-keyframes(#mp4_media{} = Media, Audio, Video) ->
-  keyframes(Media, Audio, Video, 0, -1, []).
+keyframes(#mp4_media{} = Media, TrackIds) ->
+  keyframes(Media, TrackIds, 0, -1, []).
 
-keyframes(Media, Audio, Video, Id, PrevDTS, Keyframes) ->
-  case read_frame(Media, #frame_id{id = Id, a = Audio, v = Video}) of
+keyframes(Media, TrackIds, Id, PrevDTS, Keyframes) ->
+  case read_frame(Media, #frame_id{id = Id, tracks = TrackIds}) of
     #mp4_frame{keyframe = true, dts = DTS} when DTS > PrevDTS ->
-      keyframes(Media, Audio, Video, Id + 1, DTS, [{DTS,Id}|Keyframes]);
+      keyframes(Media, TrackIds, Id + 1, DTS, [{DTS,Id}|Keyframes]);
     #mp4_frame{} ->
-      keyframes(Media, Audio, Video, Id + 1, PrevDTS, Keyframes);
+      keyframes(Media, TrackIds, Id + 1, PrevDTS, Keyframes);
     eof ->
       lists:reverse(Keyframes)
   end.
 
 
-seek(#mp4_media{} = Media, Audio, Video, Timestamp) ->
-  seek(Media, Audio, Video, Timestamp, keyframe).
+seek(#mp4_media{} = Media, Tracks, Timestamp) ->
+  seek(Media, Tracks, Timestamp, keyframe).
 
-seek(#mp4_media{} = Media, Audio, undefined, Timestamp, keyframe) ->
-  seek(Media, Audio, undefined, Timestamp, frame);
-
-seek(#mp4_media{} = Media, Audio, Video, Timestamp, SeekMode) ->
-  A = case SeekMode of
-    keyframe -> undefined;
-    _ -> Audio
+seek(#mp4_media{tracks = Tracks} = Media, TrackIds1, Timestamp, SeekMode) ->
+  TrackIds2 = case SeekMode of
+    keyframe ->
+      [Id || #mp4_track{track_id = Id, content = video} <- [element(I, Tracks) || I <- TrackIds1]];
+    _ ->
+      TrackIds1
   end,
-  seek(Media, A, Video, Timestamp, 0, undefined, SeekMode).
+  seek(Media, TrackIds2, Timestamp, 0, undefined, SeekMode).
 
-seek(Media, Audio, Video, Timestamp, Id, Found, SeekMode) ->
-  case read_frame(Media, #frame_id{id = Id, a = Audio, v = Video}) of
+seek(Media, Tracks, Timestamp, Id, Found, SeekMode) ->
+  case read_frame(Media, #frame_id{id = Id, tracks = Tracks}) of
     #mp4_frame{dts = DTS} when DTS >= Timestamp andalso SeekMode == frame -> {Id,DTS};
     #mp4_frame{keyframe = true, dts = DTS} when DTS > Timestamp andalso SeekMode == keyframe -> Found;
-    #mp4_frame{keyframe = true, dts = DTS} when SeekMode == keyframe -> seek(Media, Audio, Video, Timestamp, Id+1, {Id,DTS}, SeekMode);
-    #mp4_frame{dts = DTS} when SeekMode == frame -> seek(Media, Audio, Video, Timestamp, Id+1, {Id, DTS}, SeekMode);
-    #mp4_frame{dts = _DTS} -> seek(Media, Audio, Video, Timestamp, Id+1, Found, SeekMode);
+    #mp4_frame{keyframe = true, dts = DTS} when SeekMode == keyframe -> seek(Media, Tracks, Timestamp, Id+1, {Id,DTS}, SeekMode);
+    #mp4_frame{dts = DTS} when SeekMode == frame -> seek(Media, Tracks, Timestamp, Id+1, {Id, DTS}, SeekMode);
+    #mp4_frame{dts = _DTS} -> seek(Media, Tracks, Timestamp, Id+1, Found, SeekMode);
     eof -> undefined
   end.
 
-read_frame(#mp4_media{tracks = Tracks, index = Index} = Media, #frame_id{id = Id,a = Audio,v = Video, t = Text} = FrameId) ->
+read_frame(#mp4_media{tracks = Tracks, index = Index} = Media, #frame_id{id = Id, tracks = TrackIds} = FrameId) ->
   IndexOffset = Id*4,
-  
+
   case Index of
-    <<_:IndexOffset/binary, Audio, _:1, AudioId:23, _/binary>> -> 
-      (unpack_frame(element(Audio,Tracks), AudioId))#mp4_frame{next_id = FrameId#frame_id{id = Id+1}, content = audio, track_id = Audio};
-    <<_:IndexOffset/binary, Text, _:1, TextId:23, _/binary>> -> 
-       %?D({read_text,Text,TextId}),
-      (unpack_frame(element(Text,Tracks), TextId))#mp4_frame{next_id = FrameId#frame_id{id = Id+1}, content = text, track_id = Text};
-    <<_:IndexOffset/binary, Video, _:1, VideoId:23, _/binary>> -> 
-      (unpack_frame(element(Video,Tracks), VideoId))#mp4_frame{next_id = FrameId#frame_id{id = Id+1}, content = video, track_id = Video};
+    <<_:IndexOffset/binary, TrackId, _:1, ElementId:23, _/binary>> ->
+      case lists:member(TrackId, TrackIds) of
+        true ->
+          (unpack_frame(element(TrackId,Tracks), ElementId))#mp4_frame{next_id = FrameId#frame_id{id = Id+1}, track_id = TrackId};
+        false ->
+          read_frame(Media, FrameId#frame_id{id = Id + 1})
+      end;
     <<_:IndexOffset/binary>> -> 
-      eof;
-    <<_:IndexOffset/binary, _OtherTrackId, _K:1, _FrameIndex:23, _/binary>> ->
-      read_frame(Media, FrameId#frame_id{id = Id+1})
+      eof
   end.
-  
+
   
 unpack_frame(#mp4_track{frames = Frames, content = text, codec = _Codec}, Id) when Id < length(Frames) ->
   lists:nth(Id+1, Frames);
   
-unpack_frame(#mp4_track{frames = Frames, codec = Codec}, Id) when Id*?FRAMESIZE < size(Frames) ->
+unpack_frame(#mp4_track{frames = Frames, content = Content, codec = Codec}, Id) when Id*?FRAMESIZE < size(Frames) ->
   FrameOffset = Id*?FRAMESIZE,
 
   <<_:FrameOffset/binary, FKeyframe:1, Size:63, Offset:64, DTS:64/float, PTS:64/float, _/binary>> = Frames,
@@ -399,7 +396,7 @@ unpack_frame(#mp4_track{frames = Frames, codec = Codec}, Id) when Id*?FRAMESIZE 
     1 -> true;
     0 -> false
   end,
-  #mp4_frame{id = Id, dts = DTS, pts = PTS, size = Size, offset = Offset, keyframe = Keyframe, codec = Codec}.
+  #mp4_frame{id = Id, dts = DTS, pts = PTS, size = Size, offset = Offset, keyframe = Keyframe, codec = Codec, content = Content}.
 
 
 frame_count(undefined) -> 0;

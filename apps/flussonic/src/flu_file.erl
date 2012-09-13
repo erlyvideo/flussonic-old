@@ -131,7 +131,7 @@ hds_lang_segment(File, Lang_, Fragment) ->
   case get(File, {hds_segment, Fragment}) of
     {ok, {Format = mp4_reader, Reader, #frame_id{} = Id, StopDTS}} ->
       Lang = list_to_integer(binary_to_list(Lang_)),
-      Reply = hds:segment(Format, Reader, Id#frame_id{v = undefined, a = Lang}, [{stop_dts, StopDTS},{hardstop,true}]),
+      Reply = hds:segment(Format, Reader, Id#frame_id{tracks = [Lang]}, [{stop_dts, StopDTS},{hardstop,true}]),
       Reply;
     {error, Error} ->
       {error, Error}
@@ -146,7 +146,11 @@ hls_segment(Name, Root, Segment) ->
 
 hls_segment(File,Segment) ->
   case get(File, {hls_segment,Segment}) of
-    {ok, {Format, Reader, Id, StopDTS}} ->
+    {ok, {Format, Reader, Id1, StopDTS}} ->
+      Id = case Id1 of
+        #frame_id{} -> Id1#frame_id{tracks = mp4_reader:tracks_for(Reader, [{language,all}])};
+        _ -> Id1
+      end,
       {ok, hls:segment(Format,Reader,Id,StopDTS)};
     {error, Error} ->
       {error, Error}
