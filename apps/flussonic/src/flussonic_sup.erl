@@ -154,6 +154,13 @@ init([]) ->
       worker,
       [flu_event]
   },
+  {   flu_health_sup,
+      {flu_health, start_link, []},
+      permanent,
+      1000,
+      worker,
+      [flu_health]
+  },
   {   flu_streams_sup,
       {supervisor,start_link,[{local, flu_streams_sup}, ?MODULE, [flu_streams]]},
       permanent,                               % Restart  = permanent | transient | temporary
