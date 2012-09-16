@@ -125,13 +125,10 @@ store_gop(#video_frame{} = F, #stream{gop = undefined} = Stream) ->
   {F, Stream}.
 
 
-save_config(#video_frame{flavor = config, content = Content} = F, Stream) ->
-  case Content of
-    audio -> put(audio_config, F);
-    video -> put(video_config, F)
-  end,
-  put(configs, [C || C <- [get(audio_config), get(video_config)], C =/= undefined]),
-  {F, Stream};
+save_config(#video_frame{flavor = config} = Frame, #stream{media_info = MI1} = Stream) ->
+  MI2 = video_frame:define_media_info(MI1, Frame),
+  {noreply, Stream1} = flu_stream:handle_info(MI2, Stream),
+  {Frame, Stream1};
 
 save_config(#video_frame{} = F, Stream) ->
   {F, Stream}.

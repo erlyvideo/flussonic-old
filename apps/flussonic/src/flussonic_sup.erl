@@ -147,6 +147,13 @@ init([]) ->
       worker,
       [flu_session]
   },
+  {   flu_stream_data_sup,
+      {flu_stream_data, start_link, []},
+      permanent,
+      1000,
+      worker,
+      [flu_stream_data]
+  },
   {   flu_event_sup,
       {flu_event, start_link, []},
       permanent,

@@ -108,9 +108,14 @@ get(Stream, Key, Timeout) when is_list(Stream) ->
   get(list_to_binary(Stream), Key, Timeout);
 
 get(Stream, Key, Timeout) ->
-  case gen_tracker:find(flu_streams, Stream) of
-    {ok, Pid} -> get(Pid, Key, Timeout);
-    undefined -> undefined
+  case flu_stream_data:get(Stream, Key) of
+    undefined ->
+      case gen_tracker:find(flu_streams, Stream) of
+        {ok, Pid} -> get(Pid, Key, Timeout);
+        undefined -> undefined
+      end;
+    Value ->
+      Value
   end.
 
 
@@ -501,12 +506,7 @@ detect_proto(URL) ->
 %% @end
 %%--------------------------------------------------------------------
 terminate(_Reason, _State) ->
-  {dictionary, Dict} = process_info(self(), dictionary),
-  [put(Key, small(Value)) || {Key, Value} <- Dict],
   ok.
-
-small(Value) when is_binary(Value) -> {binary, size(Value)};
-small(Else) -> Else.
 
   
 
