@@ -60,6 +60,9 @@ start() ->
   start([]).
   
 start(_Options) ->
+  application:load(lager),
+  application:set_env(lager,handlers,[{lager_console_backend,info}]),
+  lager:start(),
   license_client:load(),
 	application:start(sasl),
 	start_app(mimetypes),

@@ -89,7 +89,7 @@ autostart(Name, Options) ->
   gen_tracker:find_or_open(flu_files, Name, fun() -> flu_file:start_link(Name, Options) end).
 
 start_link(Name, Options) ->
-  gen_server_ems:start_link(?MODULE, [Name, Options], []).
+  gen_server:start_link(?MODULE, [Name, Options], []).
 
 media_info(File) -> get(File, media_info).
 

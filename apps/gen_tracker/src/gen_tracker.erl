@@ -67,7 +67,7 @@ find_or_open(Zone, Name, SpawnFun) ->
   end.
 
 start_link(Zone) ->
-  gen_server_ems:start_link({local, Zone}, ?MODULE, [Zone], []).
+  gen_server:start_link({local, Zone}, ?MODULE, [Zone], []).
 
 
 attr_table(Zone) ->

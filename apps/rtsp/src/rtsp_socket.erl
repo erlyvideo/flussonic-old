@@ -102,7 +102,7 @@ teardown(RTSP) ->
   gen_server:call(RTSP, teardown).
 
 start_link(Options) ->
-  gen_server_ems:start_link(?MODULE, [Options], []).
+  gen_server:start_link(?MODULE, [Options], []).
 
 
 set_socket(Pid, Socket) when is_pid(Pid), is_port(Socket) ->

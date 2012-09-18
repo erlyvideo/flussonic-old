@@ -699,7 +699,7 @@ print_rtmp_message(InOut, #rtmp_message{channel_id = Channel, ts_type = TSType, 
   ok;
 
 print_rtmp_message(InOut, Msg) ->
-  io:format("~p ~s~n", [InOut, io_lib_pretty_limited:print(Msg, 20)]),
+  io:format("~p ~p~n", [InOut, Msg]),
   ok.
   
 

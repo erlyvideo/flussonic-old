@@ -195,7 +195,7 @@ set_last_dts(DTS, Now) ->
 %%% API
 %%%===================================================================
 start_link(Name,Options) ->
-  gen_server_ems:start_link(?MODULE, [Name,Options], []).
+  gen_server:start_link(?MODULE, [Name,Options], []).
 
 %%%===================================================================
 %%% gen_server callbacks

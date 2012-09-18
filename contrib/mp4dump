@@ -44,7 +44,12 @@ dump_frame(#video_frame{content = Content, stream_id = StreamId, codec = Codec, 
     _ when Content == audio -> io_lib:format("~240p", [Sound]);
     _ when Content == metadata -> io_lib:format("~240p", [Body])
   end,
-    
-  io:format("~8.s ~8.B ~5.s ~9.s ~15.B ~5.B ~s~n", [Content, StreamId, Codec, Flavor, round(DTS), round(DTS - get(dts)), Info]),
+  Delta = round(DTS - get(dts)),
+  % if Delta > 40 ->  
+  io:format("~8.s ~8.B ~5.s ~9.s ~15.B ~5.B ~s~n", [Content, StreamId, Codec, Flavor, round(DTS), round(DTS - get(dts)), Info])
+  % ;
+  % true -> ok
+  % end
+  ,
   put(dts,DTS).
 

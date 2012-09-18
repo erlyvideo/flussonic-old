@@ -71,7 +71,7 @@ rebuild() ->
   ok.
 
 reconf() ->
-  error_logger:info_msg("Reloading config~n"),
+  error_logger:info_msg("Reloading config"),
   flussonic_app:unload_config(),
   flussonic_app:load_config().
 

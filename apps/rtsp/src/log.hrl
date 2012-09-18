@@ -22,5 +22,5 @@
 %%%
 %%%---------------------------------------------------------------------------------------
 
--define(D(X), (case application:get_env(rtsp, logging_function) of undefined -> io:format("~p:~p ~240p~n", [?MODULE, ?LINE, X]); _ -> (element(2,application:get_env(rtsp,logging_function)))(?MODULE, ?LINE, X) end)).
--define(DBG(F,A), ems_log:debug(3, ertsp, "(~w:~b): " ++ F ++ "~n", [?MODULE, ?LINE] ++ A)).
+-define(D(X), lager:info("~p:~p ~240p~n", [?MODULE, ?LINE, X])).
+-define(DBG(F,A), lager:info("(~w:~b): " ++ F ++ "~n", [?MODULE, ?LINE] ++ A)).

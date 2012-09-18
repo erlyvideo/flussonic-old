@@ -59,7 +59,7 @@
 % 
 % 
 % start_link(Options) ->
-%   gen_server_ems:start_link(?MODULE, [Options], []).
+%   gen_server:start_link(?MODULE, [Options], []).
 % 
 % 
 % init([Options]) ->
