@@ -38,6 +38,7 @@
 
 -record(decoder, {
   buffer = <<>>,
+  desynced_adts = 0,
   pids = [],
   consumer,
   pmt_pid,
@@ -198,24 +199,31 @@ handle_info({'DOWN', _Ref, process, _Pid, Reason}, #decoder{} = State) ->
   {stop, Reason, State};
 
 
-handle_info({udp, Socket, _IP, _InPortNo, Bin}, #decoder{consumer = Consumer, delay_for_config = Delay1} = Decoder) ->
+handle_info({udp, Socket, _IP, _InPortNo, Bin}, #decoder{consumer = Consumer, delay_for_config = Delay1, desynced_adts = Desynced} = Decoder) ->
   inet:setopts(Socket, [{active,once}]),
-  Decoder1 = try decode(Bin, Decoder) of
+  try decode(Bin, Decoder) of
     {ok, #decoder{delay_for_config = Delay2, media_info = MediaInfo} = Decoder_, Frames} ->
       if Delay1 andalso not Delay2 ->
         Consumer ! MediaInfo;
       true -> ok end,  
       [Consumer ! Frame || Frame <- Frames],
-      Decoder_
+      {noreply, Decoder_}
   catch
+    error:{desync_adts,_Bin} when Desynced > 10 ->
+      {stop, too_much_desync, Decoder#decoder{desynced_adts = Desynced + 1}};
+    error:{desync_adts,_Bin} when Desynced > 0 ->
+      {noreply, Decoder#decoder{desynced_adts = Desynced + 1}};
     error:{desync_adts,_Bin} ->
-      ?D(desync_adts),
-      Decoder;
+      ?D({desync_adts, proplists:get_value(url, Decoder#decoder.options)}),
+      erlang:send_after(5000, self(), flush_desync_count),
+      {noreply, Decoder#decoder{desynced_adts = 1}};
     Class:Error ->
       ?D({udp_mpegts,Class,Error, erlang:get_stacktrace()}),
-      Decoder
-  end,
-  {noreply, Decoder1};
+      {noreply, Decoder}
+  end;
+
+handle_info(flush_desync_count, #decoder{} = Decoder) ->
+  {noreply, Decoder#decoder{desynced_adts = 0}};
   
 handle_info({tcp, Socket, Bin}, #decoder{consumer = Consumer} = Decoder) ->
   inet:setopts(Socket, [{active,once}]),
