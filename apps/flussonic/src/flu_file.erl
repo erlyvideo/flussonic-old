@@ -86,7 +86,7 @@ mbr_hds_manifest(Path) ->
   
 
 autostart(Name, Options) ->
-  gen_tracker:find_or_open(flu_files, Name, fun() -> flu_file:start_link(Name, Options) end).
+  gen_tracker:find_or_open(flu_files, Name, fun() -> flussonic_sup:start_flu_file(Name, Options) end).
 
 start_link(Name, Options) ->
   gen_server:start_link(?MODULE, [Name, Options], []).
@@ -168,11 +168,11 @@ init([Path, Options]) ->
     _ when Root =/= undefined -> binary_to_list(iolist_to_binary([Root, "/", Path]));
     _ -> Path
   end,
-  ?D({open_file,Path,Options,URL}),
   Access = case re:run(URL, "http://") of
-    nomatch -> file;
+    nomatch -> flu:default_file_access();
     _ -> http_file
   end,
+  ?D({open_file,Path,Options,URL,Access}),
   Format = case re:run(URL, "\\.flv$") of
     nomatch -> mp4_reader;
     _ -> flv_reader
@@ -263,6 +263,7 @@ terminate(_,_) ->
 open(#state{disk_path = Path, access = Access, format = Format} = State) ->
   Options = case Access of
     file -> [read,binary];
+    mmap -> [];
     http_file -> []
   end,
   case Access:open(Path, Options) of

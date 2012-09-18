@@ -11,6 +11,7 @@
 -export([extract_config_if_required/0]).
 -export([to_hex/1]).
 -export([version/0]).
+-export([default_file_access/0]).
 
 
 version() ->
@@ -90,6 +91,14 @@ reload_mod(Module) when is_atom(Module) ->
 	code:purge(Module),
 	code:load_file(Module),
 	Module.
+
+
+default_file_access() ->
+  {ok,Config} = application:get_env(flussonic,config),
+  case proplists:get_value(file_access, Config) of
+    file -> file;
+    _ -> mmap
+  end.
 
 
 now() ->

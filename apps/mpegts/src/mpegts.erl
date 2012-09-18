@@ -92,6 +92,8 @@ read(URL, Options) ->
 
 -define(TS_HEADER(Start, Pid, Adaptation, HasPayload, Counter), 16#47, 0:1, Start:1, 0:1, Pid:13, 0:2, Adaptation:1, HasPayload:1, Counter:4).
 
+-define(MAXPID, 4096).
+
 init() -> init([]).
 
 init(Options) -> 
@@ -99,7 +101,8 @@ init(Options) ->
     Num when is_number(Num) andalso Num > 0 -> Num;
     _ -> false
   end,
-  #streamer{interleave = Interleave, pad_counters = proplists:get_value(pad_counters, Options, true)}.
+  Counters = hipe_bifs:bytearray(?MAXPID,0),
+  #streamer{interleave = Interleave, pad_counters = proplists:get_value(pad_counters, Options, true), counters = Counters}.
 
 -spec encode(#streamer{}, video_frame()) -> {#streamer{}, iolist()}.
 
@@ -134,14 +137,14 @@ encode(#streamer{sent_pat = SentPat} = Streamer, #video_frame{dts = DTS, flavor 
   % StreamDelta = DTS - StartDts,
   % ?D({round(DTS), round(StreamDelta),round(RealDelta), round(RealDelta - StreamDelta)}),
   {Streamer2, TS} = encode_frame(Streamer1, Frame),
-  case iolist_size(TS) of
-    0 when not (SentPat andalso Flavor =/= keyframe) ->
+  case empty_iolist(TS) of
+    true when not (SentPat andalso Flavor =/= keyframe) ->
       % ?D(rollback_pat),
       {Streamer3, _} = encode_frame(Streamer, Frame),
       {Streamer3, <<>>};
-    0 ->
+    true ->
       {Streamer2, <<>>};
-    _ ->
+    false ->
       {Streamer2#streamer{last_dts = DTS}, [Tables, TS]}
   end;
 
@@ -150,6 +153,12 @@ encode(Streamer, #video_frame{} = _Frame) ->
 
 rewrite_track_ids(MediaInfo) -> MediaInfo.
 
+
+empty_iolist(<<>>) -> true;
+empty_iolist([]) -> true;
+empty_iolist(Bin) when size(Bin) > 0 -> false;
+empty_iolist(Num) when is_number(Num) -> false;
+empty_iolist([Head|Tail]) -> empty_iolist(Head) andalso empty_iolist(Tail).
 
 save_media_info(#streamer{} = Streamer, #media_info{streams = Streams} = MediaInfo) ->
   PcrPid = erlang:hd([TrackId || #stream_info{track_id = TrackId} <- Streams]),
@@ -416,36 +425,39 @@ send_pmt(#streamer{media_info = #media_info{streams = Streams}, pcr_pid = PcrPid
   mux(#ts_psi{pid = ?PMT_PID, body = PMT}, Streamer).
 
 
-counter(#streamer{counters = Counters} = _Streamer, Pid) ->
-  proplists:get_value(Pid, Counters, 0).
+counter(#streamer{counters = Counters} = _Streamer, Pid) when Pid >= 0 andalso Pid < ?MAXPID ->
+  hipe_bifs:bytearray_sub(Counters, Pid).
+  % proplists:get_value(Pid, Counters, 0).
 
 increment_counter(#streamer{} = Streamer, Pid) ->
   increment_counter(Streamer, Pid, 1).
 
-increment_counter(#streamer{counters = Counters} = Streamer, Pid, N) ->
+increment_counter(#streamer{counters = Counters} = Streamer, Pid, N) when Pid >= 0 andalso Pid < ?MAXPID ->
   Counter = counter(Streamer, Pid),
-  {Counter, Streamer#streamer{counters = lists:keystore(Pid, 1, Counters, {Pid, (Counter + N) rem 16})}}.
+  hipe_bifs:bytearray_update(Counters, Pid, (Counter + N) rem 16),
+  % {Counter, Streamer#streamer{counters = lists:keystore(Pid, 1, Counters, {Pid, (Counter + N) rem 16})}}.
+  {Counter, Streamer}.
 
 ts_header(Start, Pid, Adaptation, HasPayload, Counter) ->
   Scrambling = Priority = TEI = 0,
   <<16#47, TEI:1, Start:1, Priority:1, Pid:13, Scrambling:2, Adaptation:1, HasPayload:1, Counter:4>>.
 
-mux(Input, Streamer) ->
-  {_Streamer1, _Out1} = mux0(Input, Streamer).
-  % Output = iolist_to_binary(Out1),
-  % Packets1 = [Bin || <<Bin:188/binary>> <= Output],
-  % Packets2 = [Bin || <<16#47, _/binary>> = Bin <- Packets1],
-  % iolist_to_binary(Packets2) == Output orelse ?D({invalid_mux, iolist_size(Input#pes.body), Input}),
-  % {Streamer1, Packets2}.
+% mux(Input, Streamer) ->
+%   {_Streamer1, _Out1} = mux0(Input, Streamer).
+%   % Output = iolist_to_binary(Out1),
+%   % Packets1 = [Bin || <<Bin:188/binary>> <= Output],
+%   % Packets2 = [Bin || <<16#47, _/binary>> = Bin <- Packets1],
+%   % iolist_to_binary(Packets2) == Output orelse ?D({invalid_mux, iolist_size(Input#pes.body), Input}),
+%   % {Streamer1, Packets2}.
 
-mux0(#ts_psi{pid = Pid, body = Data}, Streamer) ->
+mux(#ts_psi{pid = Pid, body = Data}, Streamer) ->
   {Counter, Streamer1} = increment_counter(Streamer, Pid),
   {Streamer1, [ts_header(1, Pid, 0, 1, Counter), padding(Data, 184)]};
 
-mux0(#pes{body = undefined}, Streamer) ->
+mux(#pes{body = undefined}, Streamer) ->
   {Streamer, <<>>};
 
-mux0(#pes{pid = Pid, body = Body, last_frame = LastFrame} = PES, #streamer{pcr_pid = PcrPid} = Streamer) ->
+mux(#pes{pid = Pid, body = Body, last_frame = LastFrame} = PES, #streamer{pcr_pid = PcrPid} = Streamer) ->
   {Counter, Streamer1} = increment_counter(Streamer, Pid),
   
   % Adaptation field may be just zero padder, for this we have zero_adaptation
@@ -466,7 +478,7 @@ mux0(#pes{pid = Pid, body = Body, last_frame = LastFrame} = PES, #streamer{pcr_p
     % This code can create padding segments in the end of file. It is temporarily disabled
     <<FirstData:MinDataLength/binary, Rest:BodyLen/binary, End:16/binary>> when LastFrame == true ->
       Acc = [ts_header(1, Pid, 1, 1, Counter), adaptation_field(PES#pes{body = FirstData, is_pcr = IsPCR}), FirstData],
-      Parts = mux_parts(Rest, [], (Counter + 1) rem 16, Pid, LastFrame),
+      Parts = mux_parts(Rest, (Counter + 1) rem 16, Pid, LastFrame),
       {NewCounter1, Streamer2} = increment_counter(Streamer1, Pid, length(Parts)),
       NewCounter2 = (NewCounter1 + length(Parts)) rem 16,
       % ?D({counter, Pid, Counter, length(Parts), iolist_size(Parts) div 188, NewCounter}),
@@ -475,7 +487,7 @@ mux0(#pes{pid = Pid, body = Body, last_frame = LastFrame} = PES, #streamer{pcr_p
       {Streamer2, [Acc, Parts, Padding]};
     <<FirstData:MinDataLength/binary, Rest/binary>> -> % when LastFrame == false 
       Acc = [ts_header(1, Pid, 1, 1, Counter), adaptation_field(PES#pes{body = FirstData, is_pcr = IsPCR}), FirstData],
-      Parts = mux_parts(Rest, [], (Counter + 1) rem 16, Pid, LastFrame),
+      Parts = mux_parts(Rest, (Counter + 1) rem 16, Pid, LastFrame),
       {_, Streamer2} = increment_counter(Streamer1, Pid, length(Parts)),
       {Streamer2, [Acc, Parts]};
     _ when size(Data) =< MinDataLength + 16 ->
@@ -484,21 +496,16 @@ mux0(#pes{pid = Pid, body = Body, last_frame = LastFrame} = PES, #streamer{pcr_p
       {Streamer1, Acc}
   end.
   
-mux_parts(<<Part:?TS_PACKET/binary, Rest/binary>>, Acc, Counter, Pid, LastFrame) ->
-  Out = <<?TS_HEADER(0, Pid, 0, 1, Counter), Part/binary>>,
-  % iolist_size(Out) == 188 orelse ?D({invalid_part, iolist_size(Out), Rest}),
-  mux_parts(Rest, [Out|Acc], (Counter + 1) rem 16, Pid, LastFrame);
+mux_parts(<<Part:?TS_PACKET/binary, Rest/binary>>, Counter, Pid, LastFrame) ->
+  [[<<?TS_HEADER(0, Pid, 0, 1, Counter)>>, Part] | mux_parts(Rest, (Counter + 1) rem 16, Pid, LastFrame)];
 
 % Very special case, when it is impossible to add adaptation field to last PES part
 % if data is 183 bytes left, than it will be impossible to add only one byte of adaptation field
-mux_parts(<<Part:167/binary, Rest:16/binary>>, Acc, Counter, Pid, LastFrame) ->
-  Out = [ts_header(0, Pid, 1, 1, Counter), zero_adaptation(Part), Part],
-  mux_parts(Rest, [Out|Acc], (Counter + 1) rem 16, Pid, LastFrame);
+mux_parts(<<Part:167/binary, Rest:16/binary>>, Counter, Pid, LastFrame) ->
+  [[ts_header(0, Pid, 1, 1, Counter), zero_adaptation(Part), Part] | mux_parts(Rest, (Counter + 1) rem 16, Pid, LastFrame)];
   
-mux_parts(Part, Acc, Counter, Pid, _LastFrame) when size(Part) =< ?TS_PACKET - 2 ->
-  Out = [ts_header(0, Pid, 1, 1, Counter), zero_adaptation(Part), Part],
-  % ?D({close,Pid,Counter}),
-  lists:reverse([Out|Acc]).
+mux_parts(Part, Counter, Pid, _LastFrame) when size(Part) =< ?TS_PACKET - 2 ->
+  [[ts_header(0, Pid, 1, 1, Counter), zero_adaptation(Part), Part]].
 
 zero_adaptation(Data) ->
   % iolist_size(Data) < ?TS_PACKET orelse erlang:error(too_big_for_zero_padding),
