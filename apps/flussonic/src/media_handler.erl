@@ -73,15 +73,18 @@ lookup_name(Req, Opts) ->
   {PathInfo, _} = cowboy_http_req:path_info(Req),
   lookup_name(PathInfo, Opts, Req, []).
 
+no_cache() ->
+  [{<<"Cache-Control">>, <<"no-cache">>},{<<"Pragma">>, <<"no-cache">>}].
+
 lookup_name(PathInfo, Opts, Req, Acc) ->
   DefaultModule = proplists:get_value(module, Opts),
   case PathInfo of
     [<<"manifest.f4m">>] ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
-      {{DefaultModule, hds_manifest, []}, [{<<"Content-Type">>, <<"text/xml">>},{<<"Cache-Control">>, <<"no-cache">>}], Stream};
+      {{DefaultModule, hds_manifest, []}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], Stream};
     [<<"bootstrap">>] ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
-      {{DefaultModule, bootstrap, []}, [], Stream};
+      {{DefaultModule, bootstrap, []}, no_cache(), Stream};
     [<<"hds">>, <<"lang-", Lang/binary>>, SegmentPath] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "Seg(\\d+)-Frag(\\d+)", [{capture,all_but_first,list}]),
       {{DefaultModule, hds_lang_segment, [Lang, list_to_integer(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
@@ -90,7 +93,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       {{DefaultModule, hds_segment, [list_to_integer(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
     [<<"index.m3u8">>] ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
-      {{DefaultModule, hls_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>},{<<"Cache-Control">>, <<"no-cache">>}], Stream};
+      {{DefaultModule, hls_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
     [<<"hls">>, SegmentPath] ->
       Root = proplists:get_value(root, Opts),
       is_list(Root) orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
@@ -122,7 +125,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       is_list(Root) orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
-      {{dvr_session, hds_manifest, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"text/xml">>}], Stream};
+      {{dvr_session, hds_manifest, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], Stream};
     [<<"archive">>, From, Duration, <<"index.m3u8">>] ->
       throw({return, 302, [{<<"Location">>, <<"/", (name_or_pi(Opts,Acc))/binary, "/index-", From/binary, "-", Duration/binary, ".m3u8">>}], <<"Redirect\n">>});
     [<<"index-", IndexSpec/binary>>] ->
@@ -131,7 +134,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
       is_list(Root) orelse throw({return, 424, ["no dvr root specified ", Stream]}),
       % {dvr_session, hls_abs_playlist, [list_to_binary(Root), list_to_integer(From), list_to_integer(Duration)], [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}], name_or_pi(Opts, Acc)};
-      {{hls_dvr_packetizer, playlist, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}], Stream};
+      {{hls_dvr_packetizer, playlist, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
     [<<"archive">>, From, Duration, _Bitrate, <<"Seg", SegmentPath/binary>>] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "(\\d+)-Frag(\\d+)", [{capture,all_but_first,binary}]),
       Root = proplists:get_value(dvr, Opts),

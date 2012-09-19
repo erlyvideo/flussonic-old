@@ -168,19 +168,45 @@ handle_frame1(#video_frame{} = Frame, #proxy{media_info = MI1, delaying = true, 
 
 handle_frame1(#video_frame{} = Frame, #proxy{delaying = false, media_info = MI1, stream = Stream} = Proxy) ->
   MI2 = video_frame:define_media_info(MI1, Frame),
+  Frame1 = normalize_aac(Frame, MI2),
   case MI2 of
     MI1 ->
-      Stream ! Frame,
+      Stream ! Frame1,
       Proxy;
     _ ->
       gen_server:call(Stream, {set, MI2}),
-      Stream ! Frame,
+      Stream ! Frame1,
       Proxy#proxy{media_info = MI2}
   end.
 
 to_b(Atom) when is_atom(Atom) -> atom_to_binary(Atom, latin1);
 to_b(Bin) when is_binary(Bin) -> Bin.
 
+
+normalize_aac(#video_frame{codec = aac, flavor = frame, dts = DTS, track_id = TrackId} = Frame, #media_info{streams = Streams}) ->
+  case get(start_dts) of 
+    undefined -> 
+      put(start_dts, DTS), 
+      put(sound_count, 0),
+      #stream_info{params = #audio_params{sample_rate = SampleRate}} = lists:keyfind(TrackId, #stream_info.track_id, Streams),
+      put(sound_rate, SampleRate),
+      ok;
+   _ -> ok
+  end,
+  Count = get(sound_count),
+  Rate = get(sound_rate),
+  GoodDTS = 1024*Count*1000 / Rate + get(start_dts),
+  
+  ProperDTS = if abs(GoodDTS - DTS) < 2 -> put(sound_count, Count + 1), GoodDTS;
+    true -> erase(start_dts), erase(sound_count), erase(sound_rate), DTS
+  end,
+  
+  Frame#video_frame{dts = ProperDTS};
+
+normalize_aac(Frame, _) ->
+  Frame.
+
+  
 
 
 terminate(_,_) -> ok.
