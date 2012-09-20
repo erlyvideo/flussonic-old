@@ -118,7 +118,13 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
     [_Year, _Month, _Day, _Hour, _Minute, <<_Second:2/binary, "-", _Duration:4/binary, ".ts">>] ->
       Root = proplists:get_value(dvr, Opts), % here Root may be undefined, because live is served here also
       {{hls_dvr_packetizer, segment, [to_b(Root), filename:join(PathInfo)]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
+    [_Year, _Month, _Day, _Hour, _Minute, <<_Second:2/binary, "-", _Duration:5/binary, ".ts">>] ->
+      Root = proplists:get_value(dvr, Opts), % here Root may be undefined, because live is served here also
+      {{hls_dvr_packetizer, segment, [to_b(Root), filename:join(PathInfo)]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
     [<<_Year:4/binary,"/", _Month:2/binary, "/", _Day:2/binary, "/", _Hour:2/binary, "/", _Minute:2/binary, "/", _Second:2/binary, "-", _Duration:4/binary, ".ts">> = Seg] ->
+      Root = proplists:get_value(dvr, Opts), % here Root may be undefined, because live is served here also
+      {{hls_dvr_packetizer, segment, [to_b(Root), Seg]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
+    [<<_Year:4/binary,"/", _Month:2/binary, "/", _Day:2/binary, "/", _Hour:2/binary, "/", _Minute:2/binary, "/", _Second:2/binary, "-", _Duration:5/binary, ".ts">> = Seg] ->
       Root = proplists:get_value(dvr, Opts), % here Root may be undefined, because live is served here also
       {{hls_dvr_packetizer, segment, [to_b(Root), Seg]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
     [<<"archive">>, From, Duration, <<"manifest.f4m">>] ->

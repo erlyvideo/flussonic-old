@@ -69,10 +69,7 @@ read(URL, Options) ->
   media_info,
   pcr_pid,
   closing = false,
-  buffers = [],
-  audio_dts,
-  last_dts,
-  interleave
+  last_dts
 }).
 
 -record(pes, {
@@ -97,12 +94,8 @@ read(URL, Options) ->
 init() -> init([]).
 
 init(Options) -> 
-  Interleave = case proplists:get_value(interleave, Options) of
-    Num when is_number(Num) andalso Num > 0 -> Num;
-    _ -> false
-  end,
   Counters = hipe_bifs:bytearray(?MAXPID,0),
-  #streamer{interleave = Interleave, pad_counters = proplists:get_value(pad_counters, Options, true), counters = Counters}.
+  #streamer{pad_counters = proplists:get_value(pad_counters, Options, true), counters = Counters}.
 
 -spec encode(#streamer{}, video_frame()) -> {#streamer{}, iolist()}.
 
@@ -110,7 +103,7 @@ encode(#streamer{} = Streamer, #video_frame{codec = empty}) ->
   {Streamer, <<>>};
 
 encode(#streamer{} = Streamer, #media_info{} = MediaInfo) ->
-  {save_media_info(Streamer, MediaInfo), <<>>};
+  send_program_tables(save_media_info(Streamer, MediaInfo));
 
 encode(#streamer{media_info = MediaInfo} = Streamer, #video_frame{flavor = config} = Frame) ->
   MI1 = video_frame:define_media_info(MediaInfo, Frame),
@@ -127,10 +120,10 @@ encode(#streamer{media_info = MediaInfo} = Streamer, #video_frame{flavor = confi
     {Streamer, <<>>}
   end;  
   
-encode(#streamer{sent_pat = SentPat} = Streamer, #video_frame{dts = DTS, flavor = Flavor, content = Content} = Frame) 
+encode(#streamer{sent_pat = SentPat} = Streamer, #video_frame{dts = DTS, content = Content} = Frame) 
   when Content == audio orelse Content == video ->
   % ?D({send_pat, SentPat, Flavor, SentPat andalso Flavor =/= keyframe, Frame#video_frame.dts}),
-  {Streamer1, Tables} = send_program_tables(Streamer#streamer{sent_pat = SentPat andalso Flavor =/= keyframe}),
+  {Streamer1, Tables} = send_program_tables(Streamer), %  #streamer{sent_pat = SentPat andalso Flavor =/= keyframe}
   % StartTime = case get(start_time) of undefined -> put(start_time, erlang:now()), get(start_time); StartTime_ -> StartTime_ end,
   % StartDts = case get(start_dts) of undefined -> put(start_dts, DTS), get(start_dts); StartDts_ -> StartDts_ end,
   % RealDelta = timer:now_diff(erlang:now(), StartTime) div 1000,
@@ -138,7 +131,7 @@ encode(#streamer{sent_pat = SentPat} = Streamer, #video_frame{dts = DTS, flavor 
   % ?D({round(DTS), round(StreamDelta),round(RealDelta), round(RealDelta - StreamDelta)}),
   {Streamer2, TS} = encode_frame(Streamer1, Frame),
   case empty_iolist(TS) of
-    true when not (SentPat andalso Flavor =/= keyframe) ->
+    true when SentPat -> %  (not SentPat) andalso Flavor =/= keyframe
       % ?D(rollback_pat),
       {Streamer3, _} = encode_frame(Streamer, Frame),
       {Streamer3, <<>>};
@@ -147,6 +140,7 @@ encode(#streamer{sent_pat = SentPat} = Streamer, #video_frame{dts = DTS, flavor 
     false ->
       {Streamer2#streamer{last_dts = DTS}, [Tables, TS]}
   end;
+  % {Streamer2#streamer{last_dts = DTS}, [Tables, TS]};
 
 encode(Streamer, #video_frame{} = _Frame) ->
   {Streamer, <<>>}.
@@ -164,17 +158,6 @@ save_media_info(#streamer{} = Streamer, #media_info{streams = Streams} = MediaIn
   PcrPid = erlang:hd([TrackId || #stream_info{track_id = TrackId} <- Streams]),
   Streamer#streamer{media_info = MediaInfo, pcr_pid = PcrPid}.
 
-encode_frame(#streamer{interleave = Interleave} = Streamer, 
-             #video_frame{codec = Codec, track_id = TrackId} = Frame) when 
-  (Codec == aac orelse Codec == mp3) andalso is_number(Interleave) andalso Interleave > 0 ->
-  Streamer2 = buffer_frame(Streamer, Frame),
-  case need_to_flush(Streamer2, TrackId) of
-    true ->
-      flush_track(Streamer2, TrackId);
-    false ->
-      {Streamer2, <<>>}
-  end;
-  
 encode_frame(#streamer{media_info = #media_info{streams = Infos}} = Streamer, 
              #video_frame{track_id = TrackId, next_id = NextId, content = Content} = Frame) when Content == audio orelse Content == video ->
   Closing = NextId == last_frame,
@@ -189,27 +172,6 @@ encode_frame(#streamer{media_info = #media_info{streams = Infos}} = Streamer,
   end.
 
 
-buffer_frame(#streamer{buffers = Buffers} = Streamer, #video_frame{track_id = TrackId} = Frame) ->
-  Buffers1 = case lists:keytake(TrackId, 1, Buffers) of
-    {value, {TrackId, Buffer}, Buffers_} ->
-      [{TrackId, [Frame|Buffer]}|Buffers_];
-    false ->
-      [{TrackId, [Frame]}|Buffers]
-  end,
-  Streamer#streamer{buffers = Buffers1}.
-
-need_to_flush(#streamer{buffers = Buffers, interleave = Interleave}, TrackId) ->
-  Buffer = proplists:get_value(TrackId, Buffers),
-  is_list(Buffer) andalso (length(Buffer) >= Interleave orelse (hd(Buffer))#video_frame.next_id == last_frame).
-
-flush_track(#streamer{buffers = Buffers, media_info = #media_info{streams = Infos}} = Streamer, TrackId) ->
-  [#video_frame{next_id = NextId}|_] = Frames = proplists:get_value(TrackId, Buffers),
-  Closing = NextId == last_frame,
-  #stream_info{} = Info = lists:keyfind(TrackId, #stream_info.track_id, Infos),
-  #pes{} = PES = pack_pes(lists:reverse(Frames), Info),
-  {Streamer1, TS} = mux(PES#pes{last_frame = Closing}, Streamer),
-  {Streamer1#streamer{buffers = lists:keydelete(TrackId, 1, Buffers)}, TS}.
-  
   
 flush(#streamer{} = Streamer) ->
   % {Streamer1, Pad1} = pad_table_counters(Streamer),
@@ -512,11 +474,12 @@ zero_adaptation(Data) ->
   Field = padding(<<0>>, ?TS_PACKET - iolist_size(Data) - 1),
   [<<(iolist_size(Field))>>, Field].
 
-adaptation_field(#pes{body = Data, dts = Timestamp, keyframe = Keyframe, is_pcr = IsPCR, pid = _Pid}) ->
-  RandomAccess = case Keyframe of
-    true -> 1;
-    _ -> 0
-  end,
+adaptation_field(#pes{body = Data, dts = Timestamp, keyframe = _Keyframe, is_pcr = IsPCR, pid = _Pid}) ->
+  % RandomAccess = case Keyframe of
+  %   true -> 1;
+  %   _ -> 0
+  % end,
+  RandomAccess = 0,
   {HasPCR, PCR} = case IsPCR of
     true ->
       FullPCR = round(Timestamp * 27000),

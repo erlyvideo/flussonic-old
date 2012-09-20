@@ -142,26 +142,34 @@ autostart(Stream, Options) ->
   gen_tracker:find_or_open(flu_streams, Stream, fun() -> flussonic_sup:start_flu_stream(Stream,Options) end).
 
 media_info(Stream) ->
-  flu_stream:get(Stream, media_info).
+  Reply = flu_stream:get(Stream, media_info),
+  Reply.
 
 hds_segment(Stream,Segment) ->
-  flu_stream:get(Stream, {hds_segment, 1, Segment}).
+  Reply = flu_stream:get(Stream, {hds_segment, 1, Segment}),
+  Reply.
 
 hls_segment(Stream, Segment) ->
-  flu_stream:get(Stream, {hls_segment,Segment}).
+  Reply = flu_stream:get(Stream, {hls_segment,Segment}),
+  Reply.
 
 hls_key(Stream, Number) ->
-  flu_stream:get(Stream, {hls_key, Number}).
+  Reply = flu_stream:get(Stream, {hls_key, Number}),
+  Reply.
   
 
 hds_manifest(Stream) ->
-  flu_stream:get(Stream, hds_manifest, 10000).
+  Reply = flu_stream:get(Stream, hds_manifest, 10000),
+  Reply.
 
 bootstrap(Stream) ->
-  flu_stream:get(Stream, bootstrap, 10000).
+  Reply = flu_stream:get(Stream, bootstrap, 10000),
+  Reply.
 
 hls_playlist(Stream) ->
-  flu_stream:get(Stream, hls_playlist, 10000).
+  Reply = flu_stream:get(Stream, hls_playlist, 10000),
+  Reply.
+
 
 publish(Stream,Frame) ->
   Stream ! Frame.

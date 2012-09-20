@@ -39,6 +39,14 @@
 -export([clients/0]).
 
 clients() ->
+  case erlang:whereis(rtmp_session_sup) of
+    undefined ->
+      [];
+    _ ->
+      clients0()
+  end.
+
+clients0() ->
   Now = flu:now_ms(),
   Pids = [Pid || {_, Pid, _, _} <- supervisor:which_children(rtmp_session_sup)],
   Clients = [begin
