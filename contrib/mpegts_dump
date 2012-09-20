@@ -1,4 +1,4 @@
-#!/usr/bin/env escript
+#!/usr/bin/env ERL_LIBS=apps:deps escript
 
 -mode(compile).
 

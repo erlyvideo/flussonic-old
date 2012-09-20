@@ -177,7 +177,7 @@ wait4(Name, Count) ->
 
 call_mfa({M,F,A}, ReplyHeaders, Name, Req) ->
   {_Time, Result} = timer:tc(M, F, [Name|A]),
-  % ?D({M,F,Time}),
+  % ?D({M,F,_Time}),
   case Result of
     {done, R1} ->
       {ok, R1, undefined};
