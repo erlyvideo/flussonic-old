@@ -122,7 +122,8 @@ load_config() ->
     {ok, Env1, ConfigPath} ->
       Env2 = expand_options(load_includes(Env1, ConfigPath)),
 	    application:set_env(flussonic, config, Env2),
-	    error_logger:info_msg("Loading ~s", [ConfigPath]),
+      {ok, Vsn} = application:get_key(flussonic, vsn),
+	    error_logger:info_msg("Loading config for version ~s from ~s", [Vsn, ConfigPath]),
 	    ok;
     {error, enoent} ->
       error_logger:error_msg("Can't find flussonic.conf in any folder~n"),

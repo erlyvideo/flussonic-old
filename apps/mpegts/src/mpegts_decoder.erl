@@ -52,7 +52,7 @@ read_file(Path) ->
 -spec decode_file(binary()) -> {ok, [any()]}.
 
 decode_file(Bin) when is_binary(Bin) ->
-  {ok, Frames1, Decoder1, <<>>} = decode(Bin, #decoder{}),
+  {ok, Frames1, Decoder1, _} = decode(Bin, #decoder{}),
   {ok, Frames2} = decode(eof, Decoder1),
   Frames = case Frames2 of [] -> Frames1; _ -> Frames1 ++ Frames2 end,
   {ok, video_frame:sort(Frames)}.
@@ -143,15 +143,7 @@ decode(<<16#47, _:1, 1:1, _:1, Pid:13, _:185/binary, Rest/binary>> = Packet, #de
     Num ->
       Stream = element(#decoder.stream_map + Num, Decoder),
       {ok, Reply, Stream1} = flush(Stream),
-      PES = ts_payload(Packet),
-      <<1:24, _StreamId, PESLength1:16, _:8, PtsDts:2, _:6, HeaderLength, PESHeader:HeaderLength/binary, Data/binary>> = PES,
-      PESLength = case PESLength1 of
-        0 -> 0;
-        _ -> PESLength1 - 3 - HeaderLength
-      end,
-      {DTS, PTS} = pes_timestamp(PtsDts, PESHeader),
-      ?DD("pid ~B: start PES ~4s(~.2f, ~.2f) length: ~B", [Pid, Stream#stream.codec, DTS, PTS, PESLength1]),
-      Stream2 = Stream1#stream{dts = DTS, pts = PTS, length = PESLength, ts_buffer = [Data]},
+      {ok, [], Stream2} = decode_pes(ts_payload(Packet), Stream1),
       Acc1 = case Reply of
         [] -> Acc;
         _ -> Acc ++ Reply
@@ -164,23 +156,13 @@ decode(<<16#47, _:3, Pid:13, _:185/binary, Rest/binary>> = Packet, #decoder{stre
     undefined ->
       decode(Rest, Decoder, Acc);
     Num ->
-      #stream{ts_buffer = Buffer, length = Length} = Stream = element(#decoder.stream_map + Num, Decoder),
-      Data = ts_payload(Packet),
-      case iolist_size(Buffer) + size(Data) of
-        _ when Length == undefined ->
-          decode(Rest, Decoder, Acc);
-        L when L == Length ->
-          ?DD("pid ~B: PES ready (~B)", [Pid, L]),
-          {ok, Reply, Stream1} = flush(Stream#stream{ts_buffer = [Data|Buffer]}),
-          Acc1 = case Reply of
-            [] -> Acc;
-            _ -> Acc ++ Reply
-          end,
-          decode(Rest, setelement(#decoder.stream_map+Num,Decoder, Stream1), Acc1);
-        L when L < Length orelse Length == 0 ->
-          ?DD("pid ~B: PES continue (~B/~B)", [Pid, L, Length]),
-          decode(Rest, setelement(#decoder.stream_map+Num,Decoder, Stream#stream{ts_buffer = [Data|Buffer]}), Acc)
-      end
+      Stream = element(#decoder.stream_map + Num, Decoder),
+      {ok, Reply, Stream1} = decode_pes(ts_payload(Packet), Stream),
+      Acc1 = case Reply of
+        [] -> Acc;
+        _ -> Acc ++ Reply
+      end,
+      decode(Rest, setelement(#decoder.stream_map+Num,Decoder, Stream1), Acc1)
   end;
 
 decode(eof, #decoder{stream_map = StreamNums} = Decoder, Acc) ->
@@ -218,6 +200,44 @@ try_sync(<<_, Rest/binary>>, Decoder, Acc, Count) ->
 
 
 %% PES handling
+
+% When PES starts on flushed stream
+decode_pes(<<1:24, _StreamId, PESLength1:16, _:8, PtsDts:2, _:6, HeaderLength, PESHeader:HeaderLength/binary, Data/binary>>, #stream{dts = undefined} = Stream) ->
+  PESLength = case PESLength1 of
+    0 -> 0;
+    _ -> PESLength1 - 3 - HeaderLength
+  end,
+  {DTS, PTS} = pes_timestamp(PtsDts, PESHeader),
+  ?DD("pid ~B: start PES ~4s(~.2f, ~.2f) length: ~B", [Pid, Stream#stream.codec, DTS, PTS, PESLength1]),
+  Stream2 = Stream#stream{dts = DTS, pts = PTS, length = PESLength, ts_buffer = [Data]},
+  {ok, [], Stream2};
+
+% Data in TS packet is not enough for starting PES, so accumultate it and put as a binary
+decode_pes(<<1:24, _/binary>> = PES, #stream{dts = undefined} = Stream) ->
+  {ok, [], Stream#stream{ts_buffer = PES}};
+
+% Next PES comes when stream is empty, but previous PES fragment is cached.
+decode_pes(PES, #stream{dts = undefined, ts_buffer = Start} = Stream) when is_binary(Start) andalso is_binary(PES) ->
+  decode_pes(<<Start/binary, PES/binary>>, Stream#stream{ts_buffer = []});
+
+% Skip data, when stream is not configured
+decode_pes(_, #stream{dts = undefined} = Stream) ->
+  {ok, [], Stream};
+
+% Normal pes adding data
+decode_pes(Data, #stream{ts_buffer = Buffer, length = Length} = Stream) ->
+  case iolist_size(Buffer) + size(Data) of
+    L when L == Length ->
+      ?DD("pid ~B: PES ready (~B)", [Pid, L]),
+      {ok, Reply, Stream1} = flush(Stream#stream{ts_buffer = [Data|Buffer]}),
+      {ok, Reply, Stream1};
+    L when L < Length orelse Length == 0 ->
+      ?DD("pid ~B: PES continue (~B/~B)", [Pid, L, Length]),
+      {ok, [], Stream#stream{ts_buffer = [Data|Buffer]}}
+  end.
+
+
+
 
 pes_timestamp(2#11, <<2#0011:4, Pts1:3, 1:1, Pts2:15, 1:1, Pts3:15, 1:1, 
     2#0001:4, Dts1:3, 1:1, Dts2:15, 1:1, Dts3:15, 1:1, _/binary>>) ->
@@ -278,7 +298,7 @@ unpack_h264(#stream{dts = DTS, pts = PTS, specific = H264_0} = Stream, Bin) ->
 		pts     = PTS
   },
   
-  {ok, ConfigFrame ++ [Frame], Stream#stream{specific = H264_2, dts = undefined, pts = undefined}}.
+  {ok, ConfigFrame ++ [Frame], Stream#stream{specific = H264_2, dts = undefined, pts = undefined, length = undefined}}.
   
 unpack_aac(#stream{dts = DTS, specific = undefined} = Stream, Bin) ->
   Config = aac:adts_to_config(Bin),
@@ -311,9 +331,9 @@ unpack_aac(#stream{dts = DTS, specific = SampleRate} = Stream, Bin) ->
     	  sound	  = {stereo, bit16, rate44}
       },
       {ok, Frames, Stream1} = unpack_aac(Stream#stream{dts = DTS + 1024*1000 / SampleRate}, Rest),
-      {ok, [Frame|Frames], Stream1};
+      {ok, [Frame|Frames], Stream1#stream{dts = undefined, pts = undefined, length = undefined}};
     {more, _Rest} ->
-      {ok, [], Stream#stream{es_buffer = Bin}};
+      {ok, [], Stream#stream{es_buffer = Bin, length = undefined}};
     {error, Bin} ->
       error({desync_adts,Bin})
   end.

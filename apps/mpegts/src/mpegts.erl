@@ -65,10 +65,11 @@ read(URL, Options) ->
 -record(streamer, {
   counters = [],
   pad_counters = true,
-  sent_pat = false,
+  will_send_pat = true,
   media_info,
   pcr_pid,
   closing = false,
+  resync_on_keyframe = false,
   last_dts
 }).
 
@@ -94,8 +95,11 @@ read(URL, Options) ->
 init() -> init([]).
 
 init(Options) -> 
-  Counters = hipe_bifs:bytearray(?MAXPID,0),
-  #streamer{pad_counters = proplists:get_value(pad_counters, Options, true), counters = Counters}.
+  % Counters = hipe_bifs:bytearray(?MAXPID,0),
+  Counters = [],
+  ResyncOnKeyframe = proplists:get_value(resync_on_keyframe, Options, false),
+  #streamer{pad_counters = proplists:get_value(pad_counters, Options, true), counters = Counters,
+    resync_on_keyframe = ResyncOnKeyframe}.
 
 -spec encode(#streamer{}, video_frame()) -> {#streamer{}, iolist()}.
 
@@ -110,37 +114,38 @@ encode(#streamer{media_info = MediaInfo} = Streamer, #video_frame{flavor = confi
   MI2 = rewrite_track_ids(MI1),
   if MI2 =/= MediaInfo ->
     Streamer1 = save_media_info(Streamer, MI2),
-    case Streamer1#streamer.sent_pat of
-      true ->
-        send_program_tables(Streamer1#streamer{sent_pat = false});
+    case Streamer1#streamer.will_send_pat of
       false ->
+        send_program_tables(Streamer1#streamer{will_send_pat = true});
+      true ->
         {Streamer1, <<>>}
     end;
   true ->
     {Streamer, <<>>}
   end;  
   
-encode(#streamer{sent_pat = SentPat} = Streamer, #video_frame{dts = DTS, content = Content} = Frame) 
+encode(#streamer{will_send_pat = WillSendPat, resync_on_keyframe = Resync} = Streamer, 
+  #video_frame{dts = DTS, content = Content, flavor = Flavor} = Frame) 
   when Content == audio orelse Content == video ->
   % ?D({send_pat, SentPat, Flavor, SentPat andalso Flavor =/= keyframe, Frame#video_frame.dts}),
-  {Streamer1, Tables} = send_program_tables(Streamer), %  #streamer{sent_pat = SentPat andalso Flavor =/= keyframe}
+  {Streamer1, Tables} = send_program_tables(Streamer#streamer{will_send_pat = WillSendPat orelse (Resync andalso Flavor == keyframe)}), %  
   % StartTime = case get(start_time) of undefined -> put(start_time, erlang:now()), get(start_time); StartTime_ -> StartTime_ end,
   % StartDts = case get(start_dts) of undefined -> put(start_dts, DTS), get(start_dts); StartDts_ -> StartDts_ end,
   % RealDelta = timer:now_diff(erlang:now(), StartTime) div 1000,
   % StreamDelta = DTS - StartDts,
   % ?D({round(DTS), round(StreamDelta),round(RealDelta), round(RealDelta - StreamDelta)}),
   {Streamer2, TS} = encode_frame(Streamer1, Frame),
-  case empty_iolist(TS) of
-    true when SentPat -> %  (not SentPat) andalso Flavor =/= keyframe
-      % ?D(rollback_pat),
-      {Streamer3, _} = encode_frame(Streamer, Frame),
-      {Streamer3, <<>>};
-    true ->
-      {Streamer2, <<>>};
-    false ->
-      {Streamer2#streamer{last_dts = DTS}, [Tables, TS]}
-  end;
-  % {Streamer2#streamer{last_dts = DTS}, [Tables, TS]};
+  % case empty_iolist(TS) of
+  %   true when not WillSendPat -> %  (not SentPat) andalso Flavor =/= keyframe
+  %     % ?D(rollback_pat),
+  %     {Streamer3, _} = encode_frame(Streamer, Frame),
+  %     {Streamer3, <<>>};
+  %   true ->
+  %     {Streamer2, <<>>};
+  %   false ->
+  %     {Streamer2#streamer{last_dts = DTS}, [Tables, TS]}
+  % end;
+  {Streamer2#streamer{last_dts = DTS}, [Tables, TS]};
 
 encode(Streamer, #video_frame{} = _Frame) ->
   {Streamer, <<>>}.
@@ -148,11 +153,11 @@ encode(Streamer, #video_frame{} = _Frame) ->
 rewrite_track_ids(MediaInfo) -> MediaInfo.
 
 
-empty_iolist(<<>>) -> true;
-empty_iolist([]) -> true;
-empty_iolist(Bin) when size(Bin) > 0 -> false;
-empty_iolist(Num) when is_number(Num) -> false;
-empty_iolist([Head|Tail]) -> empty_iolist(Head) andalso empty_iolist(Tail).
+% empty_iolist(<<>>) -> true;
+% empty_iolist([]) -> true;
+% empty_iolist(Bin) when size(Bin) > 0 -> false;
+% empty_iolist(Num) when is_number(Num) -> false;
+% empty_iolist([Head|Tail]) -> empty_iolist(Head) andalso empty_iolist(Tail).
 
 save_media_info(#streamer{} = Streamer, #media_info{streams = Streams} = MediaInfo) ->
   PcrPid = erlang:hd([TrackId || #stream_info{track_id = TrackId} <- Streams]),
@@ -183,7 +188,7 @@ flush(#streamer{} = Streamer) ->
   % {Streamer3, Audio} = flush_video(Streamer2),
   Streamer3 = Streamer1,
   % Audio = Video = <<>>,
-  {Streamer3#streamer{sent_pat = false}, Pad1}.
+  {Streamer3#streamer{will_send_pat = true}, Pad1}.
 
 
 
@@ -345,10 +350,10 @@ annexb_nalu(Body, Flavor, #stream_info{params = #video_params{length_size = Leng
 %%%%%%%%%%%%%%%%%%%%%%%%%%% Packing  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-send_program_tables(#streamer{sent_pat = false} = Streamer) -> %  andalso A =/= undefined andalso V =/= undefined
+send_program_tables(#streamer{will_send_pat = true} = Streamer) -> %  andalso A =/= undefined andalso V =/= undefined
   {Streamer1, PATBin} = send_pat(Streamer),
   {Streamer2, PMTBin} = send_pmt(Streamer1),
-  {Streamer2#streamer{sent_pat = true}, [PATBin, PMTBin]};
+  {Streamer2#streamer{will_send_pat = false}, [PATBin, PMTBin]};
 
 send_program_tables(Streamer) ->
   {Streamer, <<>>}.
@@ -388,18 +393,18 @@ send_pmt(#streamer{media_info = #media_info{streams = Streams}, pcr_pid = PcrPid
 
 
 counter(#streamer{counters = Counters} = _Streamer, Pid) when Pid >= 0 andalso Pid < ?MAXPID ->
-  hipe_bifs:bytearray_sub(Counters, Pid).
-  % proplists:get_value(Pid, Counters, 0).
+  % hipe_bifs:bytearray_sub(Counters, Pid).
+  proplists:get_value(Pid, Counters, 0).
 
 increment_counter(#streamer{} = Streamer, Pid) ->
   increment_counter(Streamer, Pid, 1).
 
 increment_counter(#streamer{counters = Counters} = Streamer, Pid, N) when Pid >= 0 andalso Pid < ?MAXPID ->
   Counter = counter(Streamer, Pid),
-  hipe_bifs:bytearray_update(Counters, Pid, (Counter + N) rem 16),
-  % {Counter, Streamer#streamer{counters = lists:keystore(Pid, 1, Counters, {Pid, (Counter + N) rem 16})}}.
-  {Counter, Streamer}.
-
+  % hipe_bifs:bytearray_update(Counters, Pid, (Counter + N) rem 16),
+  % {Counter, Streamer}.
+  {Counter, Streamer#streamer{counters = lists:keystore(Pid, 1, Counters, {Pid, (Counter + N) rem 16})}}.
+  
 ts_header(Start, Pid, Adaptation, HasPayload, Counter) ->
   Scrambling = Priority = TEI = 0,
   <<16#47, TEI:1, Start:1, Priority:1, Pid:13, Scrambling:2, Adaptation:1, HasPayload:1, Counter:4>>.

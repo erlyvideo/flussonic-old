@@ -17,10 +17,6 @@
           verify_crc32/1,
           verify_crc32/2]).
 
--on_load(start/0).
--export([start/0]).
--export([benchmark/0, benchmark_calc/2]).
-
 %%====================================================================
 %% Internal exports
 %%====================================================================
@@ -39,24 +35,6 @@
 %%====================================================================
 %% External functions
 %%====================================================================
-
-start() ->
-  load_nif(erlang:system_info(otp_release) >= "R13B04").
-  
-load_nif(true) ->
-  Load = case (catch erlang:load_nif(code:lib_dir(mpegts,priv)++ "/mpeg2_crc32", 0)) of
-    ok -> ok;
-    {'EXIT', Reason} -> {error, Reason}
-  end,
-  case Load of
-    ok -> ok;
-    _ -> io:format("mpeg2_crc32 nif not loaded. MPEG-TS is slower~n")
-  end,
-  % io:format("Load mpeg2_crc32: ~p~n", [Load]),
-  ok;
-
-load_nif(false) ->
-  ok.
 
 
 %%
@@ -212,15 +190,5 @@ crc32_1_test() ->
    ?_assertEqual(3794043894, crc32(<<"111111">>)),
    ?_assertEqual(0, crc32(<<255,255,255,255>>)),
    ?_assertEqual(2985771188, crc32(<<255,255,255,255,255>>))].
-
-
-benchmark() ->
-  Bin = iolist_to_binary(lists:map(fun(N) -> integer_to_list(N) end, lists:seq(1, 100))),
-  Count = 100000,
-  {Time, _} = timer:tc(?MODULE, benchmark_calc, [Bin, Count]),
-  Time/Count.
-
-benchmark_calc(_, 0) -> ok;
-benchmark_calc(Bin, N) -> crc32(Bin), benchmark_calc(Bin, N-1).
 
 

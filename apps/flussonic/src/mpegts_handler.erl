@@ -25,13 +25,15 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 
 -export([init/3, handle/2, terminate/2]).
--export([input/2, read_loop/4]).
--export([output/2, write_loop/4]).
+-export([read_loop/4]).
+-export([write_loop/4]).
 
 
 -include_lib("cowboy/include/http.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 
 -record(mpegts, {
   pid,
@@ -46,47 +48,54 @@ init({_Any,http}, Req, Opts) ->
   {Method, Req2} = cowboy_http_req:method(Req1),
   {ok, Req2, #mpegts{name = Name, method = Method, options = Opts}}.
 
-handle(Req, #mpegts{name = RawName, options = Options, method = 'GET'} = State) ->
+handle(Req, State) ->
+  try handle0(Req, State) of
+    Reply -> Reply
+  catch
+    throw:{return,Code,Text} ->
+      {ok, R1} = cowboy_http_req:reply(Code, [], Text, Req),
+      {ok, R1, undefined}
+  end.
+
+
+handle0(Req, #mpegts{name = RawName, options = Options, method = 'GET'} = State) ->
   Socket = Req#http_req.socket,
   Transport = Req#http_req.transport,
   
   Name = media_handler:check_sessions(Req, RawName, Options),
 
-  case flu_stream:autostart(Name, Options) of
-    {ok, Pid} ->
-      Mpegts = mpegts:init(),
-      {Mpegts1, <<>>} = mpegts:encode(Mpegts, flu_stream:media_info(Name)),
-      flu_stream:subscribe(Pid, Options),
-      ?D({mpegts_play,Name}),
-      Transport:send(Socket, "HTTP/1.0 200 OK\r\nContent-Type: video/mpeg2\r\nConnection: close\r\n\r\n"),
-      case (catch write_loop(Socket, Transport, Mpegts1, false)) of
-        {'EXIT', Error} -> ?D({exit,Error,erlang:get_stacktrace()});
-        _Else -> ?D(_Else)
-      end,
-      ?D({mpegts_play,Name,stop}),
-      {ok, Req, State};
-    _ ->
-      {ok, R1} = cowboy_http_req:reply(404, [], "No stream found\n", Req),
-      {ok, R1, undefined}
-  end.  
+  {ok, Pid} = case flu_stream:autostart(Name, Options) of
+     {ok, P} -> {ok, P};
+     _ -> throw({return, 404, "No stream found\n"})
+  end,
+  Mpegts = mpegts:init([{resync_on_keyframe,true}]),
+  flu_stream:subscribe(Pid, Options),
+  ?D({mpegts_play,Name}),
+  Transport:send(Socket, "HTTP/1.0 200 OK\r\nContent-Type: video/mpeg2\r\nConnection: close\r\n\r\n"),
+  case (catch write_loop(Socket, Transport, Mpegts, false)) of
+    {'EXIT', Error} -> ?D({exit,Error,erlang:get_stacktrace()});
+    ok -> ok;
+    _Else -> ?D(_Else)
+  end,
+  ?D({mpegts_play,Name,stop}),
+  {ok, Req, State};
 
-terminate(_,_) -> ok.
-
-
-input(Req, Env) ->
+handle0(Req, #mpegts{name = StreamName, options = Options, method = 'PUT'} = State) ->
   Socket = Req#http_req.socket,
   Transport = Req#http_req.transport,
-  StreamName = proplists:get_value(path, Env),
-  {ok, Req1} = cowboy_http_req:reply(200, Req),
   
   ?D({mpegts_input,StreamName}),
   
-  {ok, Recorder} = flu_stream:autostart(StreamName,Env),
+  {ok, Recorder} = flu_stream:autostart(StreamName, Options),
   {ok, Reader} = mpegts_reader:init([]),
   
   ?MODULE:read_loop(Recorder, Reader, Transport, Socket),
   ?D({exit,mpegts_reader}),
-  {ok, Req1}.
+  {ok, Req, State}.
+
+
+terminate(_,_) -> ok.
+
   
   
 read_loop(Recorder, Reader, Transport, Socket) ->
@@ -100,26 +109,6 @@ read_loop(Recorder, Reader, Transport, Socket) ->
   end.
 
     
-output(Req, Env) ->
-  Socket = Req#http_req.socket,
-  Transport = Req#http_req.transport,
-  
-  case flu_media:find_or_open(Env) of
-    {ok, {stream, StreamName}} ->
-      Mpegts = mpegts:init(),
-      {Mpegts1, <<>>} = mpegts:encode(Mpegts, flu_stream:media_info(StreamName)),
-      flu_stream:subscribe(StreamName, Env),
-      ?D({mpegts_play,StreamName, Mpegts1}),
-      Transport:send(Socket, "HTTP/1.0 200 OK\r\nContent-Type: video/mpeg2\r\nConnection: close\r\n\r\n"),
-      case (catch write_loop(Socket, Transport, Mpegts1, false)) of
-        {'EXIT', Error} -> ?D({exit,Error,erlang:get_stacktrace()});
-        _Else -> ?D(_Else)
-      end,
-      ?D({mpegts_play,StreamName,stop}),
-      {ok, Req};
-    _ ->
-      unhandled
-  end.  
 
 write_loop(Socket, Transport, Mpegts, Started) ->
   receive
@@ -130,14 +119,14 @@ write_loop(Socket, Transport, Mpegts, Started) ->
     #video_frame{flavor = keyframe} = F when Started == false ->
       % ?D({F#video_frame.flavor, F#video_frame.codec, round(F#video_frame.dts)}),
       {Mpegts1, Data} = mpegts:encode(Mpegts, F),
-      Transport:send(Socket, Data),
+      ok = Transport:send(Socket, Data),
       ?MODULE:write_loop(Socket, Transport, Mpegts1, true);
     #video_frame{} when Started == false ->
       ?MODULE:write_loop(Socket, Transport, Mpegts, Started);    
     #video_frame{} = F ->
       % ?D({F#video_frame.flavor, F#video_frame.codec, round(F#video_frame.dts)}),
       case mpegts:encode(Mpegts, F) of
-        {Mpegts1, <<>>} -> 
+        {Mpegts1, <<>>} ->
           ?MODULE:write_loop(Socket, Transport, Mpegts1, Started);
         {Mpegts1, Data} ->
           case Transport:send(Socket, Data) of
@@ -145,10 +134,48 @@ write_loop(Socket, Transport, Mpegts, Started) ->
             Else -> Else
           end
       end;
+    {'DOWN', _, _, _, _} ->
+      ok;
     Message ->
       ?D(Message)
+  after
+    20000 ->
+      timeout
   end.
   
-        
-        
-            
+
+
+mpegts_test() ->
+  {ok, Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
+  Stream ! flu_rtmp_tests:h264_aac_media_info(),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 8080, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock, "GET /mpegts/testlivestream HTTP/1.0\r\n\r\n"),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
+  read_headers(Sock),
+  ?assertEqual(200, Code),
+  [Stream ! Frame || Frame <- flu_rtmp_tests:h264_aac_frames()],
+  Data = read_stream(Sock),
+  gen_tcp:close(Sock),
+  flussonic_sup:stop_stream(<<"testlivestream">>),
+  ?assert(size(Data) > 0),
+  ?assert(size(Data) > 100),
+  {ok, Frames} = mpegts_decoder:decode_file(Data),
+  ?assert(length(Frames) > 10),
+  ok.
+
+
+read_headers(Sock) ->
+  case gen_tcp:recv(Sock, 0) of
+    {ok, {http_header, _, _, _, _}} -> read_headers(Sock);
+    {ok, http_eoh} -> inet:setopts(Sock, [binary,{packet,raw}]), ok
+  end.
+
+read_stream(Sock) -> read_stream(Sock, []).
+
+
+read_stream(Sock, Acc) ->
+  case gen_tcp:recv(Sock, 188, 500) of
+    {ok, Data} -> read_stream(Sock, [Data|Acc]);
+    {error, _} -> iolist_to_binary(lists:reverse(Acc))
+  end.
+

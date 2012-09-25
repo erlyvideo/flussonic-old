@@ -94,33 +94,33 @@ encode(pmt, Options) ->
   end,  
   
   % Some hardcoded output from VLC/modules/mux/ts.c:2033 GetPMTmpeg4
-  IOD = [<<
-    16#11, % IOD_label_scope
-    16#01>>, % IOD_label,
-    (mp4_writer:esds(
-      [{es, [<<1:10, 0:1, 0:1, 16#F:4, 16#FF, 16#FF, 16#FE, 16#FF>>,
-        lists:map(fun({Codec,Pid,Info}) -> 
-          Desc = case Codec of
-            h264 -> <<16#21, 4:6>>;
-            mpeg4 -> <<16#20, 4:6>>;
-            aac -> <<16#40, 5:6>>;
-            _ -> <<0, 0:6>>
-          end,
-          Specific = case proplists:get_value(config, Info) of
-            Config when is_binary(Config) -> [{decoder_specific, Config}];
-            _ -> []
-          end,
-          {es_descr, [<<Pid:16, 0:1, 0:1, 0:1, 16#1F:5>>, 
-            {decoder_config, [<<Desc/bitstring, 0:1, 1:1, (1024*1024):24, 16#7fffffff:32, 0:32>>, Specific]},
-            {sl, <<1, 0:1, 0:32, 0, 0, 0:7>>}
-          ]}
-        end, StreamInfos)
-      ]}]
-    ))],
-  
+  % IOD = [<<
+  %   16#11, % IOD_label_scope
+  %   16#01>>, % IOD_label,
+  %   (mp4_writer:esds(
+  %     [{es, [<<1:10, 0:1, 0:1, 16#F:4, 16#FF, 16#FF, 16#FE, 16#FF>>,
+  %       lists:map(fun({Codec,Pid,Info}) -> 
+  %         Desc = case Codec of
+  %           h264 -> <<16#21, 4:6>>;
+  %           mpeg4 -> <<16#20, 4:6>>;
+  %           aac -> <<16#40, 5:6>>;
+  %           _ -> <<0, 0:6>>
+  %         end,
+  %         Specific = case proplists:get_value(config, Info) of
+  %           Config when is_binary(Config) -> [{decoder_specific, Config}];
+  %           _ -> []
+  %         end,
+  %         {es_descr, [<<Pid:16, 0:1, 0:1, 0:1, 16#1F:5>>, 
+  %           {decoder_config, [<<Desc/bitstring, 0:1, 1:1, (1024*1024):24, 16#7fffffff:32, 0:32>>, Specific]},
+  %           {sl, <<1, 0:1, 0:32, 0, 0, 0:7>>}
+  %         ]}
+  %       end, StreamInfos)
+  %     ]}]
+  %   ))],
+  % 
   %% FIXME: Program info is not just for IOD, but also for other descriptors
   %% Look at libdvbpsi/src/tables/pmt.c:468
-  _ProgramInfo = iolist_to_binary([<<?DESCRIPTOR_IOD, (iolist_size(IOD))>>, IOD]),
+  % _ProgramInfo = iolist_to_binary([<<?DESCRIPTOR_IOD, (iolist_size(IOD))>>, IOD]),
   ProgramInfo = <<>>,
   
   %% FIXME: Here also goes the same descriptor as in ProgramInfo
@@ -132,7 +132,7 @@ encode(pmt, Options) ->
   %% Code, that read it is in vlc/modules/demux/ts.c:3177
   %%
   
-  Streams = lists:map(fun({Codec, Pid, Info}) ->
+  Streams = lists:map(fun({Codec, Pid, Info}) when is_integer(Pid) ->
     LangInfo = case proplists:get_value(lang, Info) of
       Lang when is_binary(Lang) ->
         <<16#0A, (size(Lang) + 1), Lang/binary, 0>>;
@@ -154,8 +154,8 @@ encode(pmt, Options) ->
       mp3 -> ?TYPE_AUDIO_MPEG2;
       h264 -> ?TYPE_VIDEO_H264;
       mpeg2video -> ?TYPE_VIDEO_MPEG2;
-      {unhandled, Code} -> Code
-    end, 
+      {unhandled, Code} when is_integer(Code) -> Code
+    end,
     <<CodecId, 2#111:3, Pid:13, 2#1111:4, (size(ESInfo)):12, ESInfo/binary>>
   end, StreamInfos),
   

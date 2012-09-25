@@ -77,15 +77,10 @@
 }).
 
 
--export([benchmark/0]).
-
 -define(PID_TYPE(Pid), case lists:keyfind(Pid, #stream.pid, Pids) of #stream{codec = h264} -> "V"; _ -> "A" end).
 
--on_load(load_nif/0).
 
-
-
--export([extract_nal/1, adapt_field_info/1, read_annexb/1, detect_mp2v_keyframe/1]).
+-export([adapt_field_info/1, read_annexb/1, detect_mp2v_keyframe/1]).
 
 -export([start_link/1, set_socket/2]).
 -export([init/1, handle_info/2, handle_call/3, handle_cast/2, code_change/3, terminate/2]).
@@ -110,10 +105,10 @@ packet(Path, N) ->
   file:close(F),
   {if Start == 1 -> start; true -> continue end, Pid, Counter }.
 
-load_nif() ->
-  Load = erlang:load_nif(code:lib_dir(mpegts,priv)++ "/mpegts_reader", 0),
-  io:format("Load mpegts_reader: ~p~n", [Load]),
-  ok.
+% load_nif() ->
+%   Load = erlang:load_nif(code:lib_dir(mpegts,priv)++ "/mpegts_reader", 0),
+%   io:format("Load mpegts_reader: ~p~n", [Load]),
+%   ok.
 
 
 start_link(Options) ->
@@ -640,20 +635,11 @@ decode_pes_packet(#stream{} = Stream) ->
   {Stream#stream{es_buffer = <<>>}, []}.
   
 detect_mp2v_keyframe(Data) ->
-  case extract_nal(Data) of
-    undefined ->
-      % ?D(false),
-      frame;
-    {ok, <<16#b3, _/binary>>, _Rest} ->
-      keyframe;
-    {ok, <<_Code, _/binary>>, Rest} ->
-      % if
-      %   Code == 181 -> ok;
-      %   Code > 35 -> ?D({mp2v, Code});
-      %   true -> ok
-      % end,
-      detect_mp2v_keyframe(Rest)
-  end.
+  detect_mp2v_keyframe1(read_annexb(Data)).
+
+detect_mp2v_keyframe1([<<16#b3, _/binary>>| _Rest]) -> true;
+detect_mp2v_keyframe1([]) -> false;
+detect_mp2v_keyframe1([_|Rest]) -> detect_mp2v_keyframe1(Rest).
   
     
 pes_timestamp(<<_:7/binary, 2#11:2, _:6, PESHeaderLength, PESHeader:PESHeaderLength/binary, _/binary>>) ->
@@ -807,7 +793,7 @@ decode_adts(ADTS, BaseDTS, SampleRate, SampleCount, Frames) ->
 %   
 
 decode_avc(#stream{es_buffer = Data, dts = DTS, pts = PTS, h264 = H264} = Stream) ->
-  NALS = pes_to_nals(Data),
+  NALS = read_annexb(Data),
   Body = [[<<(size(NAL)):32>>, NAL] || NAL <- NALS],
   ConfigNALS = [NAL || <<_:3, Type:5,_/binary>> = NAL <- NALS, Type == ?NAL_SPS orelse Type == ?NAL_PPS],
   IDRS = [NAL || <<_:3, ?NAL_IDR:5,_/binary>> = NAL <- NALS],
@@ -876,80 +862,12 @@ decode_avc(#stream{es_buffer = Data, dts = DTS, pts = PTS, h264 = H264} = Stream
 %   {Stream#stream{h264 = H264_1}, ConfigFrames ++ [Frame#video_frame{dts = DTS, pts = PTS, body = <<2:32, 9,224, Body/binary>>} || #video_frame{body = Body} = Frame <- Frames]}.
 
 read_annexb(Data) ->
-  pes_to_nals(Data).
-
-pes_to_nals(PES) ->
-  pes_to_nals(PES, []).
-  
-  
-pes_to_nals(<<>>, Acc) ->
-  lists:reverse(Acc);
-  
-pes_to_nals(PES, Acc) ->
-  case extract_nal(PES) of
-    {ok, NAL, Rest} ->
-      pes_to_nals(Rest, [NAL|Acc]);
-    undefined ->  
-      % Here is very main decision taken: either to look for NAL end in next PES or reply now.
-      % This clause means, that there is no NAL marker anymore
-      LastNal = case PES of
-        <<1:24, Rest/binary>> -> Rest;
-        <<1:32, Rest/binary>> -> Rest;
-        _ -> <<>>
-      end,
-      pes_to_nals(<<>>, [LastNal|Acc])
-  end.
-  
-
-extract_nal(Data) ->
-  case extract_nal1(Data) of
-    undefined -> undefined;
-    {ok, <<>>, Rest} -> extract_nal(Rest);
-    {ok, NAL, Rest} -> {ok, NAL, Rest}
-  end.
-
-extract_nal1(Data) -> extract_nal_erl(Data).
-
-extract_nal_erl(Data) ->
-  find_nal_start_erl(Data).
-
-find_nal_start_erl(<<1:32, Rest/binary>>) ->
-  find_and_extract_nal(Rest);
-
-find_nal_start_erl(<<1:24, Rest/binary>>) ->
-  find_and_extract_nal(Rest);
-
-find_nal_start_erl(<<>>) ->
-  undefined;
-  
-find_nal_start_erl(<<_, Rest/binary>>) ->
-  find_nal_start_erl(Rest).
-
-find_and_extract_nal(Bin) ->
-  case find_nal_end_erl(Bin, 0) of
-    undefined ->
-      undefined; % this reply tells to look for NAL end in next PES and delays one frame
-    Length ->
-      <<NAL:Length/binary, Rest/binary>> = Bin,
-      {ok, NAL, Rest}
-  end.    
-  
-  
-find_nal_end_erl(<<1:32, _/binary>>, Len) -> Len;
-find_nal_end_erl(<<1:24, _/binary>>, Len) -> Len;
-find_nal_end_erl(<<>>, _Len) -> undefined;
-find_nal_end_erl(<<_, Rest/binary>>, Len) -> find_nal_end_erl(Rest, Len+1).
-
+  [NAL || NAL <- binary:split(Data, [<<1:32>>, <<1:24>>], [global]), size(NAL) > 0].
 
       
 
 
 -include_lib("eunit/include/eunit.hrl").
-
-benchmark() ->
-  N = 100000,
-  extract_nal_erl_bm(N),
-  extract_nal_c_bm(N).
 
 nal_test_bin(large) ->
   <<0,0,0,1,
@@ -979,47 +897,21 @@ nal_test_bin(small) ->
   <<0,0,0,1,9,224,0,0,1,104,206,50,200>>.
 
 extract_nal_test() ->
-  ?assertEqual(undefined, extract_nal(<<0,0,1,9,224>>)),
-  ?assertEqual({ok, <<9,224>>, <<0,0,1,104,206,50,200>>}, extract_nal(nal_test_bin(small))),
-  ?assertEqual({ok, <<104,206,50,200>>, <<0,0,1>>}, extract_nal(<<0,0,1,104,206,50,200,0,0,1>>)),
-  ?assertEqual(undefined, extract_nal(<<>>)).
+  ?assertEqual([<<9:224>>], read_annexb(<<0,0,1,9,224>>)),
+  ?assertEqual([<<9,224>>, <<104,206,50,200>>], read_annexb(nal_test_bin(small))),
+  ?assertEqual([<<104,206,50,200>>], read_annexb(<<0,0,1,104,206,50,200,0,0,1>>)),
+  ?assertEqual([], read_annexb(<<>>)).
   
-extract_nal_erl_test() ->  
-  ?assertEqual({ok, <<9,224>>, <<0,0,1,104,206,50,200>>}, extract_nal_erl(nal_test_bin(small))),
-  ?assertEqual({ok, <<104,206,50,200>>, <<0,0,1>>}, extract_nal_erl(<<0,0,0,1,104,206,50,200,0,0,1>>)),
-  ?assertEqual(undefined, extract_nal_erl(<<>>)).
 
-extract_real_nal_test() ->
-  Bin = nal_test_bin(filler),
-  {ok, <<9,80>>, Bin1} = extract_nal(Bin),
-  {ok, <<6,0,1,192,128>>, Bin2} = extract_nal(Bin1),
-  {ok, <<6,1,1,36,128>>, Bin3} = extract_nal(Bin2),
-  {ok, <<1,174,15,3,234,95,253,83,176,
-            187,255,13,246,196,189,93,100,111,80,30,30,167,
-            220,41,236,119,135,93,159,204,2,57,132,207,28,
-            91,54,128,228,85,112,81,129,18,140,99,90,53,128>>, Bin4} = extract_nal(Bin3),
-  {ok, <<12,255,255,255,255,255,255,255,255,255,255,255,255,255,128>>, Bin5} = extract_nal(Bin4),
-  {ok, <<12,255,255,255,255,255,255,255,255,255,255,255,255,255,255>>, <<0,0,1>>} = extract_nal(Bin5).
-
-
-extract_nal_erl_bm(N) ->
-  Bin = nal_test_bin(large),
-  T1 = erlang:now(),
-  lists:foreach(fun(_) ->
-    extract_nal_erl(Bin)
-  end, lists:seq(1,N)),
-  T2 = erlang:now(),
-  ?D({"Timer erl", timer:now_diff(T2, T1) / N}).
-
-extract_nal_c_bm(N) ->
-  Bin = nal_test_bin(large),
-  T1 = erlang:now(),
-  lists:foreach(fun(_) ->
-    extract_nal(Bin)
-  end, lists:seq(1,N)),
-  T2 = erlang:now(),
-  ?D({"Timer native", timer:now_diff(T2, T1) / N}).
-
-
-
+% extract_real_nal_test() ->
+%   Bin = nal_test_bin(filler),
+%   {ok, <<9,80>>, Bin1} = extract_nal(Bin),
+%   {ok, <<6,0,1,192,128>>, Bin2} = extract_nal(Bin1),
+%   {ok, <<6,1,1,36,128>>, Bin3} = extract_nal(Bin2),
+%   {ok, <<1,174,15,3,234,95,253,83,176,
+%             187,255,13,246,196,189,93,100,111,80,30,30,167,
+%             220,41,236,119,135,93,159,204,2,57,132,207,28,
+%             91,54,128,228,85,112,81,129,18,140,99,90,53,128>>, Bin4} = extract_nal(Bin3),
+%   {ok, <<12,255,255,255,255,255,255,255,255,255,255,255,255,255,128>>, Bin5} = extract_nal(Bin4),
+%   {ok, <<12,255,255,255,255,255,255,255,255,255,255,255,255,255,255>>, <<0,0,1>>} = extract_nal(Bin5).
 

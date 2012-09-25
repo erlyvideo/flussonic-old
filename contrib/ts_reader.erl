@@ -14,7 +14,7 @@ main([Path]) ->
   {ok, Bin} = file:read_file(Path),
   
   T1 = erlang:now(),
-  {ok, Frames1} = decode_file(Bin),
+  {ok, Frames1} = mpegts_decoder:decode_file(Bin),
   T2 = erlang:now(),
   io:format("~B frames (~B)~n", [length(Frames1), timer:now_diff(T2,T1)]),
   

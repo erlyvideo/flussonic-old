@@ -121,5 +121,6 @@ test() ->
     ,rtsp_inbound
     ,rtsp_socket
     ,flu_rtmp
+    ,mpegts_handler
   ]).
 

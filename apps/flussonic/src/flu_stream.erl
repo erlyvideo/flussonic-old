@@ -213,7 +213,9 @@ init([Name,Options1]) ->
   Options = lists:ukeymerge(1, lists:ukeysort(1,Options1), [{name,Name}]),
   erlang:put(name, Name),
   put(configs, []),
-  Stream1 = #stream{last_dts_at=os:timestamp(), last_access_at = os:timestamp(), name = Name, options = Options},
+  Source = proplists:get_value(source, Options1),
+  if is_pid(Source) -> erlang:monitor(process, Source); true -> ok end,
+  Stream1 = #stream{last_dts_at=os:timestamp(), last_access_at = os:timestamp(), name = Name, options = Options, source = Source},
   timer:send_interval(1000, next_second),
   timer:send_interval(3000, check_timeout),
   
@@ -289,6 +291,9 @@ configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, options = Opti
   Stream1.
 
 
+configs(#stream{media_info = undefined}) ->
+  [];
+  
 configs(#stream{last_dts = DTS, media_info = MediaInfo}) ->
   [F#video_frame{dts = DTS, pts = DTS} || F <- video_frame:config_frames(MediaInfo)].
 
