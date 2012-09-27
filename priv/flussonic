@@ -57,6 +57,12 @@ case $1 in
 "shell")
   echo "Remote shell"
   erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1
+  ;;
+"force-reload")
+  echo "Force reload"
+  $0 stop
+  $0 start
+  ;;
 "status")
   echo "Status unimplemented"
   ;;
