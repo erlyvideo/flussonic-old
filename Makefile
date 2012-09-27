@@ -21,7 +21,11 @@ shell:
 	erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1
 
 opensource:
-	git archive --prefix=flussonic-$(VERSION)/ master |gzip > flussonic-$(VERSION).tgz
+	rm -rf flussonic-$(VERSION)
+	git archive --prefix=flussonic-$(VERSION)/ master | tar x
+	cd flussonic-$(VERSION) && ./rebar get-deps
+	tar zcf flussonic-$(VERSION).tar.gz flussonic-$(VERSION)
+	rm -rf flussonic-$(VERSION)
 
 start:
 	mkdir -p log/pipe
