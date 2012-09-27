@@ -1,7 +1,5 @@
 #!/usr/bin/env escript
 
-clear_private(Bin) ->
-  iolist_to_binary(re:replace(Bin, "\\#\\ PRIVATE.*\\#\\ \\/PRIVATE", "", [noteol,ungreedy,multiline,dotall,global])).
 
 main(_Options) ->
   Root = filename:join(filename:dirname(escript:script_name()), ".."),
@@ -15,18 +13,8 @@ main(_Options) ->
     [{Path, Bin}|Acc] 
   end, []),
 
-  Files3 = filelib:fold_files("priv/binaries", ".*", true, fun(Path, Acc) -> 
-    {ok, Bin} = file:read_file(Path),
-    [{Path, base64:encode(Bin)}|Acc] 
-  end, []),
-
-  Files4 = filelib:fold_files("priv", "\\.conf", true, fun
-  ("priv/local.conf", Acc) ->
-    Acc;
-  (Path, Acc) ->
-    {ok, Bin} = file:read_file(Path),
-    [{Path, clear_private(Bin)}|Acc] 
-  end, []),
+  {ok, ConfigBin} = file:read_file("priv/sample/flussonic.conf"),
+  Files4 = [{"priv/sample/flussonic.conf",ConfigBin}],
   
 
   % Files = Files1 ++ Files2 ++ Files3,
@@ -35,26 +23,28 @@ main(_Options) ->
   % ok = file:write_file("flussonic", Script),
   % os:cmd("chmod u+x flussonic"),
   
-  Bootstrap = ["license_client.beam", "flussonic.beam", "static_file.beam", "flu.beam", "http_stream.beam", "http_uri2.beam"],
+  Commercial = ["hls", "playlist", "http_file", "dvr"],
   Beams = case lists:member("full", _Options) of
     true -> Files1;
-    false -> [{Name,Bin} || {Name,Bin} <- Files1, lists:member(Name, Bootstrap)]
+    false ->
+      Removing = [filename:basename(Path) || Path <- 
+        lists:flatmap(fun(Path) -> filelib:wildcard(Root ++ "/apps/"++Path++"/ebin/*") end, Commercial)],
+      [{Path,Bin} || {Path,Bin} <- Files1, not lists:member(Path, Removing)]
   end,
-  % Beams = Files1,
 
-  {ok, {"mem", ZipBin}} = zip:create("mem", Beams ++ Files2 ++ Files3 ++ Files4, [memory]),
+  {ok, {"mem", ZipBin}} = zip:create("mem", Beams ++ Files2 ++ Files4, [memory]),
   Script = <<"#!/usr/bin/env escript\n%%! -smp enable +K true +A 8 -name flussonic@127.0.0.1 -sasl errlog_type error \n", ZipBin/binary>>,
   ok = file:write_file("flussonic", Script),
   os:cmd("chmod u+x flussonic"),
 
   % Bench = ["http_bench.beam"],
   % HttpBenchBeams = [{Name,Bin} || {Name,Bin} <- Files1, lists:member(Name, Bench)],
-  {ok, {"mem", HttpBench}} = zip:create("mem", Files1 ++ Files3, [memory]),
-  ok = file:write_file("http_bench", <<"#!/usr/bin/env escript\n%%! -smp enable +K true -sasl errlog_type error \n", HttpBench/binary>>),
-  os:cmd("chmod u+x http_bench"),
+  % {ok, {"mem", HttpBench}} = zip:create("mem", Files1 ++ Files3, [memory]),
+  % ok = file:write_file("http_bench", <<"#!/usr/bin/env escript\n%%! -smp enable +K true -sasl errlog_type error \n", HttpBench/binary>>),
+  % os:cmd("chmod u+x http_bench"),
 
-  ok = file:write_file("segmenter", <<"#!/usr/bin/env escript\n%%! -smp enable +K true -sasl errlog_type error \n", HttpBench/binary>>),
-  os:cmd("chmod u+x segmenter"),
+  % ok = file:write_file("segmenter", <<"#!/usr/bin/env escript\n%%! -smp enable +K true -sasl errlog_type error \n", HttpBench/binary>>),
+  % os:cmd("chmod u+x segmenter"),
   halt(0).
   
   

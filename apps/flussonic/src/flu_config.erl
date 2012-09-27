@@ -147,13 +147,17 @@ parse_routes([{file, Prefix, Root}|Env], Acc, GlobalOptions) ->
   ], GlobalOptions);
 
 parse_routes([{root, Root}|Env], Acc, GlobalOptions) ->
+  Module = case is_escriptized(Root) of
+    true -> static_http_escript;
+    false -> cowboy_http_static
+  end,
   parse_routes(Env, Acc ++ [
-  {[], cowboy_http_static, [
+  {[], Module, [
     {directory, Root},
     {mimetypes, [{<<".html">>,[<<"text/html">>]}]},
     {file, <<"index.html">>}
   ]},
-  {['...'], cowboy_http_static, [
+  {['...'], Module, [
     {directory,Root},
     {mimetypes, {fun mimetypes:path_to_mimes/2, default}}
   ]}], GlobalOptions);
@@ -184,5 +188,17 @@ parse_routes([_Else|Env], Acc, GlobalOptions) ->
 
 parse_routes([], Acc, _GlobalOptions) ->
   Acc.
+
+
+is_escriptized(Root) ->
+  case file:read_file_info(Root) of
+    {error, enoent} ->
+      case application:get_env(flussonic, escript_files) of
+        {ok, _} -> true;
+        _ -> false
+      end;
+    _ ->
+      false
+  end.
 
   

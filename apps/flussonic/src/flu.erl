@@ -7,7 +7,6 @@
 -export([now/0, now_ms/0]).
 
 -export([join/2]).
--export([copy_nifs/0]).
 -export([extract_config_if_required/0]).
 -export([to_hex/1]).
 -export([version/0]).
@@ -20,20 +19,6 @@ version() ->
   Version.
 
 
-copy(Prefix, File, Folder) ->
-  Path = filename:join(Prefix, File),
-  Dest = filename:join(Folder, File),
-  case filelib:is_file(Dest) of
-    true -> ok;
-    false -> ?D({copy_nif,Path,Dest}), filelib:ensure_dir(Dest),
-      case filelib:is_file(Path) of
-        true -> file:copy(Path, Dest);
-        false ->
-          {ok, Bin} = static_file:read_internal(Path),
-          file:write_file(Dest, base64:decode(Bin))
-      end
-  end.
-
 extract_config_if_required() ->
   case file:read_file_info("priv/flussonic.conf") of
     {error, enoent} -> extract_config();
@@ -42,21 +27,12 @@ extract_config_if_required() ->
 
 extract_config() ->
   [begin
-    filelib:ensure_dir(Path),
+    Path1 = re:replace(Path, "sample/", "", [{return,list}]),
+    filelib:ensure_dir(Path1),
     {ok, Bin} = static_file:read_internal(Path),
-    file:write_file(Path, Bin)
-  end || Path <- static_file:wildcard("priv/[^/]*\\.conf")].
+    file:write_file(Path1, Bin)
+  end || Path <- static_file:wildcard("priv/sample/[^/]*\\.conf")].
 
-copy_nifs() ->
-  
-  {unix, OS} = os:type(),
-  Prefix = "priv/binaries/" ++ atom_to_list(OS) ++ "/",
-  copy(Prefix, "mpegts_reader.so", "apps/mpegts/priv/"),
-  copy(Prefix, "mpeg2_crc32.so", "apps/mpegts/priv/"),
-  copy(Prefix, "mmap.so", "apps/flussonic/priv/"),
-  file:make_dir("apps/mpegts/ebin"), code:add_path("apps/mpegts/ebin"),
-  file:make_dir("apps/flussonic/ebin"), code:add_path("apps/flussonic/ebin"),
-  ok.
 
 
 join([], _) -> <<>>;

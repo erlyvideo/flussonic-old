@@ -45,10 +45,13 @@ main(["-e"]) ->
 main(Options) ->
   erlang:set_cookie(node(), 'erlyvideo'),
   static_file:load_escript_files(),
-  flu:copy_nifs(),
-  {ok, Files} = application:get_env(flussonic, escript_files),
-  application:set_env(flussonic, escript_files, Files),
-  code:add_pathz("apps/mpegts/ebin"),
+  case flu_config:lookup_config() of
+    {error, _} ->
+      io:format("No config found, extracting default~n"),
+      flu:extract_config_if_required();
+    {ok, _, _} ->
+      ok
+  end,
   io:format("Licensed code loaded~n"),
   ok = start(Options),
   io:format("Flussonic streaming server started. ~nInformation: http://flussonic.com/ (http://erlyvideo.org/)~nContacts: Max Lapshin <info@erlyvideo.org>~n"),
@@ -60,13 +63,14 @@ start() ->
   start([]).
   
 start(_Options) ->
+  application:start(compiler),
   application:load(lager),
   application:set_env(lager,handlers,[{lager_console_backend,info}]),
   lager:start(),
   license_client:load(),
 	application:start(sasl),
 	start_app(mimetypes),
-	start_app(cowboy),
+  start_app(cowboy),
 	start_app(rtmp),
 	start_app(rtp),
 	start_app(rtsp),
@@ -79,7 +83,8 @@ start(_Options) ->
 	try_start_app(http_file),
 	try_start_app(playlist),
 	start_app(mpegts),
-  start_app(flussonic).
+  start_app(flussonic),
+  ok.
 
 try_start_app(App) ->
   case application:start(App) of
