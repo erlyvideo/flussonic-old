@@ -1,13 +1,21 @@
 # include version.mk
 VERSION := $(shell grep vsn apps/flussonic/src/flussonic.app.src | ruby -e 'puts STDIN.read[/\"([0-9\.]+)\"/, 1]')
 NODENAME ?= flussonic
+DESTDIR ?= /opt/flussonic
 
 all: app
 
-app: get-deps
-	@./rebar compile
 
-get-deps:
+install: all
+	mkdir -p $(DESTDIR)
+	cp -r Emakefile Makefile apps contrib deps priv rebar wwwroot $(DESTDIR)
+	
+
+
+app: deps/cowboy
+	@ERL_LIBS=apps:deps erl -make
+
+deps/cowboy:
 	@./rebar get-deps
 
 clean:
@@ -20,12 +28,6 @@ run:
 shell:
 	erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1
 
-opensource:
-	rm -rf flussonic-$(VERSION)
-	git archive --prefix=flussonic-$(VERSION)/ master | tar x
-	cd flussonic-$(VERSION) && ./rebar get-deps
-	tar zcf flussonic-$(VERSION).tar.gz flussonic-$(VERSION)
-	rm -rf flussonic-$(VERSION)
 
 start:
 	mkdir -p log/pipe
@@ -41,19 +43,15 @@ stop:
 	echo -e "init:stop().\n" > log/pipe/erlang.pipe.1.w
 	kill `cat log/flussonic.pid`
 
-bench:
-	ERL_LIBS=apps:deps erl +K true +A 16 -sname fluss_bench -pa apps/*/ebin -boot start_sasl -s http_bench -sasl errlog_type error
 
 dist-clean: clean
 
-release:
+opensource:
 	rm -rf flussonic-$(VERSION)
-	mkdir flussonic-$(VERSION)
-	./contrib/escriptize
-	mv flussonic flussonic-$(VERSION)/
-	mkdir flussonic-$(VERSION)/priv/
-	cp -r priv/*.conf priv/bunny.mp4 priv/runit priv/*.ru priv/*.rb flussonic-$(VERSION)/priv/
-	cp README.md flussonic-$(VERSION)/README.md
+	git archive --prefix=flussonic-$(VERSION)/ master | tar x
+	cd flussonic-$(VERSION) && ./rebar get-deps && ./rebar compile && find . -name *.beam -delete && find . -name *.so -delete
+	tar zcf flussonic-$(VERSION).tgz flussonic-$(VERSION)
+	rm -rf flussonic-$(VERSION)
 
 package:
 	rm -rf tmproot
@@ -71,10 +69,6 @@ package:
 	mv tmproot/*.deb .
 	rm -rf tmproot
 
-
-archive: release
-	tar zcvf flussonic-$(VERSION).tar.gz flussonic-$(VERSION)
-	rm -rf flussonic-$(VERSION)
 
 upload:
 	./contrib/license_pack $(VERSION)

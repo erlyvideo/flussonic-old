@@ -54,6 +54,9 @@ case $1 in
   cd $FLUDIR
   to_erl /var/run/flussonic/
   ;;
+"shell")
+  echo "Remote shell"
+  erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1
 "status")
   echo "Status unimplemented"
   ;;

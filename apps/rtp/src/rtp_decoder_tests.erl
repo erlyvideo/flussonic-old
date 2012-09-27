@@ -28,7 +28,7 @@
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
 -include_lib("erlmedia/include/sdp.hrl").
--include("rtp.hrl").
+-include("../include/rtp.hrl").
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 

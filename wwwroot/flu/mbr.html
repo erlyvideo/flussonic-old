@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>TheAxiomatic</title>
+  <link href="http://78.46.246.140/assets/application-8dbcf3dca0faa4167e3ac9b85b04d284.css" media="screen" rel="stylesheet" type="text/css" />
+  <script src="http://78.46.246.140/assets/application-5f5e14d05ab99cac084b66cb87bbeec8.js" type="text/javascript"></script>
+  <meta content="authenticity_token" name="csrf-param" />
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta content="http://78.46.246.140/Q5qAdkXz9YPIJdJf1+ystcDwbtjkfplQRxEw1f4Kp8=" name="csrf-token" />
+</head>
+<body>
+
+<script type="text/javascript" src="/flu/js/swfobject.js"></script>
+<script type="text/javascript">
+	var subtitles =
+		'<subtitles defaultLabel="Субтитры" defaultDescription="Отключены"> \
+			<subtitles src="subtitle1.srt" label="RU" description="Русские" /> \
+			<subtitles src="subtitle2.srt" label="EN" description="Английский" /> \
+			<subtitles src="subtitle3.srt" label="КГ" description="Heccrbt" /> \
+		</subtitles>';
+
+	var flashvars = {
+      src: "http://localhost:8080/vod/pulp1.mp4/manifest.f4m",autoSwitchDescription: "Авто",defaultAudioLabel: "Аудио",defaultAudioDescription: "Русский",volumeInfoPattern: encodeURI("Звук $$%"),volumeInfoMutedString: "Звук выключен",javascriptCallbackFunction: "onJSBridge"
+	};
+	var params = {
+		wmode: "direct"
+		, allowFullScreen: true
+	};
+	var attrs = {
+		name: "player"
+	};
+
+	swfobject.embedSWF("/flu/mbr.swf", attrs.name, 800, 450, "10.1.0", null, flashvars, params, attrs);
+
+	var player;
+	function onJSBridge(playerId, event, obj) {
+		switch(event) {
+			case "onJavaScriptBridgeCreated":
+				player = document.getElementById(playerId);
+
+				player.addEventListener("loadStateChange", "onLoadStateChange");
+				// player.addEventListener("mediaSizeChange", "onDynamicStream");
+
+				// set autoSwitch to false
+				player.setAutoDynamicStreamSwitch(false);
+
+				// events for dynamic streams
+				player.addEventListener("autoSwitchChange", "onDynamicStream");
+				player.addEventListener("switchingChange", "onDynamicStream");
+				player.addEventListener("numDynamicStreamsChange", "onDynamicStream");
+
+				// events for alternative audio streams
+				player.addEventListener("audioSwitchingChange", "onAlternativeAudioStream");
+				player.addEventListener("numAlternativeAudioStreamsChange", "onAlternativeAudioStream");
+
+				// events for subtitles streams
+				player.addEventListener("subtitlesSwitchingChange", "onSubtitlesStream");
+				player.addEventListener("numSubtitlesStreamsChange", "onSubtitlesStream");
+				break;
+
+			// other possible events
+			case "emptied":
+			case "loadstart":
+			case "play":
+			case "pause":
+			case "waiting": // buffering
+			case "loadedmetadata":
+			case "seeking":
+			case "seeked":
+			case "volumechange":
+			case "durationchange":
+			case "timeupdate":
+			case "progress": // for progressive download
+			case "complete":
+			case "preroll":
+
+			default:
+				console.log(event, obj);
+				break;
+		}
+	}
+
+	function onLoadStateChange(state) {
+		console.log(arguments.callee.name, arguments);
+		if (state == "ready") {
+			// player.switchDynamicStreamIndex(0);
+			// player.switchAlternativeAudioIndex(0); // -1 by default
+			// player.switchSubtitlesStreamIndex(0); // -1 is off
+		}
+	}
+
+	function onDynamicStream() {
+		console.log(arguments.callee.name, arguments);
+		// console.log("autoDynamicStreamSwitch", player.getAutoDynamicStreamSwitch());
+		// console.log("currentDynamicStreamIndex", player.getCurrentDynamicStreamIndex());
+		// console.log("numDynamicStreams", player.getNumDynamicStreams());
+		// console.log("streamItems", player.getStreamItems());
+	}
+	function onAlternativeAudioStream() {
+		console.log(arguments.callee.name, arguments);
+		// console.log("currentAlternativeAudioStreamIndex", player.getCurrentAlternativeAudioStreamIndex());
+		// console.log("numAlternativeAudioStreams", player.getNumAlternativeAudioStreams());
+		// console.log("alternativeAudioItemAt(0)", player.getAlternativeAudioItemAt(0));
+	}
+	function onSubtitlesStream() {
+		console.log(arguments.callee.name, arguments);
+		// console.log("currentSubtitlesStreamIndex", player.getCurrentSubtitlesStreamIndex());
+		// console.log("numSubtitlesStreams", player.getNumSubtitlesStreams());
+		// console.log("subtitlesItemAt(0)", player.getSubtitlesItemAt(0));
+	}
+</script>
+
+<a href="/player/edit">Редактировать настройки</a>
+<br /><br />
+<div id="player"></div>
+
+
+</body>
+</html>
