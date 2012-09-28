@@ -17,6 +17,7 @@ start_link(RTMP, Stream) ->
   rtmp,
   stream,
   media_info,
+  start_spec,
   delaying = true,
   delayed = []
 }).
@@ -30,6 +31,12 @@ start_link(RTMP, Stream) ->
 -define(START_FRAMES, 5).
 
 init([StartSpec, Stream]) ->
+  put(flu_name, publish_proxy),
+  self() ! init,
+  erlang:monitor(process, Stream),
+  {ok, #proxy{start_spec = StartSpec, stream = Stream}}.
+
+handle_info(init, #proxy{start_spec = StartSpec} = Proxy) ->
   RTMP = if
     is_pid(StartSpec) ->
       erlang:monitor(process, StartSpec),
@@ -41,9 +48,7 @@ init([StartSpec, Stream]) ->
     StartSpec == undefined ->
       undefined
   end,
-  put(flu_name, publish_proxy),
-  erlang:monitor(process, Stream),
-  {ok, #proxy{rtmp = RTMP, stream = Stream}}.
+  {noreply, Proxy#proxy{rtmp = RTMP}};
 
 handle_info({set_source, RTMP}, #proxy{rtmp = undefined} = Proxy) ->
   erlang:monitor(process, RTMP),

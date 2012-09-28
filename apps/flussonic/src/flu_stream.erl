@@ -216,7 +216,7 @@ init([Name,Options1]) ->
   Source = proplists:get_value(source, Options1),
   if is_pid(Source) -> erlang:monitor(process, Source); true -> ok end,
   Stream1 = #stream{last_dts_at=os:timestamp(), last_access_at = os:timestamp(), name = Name, options = Options, source = Source},
-  timer:send_interval(1000, next_second),
+  % timer:send_interval(1000, next_second),
   timer:send_interval(3000, check_timeout),
   
   Stream2 = set_options(Stream1),
