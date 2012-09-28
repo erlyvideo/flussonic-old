@@ -42,6 +42,7 @@
 
 -export([user_connected/2, user_disconnected/2, user_play/3, user_stop/3]).
 -export([stream_created/2, stream_stopped/1, next_dvr_minute/2]).
+-export([session_opened/1, session_closed/1]).
 
 -export([to_json/1, to_xml/1]).
 
@@ -232,7 +233,31 @@ stream_stopped(Name) ->
 next_dvr_minute(Name, Options) ->
   gen_event:notify(?MODULE, #flu_event{event = stream.next_minute, stream = Name, options = Options}).
 
+%%--------------------------------------------------------------------
+%% @spec (Sess) -> ok
+%%
+%% @doc send event that session has been opened
+%% @end
+%%----------------------------------------------------------------------
+session_opened(Sess) ->
+  %% Sess::proplist() stream, user_id, user_ip, session_id
+  Stream = proplists:get_value(user_id, Sess),
+  Uid = proplists:get_value(user_id, Sess),
+  Sid = proplists:get_value(session_id, Sess),
+  gen_event:notify(?MODULE, #flu_event{event = session.opened, user_id = Uid, session_id = Sid, stream = Stream, options = Sess}).
 
+%%--------------------------------------------------------------------
+%% @spec (Session) -> ok
+%%
+%% @doc send event that session was closed
+%% @end
+%%----------------------------------------------------------------------
+session_closed(Sess) ->
+  %% Sess::proplist() ts, session_id, user_id, user_ip, stream
+  Stream = proplists:get_value(user_id, Sess),
+  Uid = proplists:get_value(user_id, Sess),
+  Sid = proplists:get_value(session_id, Sess),
+  gen_event:notify(?MODULE, #flu_event{event = session.closed, user_id = Uid, session_id = Sid, stream = Stream, options = Sess}).
 
 %%%------------------------------------------------------------------------
 %%% Callback functions from gen_server
