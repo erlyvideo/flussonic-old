@@ -244,20 +244,15 @@ check_sessions0(URL, Name0, Req0, Type) ->
     {undefined, _} -> throw({return, 403, "denied"}); % no token specified
     {Token, Req1} ->
       {PeerAddr, _} = cowboy_http_req:peer_addr(Req1),
-      Ip = inet_parse:ntoa(PeerAddr),
-      Session = case flu_session:find_session(Token, Ip, Name0) of
-        undefined ->
-          case flu_session:backend_request(URL, Token, Ip, Name0) of % backend request
-            % TODO merge in one method call ??
-            {error,  _, Opts} -> flu_session:new_session(Token, Ip, Name0, [{type, Type} | Opts]);
-            {ok, Name1, Opts} -> flu_session:new_session(Token, Ip, Name1, [{type, Type} | Opts])
-          end;
-        R -> R
-      end,
-      case flu_session:update_session(Session) of % update last_access_time and throw if denied
-        denied -> throw({return, 403, "denied"});
-        _ -> ok
-      end,
-      flu_session:url(Session)
+      {Referer, _} = cowboy_http_req:header('Referer', Req1),
+      Ip = list_to_binary(inet_parse:ntoa(PeerAddr)),
+      Identity = [{token,Token},{name,Name0},{ip,Ip}],
+      Options = [{type,Type},{referer,Referer}],
+      case flu_session:verify(URL, Identity, Options) of
+        {ok, NewName} ->
+          NewName;
+        {error, Code, Reply} ->
+          throw({return,Code, Reply})
+      end
   end.
 

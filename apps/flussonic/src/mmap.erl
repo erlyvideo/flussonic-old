@@ -12,7 +12,7 @@
 -on_load(init_nif/0).
 
 
--export([init_nif/0, open/2, pread/3]).
+-export([init_nif/0, open/2, pread/3, ready/0]).
 
 -export([mmap_open/2, mmap_pread/3]).
 
@@ -22,9 +22,16 @@
 
 
 init_nif() ->
-  Load = erlang:load_nif(code:lib_dir(flussonic,priv)++ "/mmap", 0),
-  io:format("Load mmap: ~p~n", [Load]),
-  ok.
+  case code:lib_dir(flussonic,priv) of
+    Dir when is_list(Dir) ->
+      Path = Dir ++ "/mmap",
+      case erlang:load_nif(Path, 0) of
+        ok -> ok;
+        {error, Error} -> ?DBG("Loading mmap failed: ~p. Acceleration disabled", [Error]), ok
+      end;
+    _ ->
+      ok
+  end.
 
 
 open(Path, Options) when is_list(Path) ->
@@ -36,6 +43,10 @@ open(Path, Options) when is_binary(Path) ->
 mmap_open(_Path, _Options) ->
   ?NIF_STUB.
   
+
+ready() ->
+  false.
+
 
 pread(File, Position, Size) when Position >= 0 andalso Position < size(File) ->
   case File of

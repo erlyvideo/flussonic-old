@@ -141,10 +141,17 @@ mmap_pread(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   return enif_make_ulong(env, 42);
 }
 
+static ERL_NIF_TERM
+mmap_ready(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+  return enif_make_atom(env, "true");
+}
+
 static ErlNifFunc mmap_funcs[] =
 {
   {"mmap_open", 2, mmap_open},
-  {"mmap_pread", 3, mmap_pread}
+  {"mmap_pread", 3, mmap_pread},
+  {"ready", 0, mmap_ready}
 };
 
 ERL_NIF_INIT(mmap, mmap_funcs, load, reload, upgrade, unload)

@@ -6,13 +6,18 @@
 
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
--export([find_session/3, new_session/4, update_session/1, url/1]).
+-export([find_session/1, new_session/2, update_session/1, url/1]).
+-export([table/0]).
 -export([stats/0]).
 -export([list/0, clients/0]).
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 
--export([backend_request/4]).
+-export([verify/3]).
+
+
+-export([backend_request/3]).
 
 % -record(session, {
 %   id,
@@ -24,10 +29,11 @@
 
 
 -record(session, {
-  uid,
+  session_id,
   token,
   ip,
-  url,
+  name,
+  user_id,
   flag,
   type, %  :: <<"hds">>|<<"hls">>|<<"http">>
   created_at,
@@ -38,30 +44,55 @@
 }).
 
 
-backend_request(URL, Token, Ip, Name) ->
-  RequestURL = lists:flatten(io_lib:format("~s?url=~s&token=~s&ip=~s", [URL, Name, Token, Ip])),
+merge(List1, List2) ->
+  lists:ukeymerge(1, lists:ukeysort(1,List1), lists:ukeysort(1, List2) ).
+
+verify(URL, Identity, Options) ->
+
+  Session = case find_session(Identity) of
+    undefined ->
+      case backend_request(URL, Identity, Options) of
+        {error,  _, Opts1} -> new_session(Identity, Opts1 ++ Options);
+        {ok, Name1, Opts1} -> new_session(Identity, merge([{name,Name1}], Opts1 ++ Options))
+      end;
+    R -> R
+  end,
+  case update_session(Session) of
+    denied -> {error, 403, "denied"};
+    granted -> {ok, url(Session)}
+  end.
+
+
+
+
+backend_request(URL, Identity, Options) ->
+  Query = string:join([io_lib:format("~s=~s&", [K,V]) || {K,V} <- Identity ++ Options], "&"),
+  RequestURL = lists:flatten([URL, "?", Query]),
+  Name = proplists:get_value(name, Identity),
   case http_stream:request_body(RequestURL, [{noredirect, true}, {keepalive, false}]) of
     {ok, {_Socket, Code, Headers, _Body}} ->
       Opts0 = case proplists:get_value(<<"X-AuthDuration">>, Headers) of % session expire
-        undefined -> [];
-        Value -> [{expire, Value}]
+        undefined -> Options;
+        Value -> merge([{expire, to_i(Value)}], Options)
       end,
       case Code of
-        200 -> {ok,    Name,                                             lists:merge(Opts0, [{access, granted}])};
-        302 -> {ok,    proplists:get_value(<<"X-Name">>, Headers, Name), lists:merge(Opts0, [{access, granted}])};
-        403 -> {error, 403,                                              lists:merge(Opts0, [{access, denied}])};
-        _ ->   {error, 403,                                              lists:merge(Opts0, [{access, denied}])}
+        200 -> {ok,    Name,                                             merge([{access, granted}],Opts0)};
+        302 -> {ok,    proplists:get_value(<<"X-Name">>, Headers, Name), merge([{access, granted}],Opts0)};
+        403 -> {error, 403,                                              merge([{access, denied}], Opts0)};
+        _ ->   {error, 403,                                              merge([{access, denied}], Opts0)}
       end;
-    {error, _} -> throw({return, 404, "not found"})
+    {error, _} ->
+      {error, 404, merge([{access, denied}], Options)}
   end.
 
-  
+
+to_i(Bin) when is_binary(Bin) -> list_to_integer(binary_to_list(Bin)).
 
 
 clients() ->
   Now = flu:now_ms(),
-  Sessions = ets:select(?MODULE, ets:fun2ms(fun(#session{flag = granted} = E) -> E end)),
-  [[{ip,IP},{name,URL},{start_at,StartAt},{duration,Now - StartAt},{type,Type}] || #session{ip = IP, url = URL, created_at = StartAt, type = Type} <- Sessions].
+  Sessions = ets:select(flu_session:table(), ets:fun2ms(fun(#session{flag = granted} = E) -> E end)),
+  [[{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type}] || #session{ip = IP, name = Name, created_at = StartAt, type = Type} <- Sessions].
 
 list() ->
   flu_rtmp:clients() ++ clients().
@@ -70,67 +101,60 @@ start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stats() ->
-  Streams = ets:foldl(fun(#session{url = Name}, Acc) ->
+  Streams = ets:foldl(fun(#session{name = Name}, Acc) ->
       dict:update_counter(Name, 1, Acc)
-    end, dict:new(), ?MODULE),
+    end, dict:new(), flu_session:table()),
   dict:to_list(Streams).
 
 % cookie_name() ->
 %   <<"flu_cookie_">>.
 
-url(Session) -> Session#session.url.
+url(#session{name = Name}) -> Name.
 
-find_session(Token, Ip, Url) ->
-  Uid = crypto:sha([Token, Ip, Url]),
-  case ets:lookup(?MODULE, Uid) of
+
+hex(Binary) when is_binary(Binary) ->
+  iolist_to_binary([string:to_lower(lists:flatten(io_lib:format("~2.16.0B", [H]))) || <<H>> <= Binary]).
+
+session_id(Identity) -> hex(crypto:sha([V || {_K,V} <- lists:sort(Identity), is_list(V) orelse is_binary(V)])).
+
+find_session(Identity) ->
+  SessionId = session_id(Identity),
+  case ets:lookup(flu_session:table(), SessionId) of
     [] -> undefined;
     [#session{} = Session] -> Session
   end.
 
-new_session(Token, Ip, Url, Opts) ->
+new_session(Identity, Opts) ->
   Flag    = proplists:get_value(access, Opts, denied),
   Expire  = proplists:get_value(expire, Opts, ?TIMEOUT),
 
   Now = flu:now_ms(),
 
-  Uid = crypto:sha([Token, Ip, Url]),
-  Session = #session{uid = Uid, token = Token, ip = Ip, url = Url, created_at = Now,
+  SessionId = session_id(Identity),
+  Token = proplists:get_value(token,Identity),
+  Ip = proplists:get_value(ip, Identity),
+  Name = proplists:get_value(name, Opts, proplists:get_value(name, Identity)),
+  Session = #session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
                      expire_time = Expire, last_access_time = Now, type = proplists:get_value(type, Opts, <<"http">>),
                      flag = Flag, bytes_sent = 0},
-  ets:insert(?MODULE, Session),
+  ets:insert(flu_session:table(), Session),
   erlang:put(<<"session_cookie">>, Token),
   Session.
 
-update_session(Session) ->
-  ets:update_element(?MODULE, Session#session.uid, {#session.last_access_time, flu:now_ms()}),
-  Session#session.flag.
+update_session(#session{session_id = SessionId, flag = Flag}) ->
+  ets:update_element(flu_session:table(), SessionId, {#session.last_access_time, flu:now_ms()}),
+  Flag.
 
-% find_session(Req) ->
-%   {Cookie, Req1} = cowboy_http_req:cookie(cookie_name(), Req),
-%   if is_binary(Cookie) ->
-%     case ets:lookup(?MODULE, Cookie) of
-%       [] -> {undefined, Req1};
-%       [#session{} = Session] ->
-%         ets:insert(?MODULE, Session#session{expire = expire()}),
-%         {Session, Req1}
-%     end;
-%   true -> {undefined, Req1}
-%   end.
 
-% new_session(Req, Name, Options) ->
-%   Key = uuid:gen(),
-%   Path = proplists:get_value(path, Options, <<"/">>),
-%   % ?D({new_session,Key,Name,Path}),
-%   {ok, Req1} = cowboy_http_req:set_resp_cookie(cookie_name(), Key, [{max_age, 1200},{path, Path}], Req), %% set it to cookie
-%   ets:insert(?MODULE, #session{id = Key, name = Name, path = Path, expire = expire(), options = Options}),
-%   {ok, Req1}.
 
-% options(#session{options = Options}) ->
-%   Options.
+table() ->
+  ?MODULE.
+
+
 
 
 init([]) ->
-  ets:new(?MODULE, [public, named_table, {keypos, #session.uid}]),
+  ets:new(flu_session:table(), [public, named_table, {keypos, #session.session_id}]),
   timer:send_interval(5000, clean),
   {ok, state}.
 
@@ -139,10 +163,11 @@ handle_call(Call, _From, State) ->
 
 handle_info(clean, State) ->
   Now = flu:now_ms(),
-  ets:select_delete(?MODULE, ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last}) when T + Last < Now -> true end)),
+  ets:select_delete(flu_session:table(), ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last}) when T + Last < Now -> true end)),
   {noreply, State};
 
 handle_info(_Info, State) ->
   {noreply, State}.
+
 
 terminate(_,_) -> ok.

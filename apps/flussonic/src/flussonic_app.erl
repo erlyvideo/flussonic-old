@@ -28,7 +28,7 @@
 %% Application callbacks
 -export([start/2, stop/1]).
 -export([load_config/0, unload_config/0]).
--export([current_cowboy_port/1]).
+% -export([current_cowboy_port/1]).
 -include("log.hrl").
 
 %% ===================================================================
@@ -64,20 +64,20 @@ unload_config() ->
 
 
 
-current_cowboy_port(Name) ->
-  try current_cowboy_port0(Name) of
-    Result -> Result
-  catch
-    _:_ -> undefined
-  end.
+% current_cowboy_port(Name) ->
+%   try current_cowboy_port0(Name) of
+%     Result -> Result
+%   catch
+%     _:_ -> undefined
+%   end.
       
 
-current_cowboy_port0(Name) ->
-  {{cowboy_listener_sup,Name},Pid1,_,_} = lists:keyfind({cowboy_listener_sup,Name}, 1, supervisor:which_children(cowboy_sup)),
-  [state, _, _, ChildSpec |_] = tuple_to_list(ems_debug:get_state(Pid1)),
-  [child, _Pid2, cowboy_acceptors_sup, {_M,_F,A} |_] = tuple_to_list(lists:keyfind(cowboy_acceptors_sup, 3, ChildSpec)),
-  [_Count, cowboy_tcp_transport, Opts|_] = A,
-  proplists:get_value(port, Opts).
+% current_cowboy_port0(Name) ->
+%   {{cowboy_listener_sup,Name},Pid1,_,_} = lists:keyfind({cowboy_listener_sup,Name}, 1, supervisor:which_children(cowboy_sup)),
+%   [state, _, _, ChildSpec |_] = tuple_to_list(ems_debug:get_state(Pid1)),
+%   [child, _Pid2, cowboy_acceptors_sup, {_M,_F,A} |_] = tuple_to_list(lists:keyfind(cowboy_acceptors_sup, 3, ChildSpec)),
+%   [_Count, cowboy_tcp_transport, Opts|_] = A,
+%   proplists:get_value(port, Opts).
 
 load_config() ->
   case flu_config:load_config() of
@@ -104,17 +104,18 @@ load_config() ->
 
   ProtoOpts = [{dispatch, Dispatch},{max_keepalive,4096}],
   
-  % case current_cowboy_port(http) of
-  %   HTTPPort ->
-  %     cowboy:set_protocol_options(http, ProtoOpts);
-  %   undefined ->
-  (catch cowboy:stop_listener(http)),
-
-  % TODO move from cowboy supervisor tree to flussonic supervisor tree
-  cowboy:start_listener(http, 100, 
+  stop_http(http),
+  start_http(http, 100, 
     cowboy_tcp_transport, [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
     cowboy_http_protocol, ProtoOpts
   ),
+
+  % (catch cowboy:stop_listener(http)),
+  % TODO move from cowboy supervisor tree to flussonic supervisor tree
+  % cowboy:start_listener(http, 100, 
+  %   cowboy_tcp_transport, [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
+  %   cowboy_http_protocol, ProtoOpts
+  % ),
   % end,
   
   
@@ -138,3 +139,16 @@ load_config() ->
 	ok.
 
 
+start_http(Ref, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts)
+    when is_integer(NbAcceptors) andalso is_atom(Transport)
+    andalso is_atom(Protocol) ->
+  supervisor:start_child(flu_http_sup, cowboy:child_spec(Ref, NbAcceptors,
+    Transport, TransOpts, Protocol, ProtoOpts)).
+
+stop_http(Ref) ->
+  case supervisor:terminate_child(flu_http_sup, {cowboy_listener_sup, Ref}) of
+    ok ->
+      supervisor:delete_child(flu_http_sup, {cowboy_listener_sup, Ref});
+    {error, Reason} ->
+      {error, Reason}
+  end.

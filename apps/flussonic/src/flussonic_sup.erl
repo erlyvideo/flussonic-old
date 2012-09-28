@@ -123,6 +123,8 @@ init([flu_stream_helper, _Name]) ->
   {ok, {{one_for_one, 10, 50}, [
   ]}};
 
+init([flu_http]) ->
+  {ok, {{one_for_all, 10, 100}, []}};
 
 init([]) ->
   Supervisors = [ 
@@ -132,6 +134,13 @@ init([]) ->
       infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
       supervisor,                              % Type     = worker | supervisor
       []                                       % Modules  = [Module] | dynamic
+  },
+  {   flu_http_sup,
+      {supervisor, start_link, [{local, flu_http_sup}, ?MODULE, [flu_http]]},
+      permanent,
+      infinity,
+      supervisor,
+      []
   },
   {   static_stream_watcher_sup,
       {static_stream_watcher, start_link, []},

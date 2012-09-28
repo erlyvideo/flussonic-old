@@ -112,19 +112,23 @@ to_b(undefined) -> undefined;
 to_b(Atom) when is_atom(Atom) -> binary_to_atom(Atom, latin1).
 
 expand_options(Env) ->
-  [expand_entry(Entry) || Entry <- Env].
+  GlobalKeys = [sessions],
+  GlobalOptions = [Entry || Entry <- Env, is_tuple(Entry) andalso lists:member(element(1,Entry),GlobalKeys)],
 
-expand_entry({rewrite, Path, URL}) -> {stream, to_b(Path), to_b(URL), [{static,false}]};
-expand_entry({rewrite, Path, URL, Options}) -> {stream, to_b(Path), to_b(URL), [{static,false}|Options]};
-expand_entry({stream, Path, URL}) -> {stream, to_b(Path), to_b(URL), [{static,true}]};
-expand_entry({stream, Path, URL, Options}) -> {stream, to_b(Path), to_b(URL), [{static,true}|Options]};
-expand_entry({mpegts, Prefix}) -> {mpegts, to_b(Prefix), []};
-expand_entry({mpegts, Prefix, Options}) -> {mpegts, to_b(Prefix), Options};
-expand_entry({live, Prefix}) -> {live, to_b(Prefix), []};
-expand_entry({live, Prefix, Options}) -> {live, to_b(Prefix), Options};
-expand_entry({file, Prefix, Root}) -> {file, to_b(Prefix), to_b(Root), []};
-expand_entry({file, Prefix, Root, Options}) -> {file, to_b(Prefix), to_b(Root), Options};
-expand_entry(Entry) -> Entry.
+  [expand_entry(Entry,GlobalOptions) || Entry <- Env].
+
+expand_entry({rewrite, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,false}],GlobalOptions)};
+expand_entry({rewrite, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,false}],Options,GlobalOptions)};
+expand_entry({stream, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}],GlobalOptions)};
+expand_entry({stream, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}],Options,GlobalOptions)};
+expand_entry({mpegts, Prefix},GlobalOptions) -> {mpegts, to_b(Prefix), GlobalOptions};
+expand_entry({mpegts, Prefix, Options},GlobalOptions) -> {mpegts, to_b(Prefix), merge(Options,GlobalOptions)};
+expand_entry({live, Prefix},GlobalOptions) -> {live, to_b(Prefix), GlobalOptions};
+expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merge(Options,GlobalOptions)};
+expand_entry({file, Prefix, Root},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), GlobalOptions};
+expand_entry({file, Prefix, Root, Options},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), merge(Options,GlobalOptions)};
+expand_entry(api, _GlobalOptions) -> {api, []};
+expand_entry(Entry,_GlobalOptions) -> Entry.
 
 merge(Opts1, Opts2) ->
   lists:ukeymerge(1, lists:ukeysort(1, Opts1), lists:ukeysort(1,Opts2)).
@@ -133,43 +137,32 @@ merge(Opts1, Opts2, Opts3) ->
   merge(Opts1, merge(Opts2, Opts3)).
 
 
-parse_routes(Env) ->
-  GlobalOptions = [],
-  parse_routes(Env, [], GlobalOptions).
+parse_routes([]) -> [];
 
-
-parse_routes([{live, Prefix, Opts}|Env], Acc, GlobalOptions) ->
+parse_routes([{live, Prefix, Opts}|Env]) ->
   Tokens = tokens(Prefix),
-  parse_routes(Env, Acc ++ [
-    {Tokens ++ ['...'], media_handler, merge(Opts, [{autostart,false},{module,flu_stream},{dynamic,true}], GlobalOptions)}
-  ], GlobalOptions);
+  [{Tokens ++ ['...'], media_handler, merge(Opts, [{autostart,false},{dynamic,true},{module,flu_stream}])}
+  |parse_routes(Env)];
 
-parse_routes([{stream, Path, URL, Options}|Env], Acc, GlobalOptions) ->
+parse_routes([{stream, Path, URL, Options}|Env]) ->
   Tokens2 = tokens(Path),
   
-  Acc1 = [
-    {Tokens2 ++ [<<"mpegts">>], mpegts_handler, merge([{name,Path},{url,URL}], Options, GlobalOptions)},
-    {Tokens2 ++ ['...'], media_handler, merge([{name,Path},{url,URL},{module,flu_stream},{name_length,length(Tokens2)}], Options, GlobalOptions)}
-  ],
-  % Acc1 = lists:foldl(fun(Proto, Acc0) ->
-  %   Acc0 ++ [{Tokens2 ++ Suffix, Handler, Options++[{name,Path},{url,URL},{module,flu_stream}]++Opts} || {Suffix, Handler, Opts} <- routes_for_proto(Proto)]
-  % end, [], Protos),
+  [
+    {Tokens2 ++ [<<"mpegts">>], mpegts_handler, merge([{name,Path},{url,URL}], Options)},
+    {Tokens2 ++ ['...'], media_handler, merge([{name,Path},{url,URL},{module,flu_stream},{name_length,length(Tokens2)}], Options)}
+  |parse_routes(Env)];
   
-  % ?D({Tokens2, URL, Protos, Acc1}),
-  parse_routes(Env, Acc ++ Acc1, GlobalOptions);
-
-parse_routes([{file, Prefix, Root,Options}|Env], Acc, GlobalOptions) ->
+parse_routes([{file, Prefix, Root,Options}|Env]) ->
   Tokens = tokens(Prefix),
-  parse_routes(Env, Acc++ [
-    {Tokens ++ ['...'], media_handler, merge([{module,flu_file},{root, Root}|Options], GlobalOptions)}
-  ], GlobalOptions);
+  [{Tokens ++ ['...'], media_handler, merge([{module,flu_file},{root, Root}],Options)}
+  |parse_routes(Env)];
 
-parse_routes([{root, Root}|Env], Acc, GlobalOptions) ->
+parse_routes([{root, Root}|Env]) ->
   Module = case is_escriptized(Root) of
     true -> static_http_escript;
     false -> cowboy_http_static
   end,
-  parse_routes(Env, Acc ++ [
+  [
   {[], Module, [
     {directory, Root},
     {mimetypes, [{<<".html">>,[<<"text/html">>]}]},
@@ -178,34 +171,25 @@ parse_routes([{root, Root}|Env], Acc, GlobalOptions) ->
   {['...'], Module, [
     {directory,Root},
     {mimetypes, {fun mimetypes:path_to_mimes/2, default}}
-  ]}], GlobalOptions);
+  ]}|parse_routes(Env)];
 
-parse_routes([{mpegts,Prefix,Options}|Env], Acc, GlobalOptions) ->
+parse_routes([{mpegts,Prefix,Options}|Env]) ->
   Tokens = tokens(Prefix),
-  parse_routes(Env, Acc ++ [
-    {Tokens ++ ['...'], mpegts_handler, merge(Options, GlobalOptions)}
-  ], GlobalOptions);
+  [
+    {Tokens ++ ['...'], mpegts_handler, Options}
+  |parse_routes(Env)];
 
-parse_routes([api|Env], Acc, GlobalOptions) ->
-  parse_routes([{api,[]}|Env], Acc, GlobalOptions);
-
-parse_routes([{api,Options}|Env], Acc, GlobalOptions) ->
-  parse_routes(Env, Acc ++ [
+parse_routes([{api,Options}|Env]) ->
+  [
     {[<<"erlyvideo">>,<<"api">>,<<"reload">>], api_handler, [{mode,reload}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"streams">>], api_handler, [{mode,streams}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"stream_health">>, '...'], api_handler, [{mode,health}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"dvr_status">>, year, month, day, '...'], dvr_handler, [{mode,status}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"dvr_previews">>, year, month, day, hour, minute, '...'], dvr_handler, [{mode,previews}|Options]}
-  ], GlobalOptions);
+  |parse_routes(Env)];
 
-parse_routes([sessions|Env], Acc, GlobalOptions) ->
-  parse_routes(Env, Acc, [{sessions,true}|GlobalOptions]);
-
-parse_routes([_Else|Env], Acc, GlobalOptions) ->
-  parse_routes(Env, Acc, GlobalOptions);
-
-parse_routes([], Acc, _GlobalOptions) ->
-  Acc.
+parse_routes([_Else|Env]) ->
+  parse_routes(Env).
 
 
 tokens(String) ->
@@ -230,12 +214,12 @@ is_escriptized(Root) ->
 expand_entry_test_() ->
   [?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,false}]}]},
       parse_config([{rewrite, "stream1", "fake://stream1"}], undefined)),
-  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,false},{dvr,"root"}]}]},
+  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{dvr,"root"},{static,false}]}]},
       parse_config([{rewrite, "stream1", "fake://stream1", [{dvr,"root"}]}], undefined)),
 
   ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,true}]}]},
       parse_config([{stream, "stream1", "fake://stream1"}], undefined)),
-  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,true},{dvr,"root"}]}]},
+  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{dvr,"root"},{static,true}]}]},
       parse_config([{stream, "stream1", "fake://stream1", [{dvr,"root"}]}], undefined)),
 
   ?_assertEqual({ok, [{mpegts, <<"stream">>, []}]},
@@ -251,8 +235,24 @@ expand_entry_test_() ->
   ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, []}]}, 
       parse_config([{file, "vod", "/movies"}], undefined)),
   ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, [{sessions, "http://ya.ru/"}]}]}, 
-      parse_config([{file, "vod", "/movies", [{sessions, "http://ya.ru/"}]}], undefined))
+      parse_config([{file, "vod", "/movies", [{sessions, "http://ya.ru/"}]}], undefined)),
+
+  ?_assertEqual({ok, [{api, []}]}, 
+    parse_config([api], undefined)),
+  ?_assertEqual({ok, [{api, [{pass,"admin","passw"}]}]}, 
+    parse_config([{api,[{pass,"admin","passw"}]}], undefined))
+
   ].
+
+global_sessions_test_() ->
+  [?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{sessions,"http://ya.ru"},{static,true}]},{sessions,"http://ya.ru"}]},
+      parse_config([{stream, "stream1", "fake://stream1"},{sessions, "http://ya.ru"}], undefined)),
+  ?_assertEqual({ok, [{live, <<"live">>, [{sessions, "http://ya.ru"}]}, {sessions,"http://ya.ru"}]},
+      parse_config([{live, "live"}, {sessions, "http://ya.ru"}], undefined)),
+  ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, [{sessions, "http://ya.ru/"}]}, {sessions,"http://ya.ru/"}]}, 
+      parse_config([{file, "vod", "/movies"}, {sessions, "http://ya.ru/"}], undefined))
+  ].
+
 
 parse_route_test_() ->
   [

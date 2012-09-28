@@ -130,5 +130,6 @@ test() ->
     ,flu_config
     ,dvr_handler
     ,media_handler
+    ,flu_session
   ]).
 
