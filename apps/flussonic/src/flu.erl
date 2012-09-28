@@ -70,8 +70,7 @@ reload_mod(Module) when is_atom(Module) ->
 
 
 default_file_access() ->
-  {ok,Config} = application:get_env(flussonic,config),
-  case proplists:get_value(file_access, Config, file) of
+  case proplists:get_value(file_access, flu_config:get_config(), file) of
     file -> file;
     mmap -> mmap
   end.

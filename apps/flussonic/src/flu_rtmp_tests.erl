@@ -34,7 +34,7 @@ setup_publish() ->
   setup_publish([]).
 
 setup_publish(Options) ->
-  {ok, Env} = application:get_env(flussonic, config),
+  Env = flu_config:get_config(),
   Auth = case proplists:get_value(auth, Options) of
     undefined -> 
       Env1 = lists:keydelete(publish_password, 1, Env),

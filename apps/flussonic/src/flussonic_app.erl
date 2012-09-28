@@ -82,7 +82,7 @@ current_cowboy_port0(Name) ->
 load_config() ->
   case flu_config:load_config() of
     {ok, Env1, ConfigPath} ->
-	    application:set_env(flussonic, config, Env1),
+      flu_config:set_config(Env1),
       {ok, Vsn} = application:get_key(flussonic, vsn),
 	    error_logger:info_msg("Loading config for version ~s from ~s", [Vsn, ConfigPath]),
 	    ok;
@@ -95,7 +95,7 @@ load_config() ->
       timer:sleep(2000),
       erlang:halt(1)
 	end,  
-  {ok, Env} = application:get_env(flussonic, config),
+  Env = flu_config:get_config(),
   Routes = flu_config:parse_routes(Env),
   Dispatch = [{'_', Routes}],
   {http, HTTPPort} = lists:keyfind(http, 1, Env),
@@ -109,10 +109,12 @@ load_config() ->
   %     cowboy:set_protocol_options(http, ProtoOpts);
   %   undefined ->
   (catch cowboy:stop_listener(http)),
-      cowboy:start_listener(http, 100, 
-        cowboy_tcp_transport, [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
-        cowboy_http_protocol, ProtoOpts
-      ),
+
+  % TODO move from cowboy supervisor tree to flussonic supervisor tree
+  cowboy:start_listener(http, 100, 
+    cowboy_tcp_transport, [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
+    cowboy_http_protocol, ProtoOpts
+  ),
   % end,
   
   

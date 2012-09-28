@@ -63,8 +63,7 @@ lookup_path(Path) when is_list(Path) ->
   lookup_path(list_to_binary(Path));
   
 lookup_path(Path) ->
-  {ok, Config} = application:get_env(flussonic, config),
-  lookup_path(Path, Config).
+  lookup_path(Path, flu_config:get_config()).
   
 
 lookup_path(Path, [{live, Prefix1}|Config]) ->

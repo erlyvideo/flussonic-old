@@ -60,7 +60,7 @@ announce0(URL, Headers, #media_info{streams = Streams} = MediaInfo1) ->
   MediaInfo = MediaInfo1#media_info{streams = Streams1},
   ?D({rtsp_announce, URL}),
   
-  {ok, Env} = application:get_env(flussonic, config),
+  Env = flu_config:get_config(),
   {Prefix, Options} = case [Entry || {live,_Pref,_Options} = Entry <- Env] of
     [{live, _Prefix, Opts}|_] -> {_Prefix, Opts};
     [] -> []

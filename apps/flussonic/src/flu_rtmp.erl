@@ -131,8 +131,7 @@ accumulate_frames(ReadFun, Id, MinDTS, MaxDTS, Acc, StreamId, StopDTS) ->
 
 
 handle_rtmp_call(Session, AMF) ->
-  {ok, Env} = application:get_env(flussonic, config),
-  ChainList = proplists:get_value(rtmp_handlers, Env, [?MODULE]),
+  ChainList = proplists:get_value(rtmp_handlers, flu_config:get_config(), [?MODULE]),
   case (catch call_mfa(ChainList, Session, AMF)) of
     reject ->
       rtmp_session:reject_connection(Session);

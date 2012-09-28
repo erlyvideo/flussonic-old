@@ -897,7 +897,7 @@ nal_test_bin(small) ->
   <<0,0,0,1,9,224,0,0,1,104,206,50,200>>.
 
 extract_nal_test() ->
-  ?assertEqual([<<9:224>>], read_annexb(<<0,0,1,9,224>>)),
+  ?assertEqual([<<9, 224>>], read_annexb(<<0,0,1,9,224>>)),
   ?assertEqual([<<9,224>>, <<104,206,50,200>>], read_annexb(nal_test_bin(small))),
   ?assertEqual([<<104,206,50,200>>], read_annexb(<<0,0,1,104,206,50,200,0,0,1>>)),
   ?assertEqual([], read_annexb(<<>>)).

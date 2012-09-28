@@ -44,16 +44,11 @@ recheck(Stream, URL, StreamOpts) ->
   flu_stream:autostart(Stream, Opts).
 
 handle_info(recheck, State) ->
-  case application:get_env(flussonic, config) of
-    {ok, Env} ->
-      % {http, HTTPPort} = lists:keyfind(http, 1, Env),
-      Streams = [Name || {Name, _} <- flu_stream:list()],
-      ToRestart = [A || {stream, Stream, _, _} = A <- Env, not lists:member(Stream, Streams)],
-      [recheck(Stream, URL, Opts) || {stream, Stream, URL, Opts} <- ToRestart, proplists:get_bool(static, Opts)];
-      % [http_stream:request_body("http://localhost:"++integer_to_list(HTTPPort)++"/"++binary_to_list(Stream)++"/index.m3u8", [{keepalive,false}]) || Stream <- ToRestart],
-    undefined ->
-      ok
-  end,
+  Config = flu_config:get_config(),
+  % {http, HTTPPort} = lists:keyfind(http, 1, Env),
+  Streams = [Name || {Name, _} <- flu_stream:list()],
+  ToRestart = [A || {stream, Stream, _, _} = A <- Config, not lists:member(Stream, Streams)],
+  [recheck(Stream, URL, Opts) || {stream, Stream, URL, Opts} <- ToRestart, proplists:get_bool(static, Opts)],
   erlang:send_after(3000, self(), recheck),
   {noreply, State}.
 

@@ -24,11 +24,15 @@
 -module(media_handler).
 -author('Max Lapshin <max@maxidoors.ru>').
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 
 -behaviour(cowboy_http_handler).
 -export([init/3, handle/2, terminate/2]).
 
 -export([check_sessions/3]).
+
+-export([lookup_name/4]).
 
 % -export([backend_request/4]).
 
@@ -256,5 +260,4 @@ check_sessions0(URL, Name0, Req0, Type) ->
       end,
       flu_session:url(Session)
   end.
-
 

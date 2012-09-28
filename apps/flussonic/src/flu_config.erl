@@ -26,8 +26,21 @@
 
 -export([load_config/0, parse_routes/1]).
 -export([lookup_config/0, parse_config/2]).
+
+-export([set_config/1, get_config/0]).
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
+
+
+set_config(Config) ->
+  application:set_env(flussonic, config, Config).
+
+get_config() ->
+  case application:get_env(flussonic, config) of
+    {ok, Config} -> Config;
+    undefined -> []
+  end.
+
 
 
 -spec load_config() -> {ok, Config::list(), Path::file:filename()} | {error, Error::term()}.
@@ -93,19 +106,24 @@ load_includes([], _, Acc) ->
   Acc.
 
 
-
+to_b(String) when is_list(String) -> list_to_binary(String);
+to_b(Binary) when is_binary(Binary) -> Binary;
+to_b(undefined) -> undefined;
+to_b(Atom) when is_atom(Atom) -> binary_to_atom(Atom, latin1).
 
 expand_options(Env) ->
   [expand_entry(Entry) || Entry <- Env].
 
-expand_entry({rewrite, Path, URL}) -> {stream, list_to_binary(Path), list_to_binary(URL), [{static,false}]};
-expand_entry({rewrite, Path, URL, Options}) -> {stream, list_to_binary(Path), list_to_binary(URL), [{static,false}|Options]};
-expand_entry({stream, Path, URL}) -> {stream, list_to_binary(Path), list_to_binary(URL), [{static,true}]};
-expand_entry({stream, Path, URL, Options}) -> {stream, list_to_binary(Path), list_to_binary(URL), [{static,true}|Options]};
-expand_entry({mpegts, Prefix}) -> {mpegts, Prefix, []};
-expand_entry({mpegts, Prefix, Options}) -> {mpegts, Prefix, Options};
-expand_entry({live, Prefix}) -> {live, Prefix, []};
-expand_entry({live, Prefix, Options}) -> {live, Prefix, Options};
+expand_entry({rewrite, Path, URL}) -> {stream, to_b(Path), to_b(URL), [{static,false}]};
+expand_entry({rewrite, Path, URL, Options}) -> {stream, to_b(Path), to_b(URL), [{static,false}|Options]};
+expand_entry({stream, Path, URL}) -> {stream, to_b(Path), to_b(URL), [{static,true}]};
+expand_entry({stream, Path, URL, Options}) -> {stream, to_b(Path), to_b(URL), [{static,true}|Options]};
+expand_entry({mpegts, Prefix}) -> {mpegts, to_b(Prefix), []};
+expand_entry({mpegts, Prefix, Options}) -> {mpegts, to_b(Prefix), Options};
+expand_entry({live, Prefix}) -> {live, to_b(Prefix), []};
+expand_entry({live, Prefix, Options}) -> {live, to_b(Prefix), Options};
+expand_entry({file, Prefix, Root}) -> {file, to_b(Prefix), to_b(Root), []};
+expand_entry({file, Prefix, Root, Options}) -> {file, to_b(Prefix), to_b(Root), Options};
 expand_entry(Entry) -> Entry.
 
 merge(Opts1, Opts2) ->
@@ -121,13 +139,13 @@ parse_routes(Env) ->
 
 
 parse_routes([{live, Prefix, Opts}|Env], Acc, GlobalOptions) ->
-  Tokens = [list_to_binary(T) || T <- string:tokens(Prefix, "/")],
+  Tokens = tokens(Prefix),
   parse_routes(Env, Acc ++ [
     {Tokens ++ ['...'], media_handler, merge(Opts, [{autostart,false},{module,flu_stream},{dynamic,true}], GlobalOptions)}
   ], GlobalOptions);
 
 parse_routes([{stream, Path, URL, Options}|Env], Acc, GlobalOptions) ->
-  {Tokens2, _, _} = cowboy_dispatcher:split_path(Path, fun(Bin) -> cowboy_http:urldecode(Bin, crash) end),
+  Tokens2 = tokens(Path),
   
   Acc1 = [
     {Tokens2 ++ [<<"mpegts">>], mpegts_handler, merge([{name,Path},{url,URL}], Options, GlobalOptions)},
@@ -140,10 +158,10 @@ parse_routes([{stream, Path, URL, Options}|Env], Acc, GlobalOptions) ->
   % ?D({Tokens2, URL, Protos, Acc1}),
   parse_routes(Env, Acc ++ Acc1, GlobalOptions);
 
-parse_routes([{file, Prefix, Root}|Env], Acc, GlobalOptions) ->
-  Tokens = [list_to_binary(T) || T <- string:tokens(Prefix, "/")],
+parse_routes([{file, Prefix, Root,Options}|Env], Acc, GlobalOptions) ->
+  Tokens = tokens(Prefix),
   parse_routes(Env, Acc++ [
-    {Tokens ++ ['...'], media_handler, merge([{module,flu_file},{root, Root}], GlobalOptions)}
+    {Tokens ++ ['...'], media_handler, merge([{module,flu_file},{root, Root}|Options], GlobalOptions)}
   ], GlobalOptions);
 
 parse_routes([{root, Root}|Env], Acc, GlobalOptions) ->
@@ -163,7 +181,7 @@ parse_routes([{root, Root}|Env], Acc, GlobalOptions) ->
   ]}], GlobalOptions);
 
 parse_routes([{mpegts,Prefix,Options}|Env], Acc, GlobalOptions) ->
-  Tokens = [list_to_binary(T) || T <- string:tokens(Prefix, "/")],
+  Tokens = tokens(Prefix),
   parse_routes(Env, Acc ++ [
     {Tokens ++ ['...'], mpegts_handler, merge(Options, GlobalOptions)}
   ], GlobalOptions);
@@ -190,6 +208,12 @@ parse_routes([], Acc, _GlobalOptions) ->
   Acc.
 
 
+tokens(String) ->
+  {Tokens, _, _} = cowboy_dispatcher:split_path(String, fun(Bin) -> cowboy_http:urldecode(Bin, crash) end),
+  Tokens.
+
+
+
 is_escriptized(Root) ->
   case file:read_file_info(Root) of
     {error, enoent} ->
@@ -200,5 +224,44 @@ is_escriptized(Root) ->
     _ ->
       false
   end.
+
+
+
+expand_entry_test_() ->
+  [?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,false}]}]},
+      parse_config([{rewrite, "stream1", "fake://stream1"}], undefined)),
+  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,false},{dvr,"root"}]}]},
+      parse_config([{rewrite, "stream1", "fake://stream1", [{dvr,"root"}]}], undefined)),
+
+  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,true}]}]},
+      parse_config([{stream, "stream1", "fake://stream1"}], undefined)),
+  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,true},{dvr,"root"}]}]},
+      parse_config([{stream, "stream1", "fake://stream1", [{dvr,"root"}]}], undefined)),
+
+  ?_assertEqual({ok, [{mpegts, <<"stream">>, []}]},
+      parse_config([{mpegts, "stream"}], undefined)),
+  ?_assertEqual({ok, [{mpegts, <<"stream">>, [{sessions, "http://host"}]}]},
+      parse_config([{mpegts, "stream", [{sessions, "http://host"}]}], undefined)),
+
+  ?_assertEqual({ok, [{live, <<"live">>, []}]},
+      parse_config([{live, "live"}], undefined)),
+  ?_assertEqual({ok, [{live, <<"live">>, [{sessions, "http://host"}]}]},
+      parse_config([{live, "live", [{sessions, "http://host"}]}], undefined)),
+
+  ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, []}]}, 
+      parse_config([{file, "vod", "/movies"}], undefined)),
+  ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, [{sessions, "http://ya.ru/"}]}]}, 
+      parse_config([{file, "vod", "/movies", [{sessions, "http://ya.ru/"}]}], undefined))
+  ].
+
+parse_route_test_() ->
+  [
+    ?_assertMatch([{[<<"live">>,<<"injest">>, '...'], media_handler, _}], 
+      parse_routes([{live, <<"live/injest">>, []}])),
+    ?_assertMatch([{[<<"vod">>,<<"mp4">>,'...'], media_handler, _}],
+      parse_routes([{file, <<"vod/mp4">>, <<"/movies">>, []}]))
+  ].
+
+
 
   

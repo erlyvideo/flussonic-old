@@ -66,11 +66,6 @@ terminate(_Arg, _State) ->
 
 
 enabled() ->
-  case application:get_env(flussonic, config) of
-    {ok, Config} ->
-      not proplists:get_value(disable_health, Config, false);
-    undefined ->
-      true
-  end.
+  not proplists:get_value(disable_health, flu_config:get_config(), false).
 
   

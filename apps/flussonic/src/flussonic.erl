@@ -127,5 +127,8 @@ test() ->
     ,rtsp_socket
     ,flu_rtmp
     ,mpegts_handler
+    ,flu_config
+    ,dvr_handler
+    ,media_handler
   ]).
 
