@@ -27,7 +27,9 @@ flu_session_test_() ->
   fun test_new_session2/0,
 
   fun test_remember_positive/0,
-  fun test_remember_negative/0
+  fun test_remember_negative/0,
+
+  fun test_monitor_session/0
   ]}.
 
 
@@ -94,6 +96,20 @@ test_remember_negative() ->
   ok.
 
 
+test_monitor_session() ->
+  meck:expect(http_stream, request_body, fun(_, _) -> {ok, {socket,200,[], <<"">>}} end),
+  Identity = [{ip,<<"127.0.0.5">>},{token,<<"123">>},{name,<<"cam0">>}],
+
+  ?assertEqual({ok, <<"cam0">>},
+    flu_session:verify(http_mock_url, Identity, [{type,<<"rtmp">>},{pid,self()}])),
+  ?assertMatch([_], flu_session:list()),
+  [Info] = flu_session:list(),
+  ?assertEqual(<<"127.0.0.5">>, proplists:get_value(ip, Info)),
+  Session = flu_session:find_session(Identity),
+  flu_session ! {'DOWN', flu_session:ref(Session), undefined, self(), undefined},
+  gen_server:call(flu_session, {unregister, flu_session:ref(Session)}),
+  ?assertEqual([], flu_session:list()),
+  ok.
 
 
 

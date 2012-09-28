@@ -174,11 +174,41 @@ normalize_path(Path) -> Path.
 clear_path(<<"/", Path/binary>>) -> Path;
 clear_path(Path) -> Path.
 
-play(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
+
+play(Session, #rtmp_funcall{} = AMF) ->
+  try play0(Session, AMF) of
+    Session1 -> Session1
+  catch
+    throw:reject ->
+      RTMP = rtmp_session:get(Session, socket),
+      rtmp_lib:fail(RTMP, AMF),
+      Session
+  end.
+
+to_b(undefined) -> undefined;
+to_b(List) when is_list(List) -> list_to_binary(List);
+to_b(Bin) when is_binary(Bin) -> Bin.
+
+play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
   Path2 = normalize_path(Path1),
   Path = clear_path(Path2),
-  {StreamName0, _Args} = http_uri2:parse_path_query(Path),
-  StreamName = list_to_binary(StreamName0),
+  {StreamName0, Args} = http_uri2:parse_path_query(Path),
+  StreamName1 = list_to_binary(StreamName0),
+
+  StreamName2 = case proplists:get_value(sessions, flu_config:get_config()) of
+    undefined -> 
+      StreamName1;
+    URL ->
+      Token = to_b(proplists:get_value("token", Args)),
+      Identity = [{name,StreamName1},{ip, to_b(rtmp_session:get(Session, addr))},{token,Token}],
+      Options = [{pid,self()}],
+      case flu_session:verify(URL, Identity, Options) of
+        {ok, StreamName1_} -> StreamName1_;
+        {error, _, _} -> throw(reject)
+      end
+  end,
+
+  StreamName = StreamName2,
   case flu_media:find_or_open(StreamName) of
     {ok, {Type, Media}} ->
       put(remote_ip, rtmp_session:get(Session, addr)),
@@ -188,9 +218,7 @@ play(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
         stream -> play_stream(Session, AMF, StreamName, Media)
       end;
     {error, _Error} ->
-      RTMP = rtmp_session:get(Session, socket),
-      rtmp_lib:fail(RTMP, AMF),
-      Session
+      throw(reject)
   end.
 
 play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media) ->

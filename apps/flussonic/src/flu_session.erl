@@ -6,7 +6,7 @@
 
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
--export([find_session/1, new_session/2, update_session/1, url/1]).
+-export([find_session/1, new_session/2, update_session/1, url/1, ref/1]).
 -export([table/0]).
 -export([stats/0]).
 -export([list/0, clients/0]).
@@ -40,6 +40,8 @@
   expire_time,
   last_access_time,
   bytes_sent,
+  pid,
+  ref,
   options = []
 }).
 
@@ -66,7 +68,7 @@ verify(URL, Identity, Options) ->
 
 
 backend_request(URL, Identity, Options) ->
-  Query = string:join([io_lib:format("~s=~s&", [K,V]) || {K,V} <- Identity ++ Options], "&"),
+  Query = string:join([io_lib:format("~s=~s&", [K,V]) || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V)], "&"),
   RequestURL = lists:flatten([URL, "?", Query]),
   Name = proplists:get_value(name, Identity),
   case http_stream:request_body(RequestURL, [{noredirect, true}, {keepalive, false}]) of
@@ -110,6 +112,7 @@ stats() ->
 %   <<"flu_cookie_">>.
 
 url(#session{name = Name}) -> Name.
+ref(#session{ref = Ref}) -> Ref.
 
 
 hex(Binary) when is_binary(Binary) ->
@@ -127,6 +130,7 @@ find_session(Identity) ->
 new_session(Identity, Opts) ->
   Flag    = proplists:get_value(access, Opts, denied),
   Expire  = proplists:get_value(expire, Opts, ?TIMEOUT),
+  Pid     = proplists:get_value(pid, Opts),
 
   Now = flu:now_ms(),
 
@@ -134,9 +138,12 @@ new_session(Identity, Opts) ->
   Token = proplists:get_value(token,Identity),
   Ip = proplists:get_value(ip, Identity),
   Name = proplists:get_value(name, Opts, proplists:get_value(name, Identity)),
+  {ok, Ref} = if is_pid(Pid) -> gen_server:call(?MODULE, {register, Pid});
+    Pid == undefined -> {ok, undefined}
+  end,
   Session = #session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
                      expire_time = Expire, last_access_time = Now, type = proplists:get_value(type, Opts, <<"http">>),
-                     flag = Flag, bytes_sent = 0},
+                     flag = Flag, bytes_sent = 0, pid = Pid, ref = Ref},
   ets:insert(flu_session:table(), Session),
   erlang:put(<<"session_cookie">>, Token),
   Session.
@@ -158,12 +165,24 @@ init([]) ->
   timer:send_interval(5000, clean),
   {ok, state}.
 
+handle_call({register, Pid}, _From, State) ->
+  Ref = erlang:monitor(process, Pid),
+  {reply, {ok, Ref}, State};
+
+handle_call({unregister, Ref}, _From, State) ->
+  erlang:demonitor(Ref, [flush]),
+  {reply, ok, State};
+
 handle_call(Call, _From, State) ->
   {reply, {error, Call}, State}.
 
 handle_info(clean, State) ->
   Now = flu:now_ms(),
   ets:select_delete(flu_session:table(), ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last}) when T + Last < Now -> true end)),
+  {noreply, State};
+
+handle_info({'DOWN', Ref, _, _Pid, _}, State) ->
+  ets:select_delete(flu_session:table(), ets:fun2ms(fun(#session{ref = R}) when R == Ref -> true end)),
   {noreply, State};
 
 handle_info(_Info, State) ->
