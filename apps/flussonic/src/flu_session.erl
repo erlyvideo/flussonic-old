@@ -142,14 +142,14 @@ handle_info(clean, State) ->
   Now = flu:now_ms(),
   %% close session, send event for expired sessions
   F = fun(#session{uid = Uid, token = Token, ip = Ip, url = Url, last_access_time = Last}=Session) ->
-              ets:delete(?MODULE, Session),
+              ets:delete_object(?MODULE, Session),
               flu_event:user_disconnected([{stream, Url},
                                            {user_id, Uid},
                                            {session_id, Token},
                                            {user_ip, Ip},
                                            {last_time, Last}])
       end,
-  [F(S) || S <- ets:select(?MODULE, ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last}) when T + Last < Now -> true end))],
+  [F(Session) || Session <- ets:select(?MODULE, ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last}=S) when T + Last < Now -> S end))],
   {noreply, State};
 
 handle_info(_Info, State) ->
