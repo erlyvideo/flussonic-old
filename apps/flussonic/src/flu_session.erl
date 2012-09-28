@@ -99,6 +99,7 @@ new_session(Token, Ip, Url, Opts) ->
                      flag = Flag, bytes_sent = 0},
   ets:insert(?MODULE, Session),
   erlang:put(<<"session_cookie">>, Token),
+  flu_event:user_connected([{stream, Url}, {user_id, Uid}, {session_id, Token}, {user_ip, Ip}]),
   Session.
 
 update_session(Session) ->
@@ -139,7 +140,16 @@ handle_call(Call, _From, State) ->
 
 handle_info(clean, State) ->
   Now = flu:now_ms(),
-  ets:select_delete(?MODULE, ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last}) when T + Last < Now -> true end)),
+  %% close session, send event for expired sessions
+  F = fun(#session{uid = Uid, token = Token, ip = Ip, url = Url, last_access_time = Last}=Session) ->
+              ets:delete_object(?MODULE, Session),
+              flu_event:user_disconnected([{stream, Url},
+                                           {user_id, Uid},
+                                           {session_id, Token},
+                                           {user_ip, Ip},
+                                           {last_time, Last}])
+      end,
+  [F(Session) || Session <- ets:select(?MODULE, ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last}=S) when T + Last < Now -> S end))],
   {noreply, State};
 
 handle_info(_Info, State) ->
