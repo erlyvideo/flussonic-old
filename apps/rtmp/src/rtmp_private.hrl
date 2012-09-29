@@ -143,7 +143,8 @@
 	previous_ack = undefined  ::time()|undefined,
 	bytes_unack = 0           ::non_neg_integer(),
 	current_speed = 0         ::non_neg_integer(),
-	pinged = false            ::boolean()
+	pinged = false            ::boolean(),
+	out_invoke_id = 1  ::integer()
 }).
 
 -type(rtmp_socket() ::#rtmp_socket{}).

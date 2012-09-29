@@ -22,12 +22,12 @@
 -type(rtmp_message_ack() ::#rtmp_message_ack{}).
 
 -record(rtmp_funcall,{
-  version = 0,
-	command = [],
-	id      = [],
+	command = undefined,
+	id      = undefined,
 	args    = [],
 	stream_id = 0,
-	type 	= invoke %if invoke then id, otherwise notify
+	type 	= invoke, %if invoke then id, otherwise notify
+  version = 0
 	}).
 
 -type(rtmp_funcall() ::#rtmp_funcall{}).

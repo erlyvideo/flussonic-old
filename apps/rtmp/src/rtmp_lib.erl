@@ -26,7 +26,7 @@
 
 -include("../include/rtmp.hrl").
 -export([wait_for_reply/2]).
--export([connect/1, connect/2, createStream/1, play/1, play/3, seek/3, pause/3, resume/3, publish/3, publish/4]).
+-export([connect/1, connect/2, createStream/1, play/1, play/2, play/3, seek/3, pause/3, resume/3, publish/3, publish/4]).
 -export([shared_object_connect/2, shared_object_set/4]).
 -export([play_complete/3, play_failed/2, seek_notify/3, seek_failed/2, play_start/4, pause_notify/2, unpause_notify/3]).
 -export([channel_id/2, empty_audio/2]).
@@ -42,15 +42,19 @@
 -define(D(X), io:format("~p:~p ~240p~n",[?MODULE, ?LINE, X])).
 
 
-wait_for_reply(RTMP, InvokeId) when is_integer(InvokeId) ->
-  wait_for_reply(RTMP, InvokeId*1.0);
+wait_for_reply(RTMP, InvokeId) when is_float(InvokeId) ->
+  wait_for_reply(RTMP, round(InvokeId));
   
 %% @private
 wait_for_reply(RTMP, InvokeId) ->
   receive
-    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_result">>, id = InvokeId, args = Args}}} -> Args
+    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_result">>, id = InvokeId, args = [null|Args]}}} -> Args;
+    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_result">>, id = InvokeId, args = Args}}} -> Args;
+    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId}}} -> rtmp_error
   after
-    30000 -> erlang:error(timeout)
+    20000 ->
+      ?D({reply_timeout,InvokeId,process_info(self(), messages)}),
+      erlang:error(timeout)
   end.
 
 default_connect_options(URL) ->
@@ -106,7 +110,7 @@ reject_connection(RTMP) ->
 
 reply(RTMP, AMF, Args) -> reply(RTMP, AMF#rtmp_funcall{args = [null|Args]}).
 
-reply(RTMP, AMF) -> rtmp_socket:invoke(RTMP, AMF#rtmp_funcall{command = '_result', type = invoke}).
+reply(RTMP, AMF) ->rtmp_socket:invoke(RTMP, AMF#rtmp_funcall{command = '_result', type = invoke}).
 fail(RTMP, AMF) -> rtmp_socket:invoke(RTMP, AMF#rtmp_funcall{command = '_error', type = invoke}).
 
 
@@ -137,42 +141,46 @@ connect(URL) when is_list(URL) orelse is_binary(URL) ->
 connect(RTMP, Options) ->
   {url, URL} = rtmp_socket:getopts(RTMP, url),
   ConnectArgs = lists:ukeymerge(1, lists:ukeysort(1, Options), default_connect_options(URL)),
-  InvokeId = 1,
   AMF = #rtmp_funcall{
     command = connect,
     type = invoke,
-    id = InvokeId,
     stream_id = 0,
     args = [{object, ConnectArgs}]
   },
   % io:format("~p -> ~p~n", [{connect, Options}, ConnectArgs]),
-  rtmp_socket:invoke(RTMP, AMF),
+  {ok, InvokeId = 1} = rtmp_socket:invoke(RTMP, AMF),
   wait_for_reply(RTMP, InvokeId),
+  flush_onconnect_messages(RTMP),
   {ok, RTMP}.
   
+flush_onconnect_messages(RTMP) ->
+  receive
+    {rtmp, RTMP, #rtmp_message{type = chunk_size}} -> flush_onconnect_messages(RTMP);
+    {rtmp, RTMP, #rtmp_message{type = stream_begin, stream_id = 0}} -> flush_onconnect_messages(RTMP);
+    {rtmp, RTMP, #rtmp_message{type = 6}} -> flush_onconnect_messages(RTMP);
+    {rtmp, RTMP, #rtmp_message{type = window_size}} -> flush_onconnect_messages(RTMP)
+  after
+    0 -> ok
+  end.
+
 createStream(RTMP) ->
-  InvokeId = 1,
-  AMF = #rtmp_funcall{
-    command = createStream,
-    type = invoke,
-    id = InvokeId,
-    stream_id = 0,
-    args = [null]
-  },
-  rtmp_socket:invoke(RTMP, AMF),
-  [null, StreamId] = wait_for_reply(RTMP, InvokeId),
+  [StreamId] = sync_call(RTMP, 0, createStream, []),
   round(StreamId).
 
 
-play(URL) when is_list(URL) orelse is_binary(URL) ->
-  case rtmp_socket:connect(URL) of
+play(URL) ->
+  play(URL, [{timeout, 10000}]).
+
+play(URL, Options) when is_list(URL) orelse is_binary(URL) ->
+  Timeout = proplists:get_value(timeout, Options, 10000),
+  case rtmp_socket:connect(URL, Options) of
     {ok, RTMP} ->
       receive
-        {rtmp, RTMP, connected} -> ok
+        {rtmp, RTMP, connected} -> invoke_rtmp_play(RTMP, URL);
+        {rtmp, RTMP, disconnect, _} -> {error, disconnect}
       after
-        10000 -> erlang:error({timeout,{rtmp,URL}})
-      end,
-      invoke_rtmp_play(RTMP, URL);
+        Timeout -> {error, timeout}
+      end;
     Else ->
       Else
   end.
@@ -195,8 +203,7 @@ invoke_rtmp_play(RTMP, URL) ->
   {_App, Path} = app_path(URL),
   ?D({"Connected to RTMP source", URL, _App, Path}),
   Stream = rtmp_lib:createStream(RTMP),
-  ?D({"Stream",Stream}),
-  play(RTMP, Stream, Path),
+  ok = play(RTMP, Stream, Path),
   ?D({"Playing", Path}),
   
   {ok, RTMP}.
@@ -206,19 +213,32 @@ play(RTMP, Stream, Path) when is_list(Path) ->
   play(RTMP, Stream, list_to_binary(Path));
   
 play(RTMP, Stream, Path) ->
-  AMF = #rtmp_funcall{
-    command = play,
-    type = invoke,
-    id = 2,
-    stream_id = Stream,
-    args = [null, Path]
-  },
-  rtmp_socket:invoke(RTMP, AMF),
+  {ok, InvokeId} = call(RTMP, Stream, play, [Path]),
+  ?D({play_success,Stream,Path,InvokeId}),
   receive
-    {rtmp, RTMP, #rtmp_message{type = stream_begin}} -> ok
+    {rtmp, RTMP, #rtmp_message{type = stream_begin, stream_id = Stream}} -> 
+      ok;
+    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId}}} -> 
+      throw({rtmp_error, {play,Path}})
   after
-    30000 -> erlang:error(timeout)
+    30000 ->
+      ?D({timeout, Path, process_info(self(), messages)}),
+      erlang:error(timeout)
   end.
+
+sync_call(RTMP, Stream, Command, Args) ->
+  AMF = #rtmp_funcall{
+    command = Command,
+    type = invoke,
+    stream_id = Stream,
+    args = [null|Args]
+  },
+  {ok, InvokeId} = rtmp_socket:invoke(RTMP, AMF),
+  case wait_for_reply(RTMP, InvokeId) of
+    rtmp_error -> throw({rtmp_error, Command});
+    Reply -> Reply
+  end.
+
 
 call(RTMP, Stream, Name, Args) ->
   AMF = #rtmp_funcall{
@@ -227,8 +247,7 @@ call(RTMP, Stream, Name, Args) ->
     stream_id = Stream,
     args = [null | Args]
   },
-  rtmp_socket:invoke(RTMP, AMF),
-  ok.
+  rtmp_socket:invoke(RTMP, AMF).
   
 
 pause(RTMP, Stream, DTS) ->
@@ -241,7 +260,7 @@ resume(RTMP, Stream, DTS) ->
 seek(RTMP, Stream, DTS) ->
   call(RTMP, Stream, seek, [DTS]),
   receive
-    {rtmp, RTMP, #rtmp_message{type = stream_begin}} -> ok
+    {rtmp, RTMP, #rtmp_message{type = stream_begin, stream_id = Stream}} -> ok
   after
     30000 -> erlang:error(timeout)
   end.

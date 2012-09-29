@@ -592,7 +592,8 @@ command(#channel{type = Type, msg = Body} = Channel, State) ->
 
 decode_funcall(Message, StreamId) ->
 	{Command, Rest1} = amf0:decode(Message),
-	{InvokeId, Rest2} = amf0:decode(Rest1),
+	{InvokeId_, Rest2} = amf0:decode(Rest1),
+  InvokeId = if is_float(InvokeId_) -> round(InvokeId_); true -> InvokeId_ end,
 	Arguments = decode_list(Rest2),
 	#rtmp_funcall{command = Command, args = Arguments, type = invoke, id = InvokeId, stream_id = StreamId}.
   

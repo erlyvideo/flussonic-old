@@ -149,4 +149,21 @@ run0(Suite) ->
   R = setup_publish(),
   publish(Suite, R),
   teardown_publish(R).
+
+
+play_rejected_test_() ->
+  {foreach, fun() ->
+    meck:new([flu_config], [{passthrough,true}]),
+    [flu_config]
+  end,
+  fun(Modules) -> meck:unload(Modules) end,
+  [
+    fun test_forbidden_password/0
+  ]}.
+
+test_forbidden_password() ->
+  meck:expect(flu_config, get_config, fun() -> [{sessions, "http://127.0.0.5/"}] end),
+  ?assertThrow({rtmp_error,{play,<<"ort">>}},rtmp_lib:play("rtmp://127.0.0.1/live/ort", [{timeout,500}])),
+  ok.
+
   
