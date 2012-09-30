@@ -146,12 +146,18 @@ new_session(Identity, Opts) ->
                      flag = Flag, bytes_sent = 0, pid = Pid, ref = Ref},
   ets:insert(flu_session:table(), Session),
   erlang:put(<<"session_cookie">>, Token),
+  %% @todo UserId
+  flu_event:user_connected(Name, SessionId, 'UserId', Ip),
   Session.
 
 update_session(#session{session_id = SessionId, flag = Flag}) ->
   ets:update_element(flu_session:table(), SessionId, {#session.last_access_time, flu:now_ms()}),
   Flag.
 
+delete_session(#session{session_id = SessionId, ip = Ip, name = Name, user_id = UserId,
+                        last_access_time = LastTime} = Session) ->
+    ets:delete_object(flu_session:table(), Session),
+    flu_event:user_disconnected(Name, SessionId, UserId, Ip, LastTime).
 
 
 table() ->
@@ -178,11 +184,17 @@ handle_call(Call, _From, State) ->
 
 handle_info(clean, State) ->
   Now = flu:now_ms(),
-  ets:select_delete(flu_session:table(), ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last}) when T + Last < Now -> true end)),
+  [delete_session(Session) ||
+      Session <- ets:select(flu_session:table(),
+                            ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last} = S)
+                                             when T + Last < Now -> S end))],
   {noreply, State};
 
 handle_info({'DOWN', Ref, _, _Pid, _}, State) ->
-  ets:select_delete(flu_session:table(), ets:fun2ms(fun(#session{ref = R}) when R == Ref -> true end)),
+  [delete_session(Session) ||
+      Session <- ets:select(flu_session:table(),
+                            ets:fun2ms(fun(#session{ref = R} = S)
+                                             when R == Ref -> S end))],
   {noreply, State};
 
 handle_info(_Info, State) ->
