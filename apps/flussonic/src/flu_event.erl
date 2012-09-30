@@ -40,7 +40,7 @@
 -export([start_link/0, notify/1, add_handler/2, subscribe_to_events/1, add_sup_handler/2, remove_handler/1]).
 -export([start_handlers/0, stop_handlers/0]).
 
--export([user_connected/2, user_disconnected/2, user_play/3, user_stop/3]).
+-export([user_connected/4, user_disconnected/5, user_play/3, user_stop/3]).
 -export([stream_created/2, stream_stopped/1, next_dvr_minute/2]).
 
 -export([to_json/1, to_xml/1]).
@@ -165,28 +165,24 @@ remove_handler(Handler) ->
   gen_event:remove_handler(?MODULE, Handler).
 
 %%--------------------------------------------------------------------
-%% @spec (Session) -> ok
+%% @spec (Stream, SessionId, UserId, UserIp) -> ok
 %%
 %% @doc send event that user has connected
 %% @end
 %%----------------------------------------------------------------------
-user_connected(Session, Stats) ->
-  UserId = proplists:get_value(user_id, Stats),
-  SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = user.connected, options = Stats,
-                                             user = Session, user_id = UserId, session_id = SessionId}).
+user_connected(Stream, SessionId, UserId, UserIp) ->
+  gen_event:notify(?MODULE, #flu_event{event = user.connected, stream = Stream, session_id = SessionId,
+                                       user_id = UserId, options = [{user_ip, UserIp}]}).
 
 %%--------------------------------------------------------------------
-%% @spec (Session) -> ok
+%% @spec (Stream, SessionId, UserId, UserIp, CloseTime) -> ok
 %%
 %% @doc send event that user has disconnected
 %% @end
 %%----------------------------------------------------------------------
-user_disconnected(Session, Stats) ->
-  UserId = proplists:get_value(user_id, Stats),
-  SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = user.disconnected, options = Stats,
-                                             user = Session, user_id = UserId, session_id = SessionId}).
+user_disconnected(Stream, SessionId, UserId, UserIp, CloseTime) ->
+  gen_event:notify(?MODULE, #flu_event{event = user.connected, stream = Stream, session_id = SessionId,
+                                       user_id = UserId, options = [{user_ip, UserIp}, {close_time, CloseTime}]}).
 
 %%--------------------------------------------------------------------
 %% @spec (User, Name) -> ok
@@ -231,8 +227,6 @@ stream_stopped(Name) ->
 %%----------------------------------------------------------------------
 next_dvr_minute(Name, Options) ->
   gen_event:notify(?MODULE, #flu_event{event = stream.next_minute, stream = Name, options = Options}).
-
-
 
 %%%------------------------------------------------------------------------
 %%% Callback functions from gen_server
