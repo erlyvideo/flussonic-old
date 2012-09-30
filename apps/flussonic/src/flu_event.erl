@@ -165,28 +165,26 @@ remove_handler(Handler) ->
   gen_event:remove_handler(?MODULE, Handler).
 
 %%--------------------------------------------------------------------
-%% @spec (Session) -> ok
+%% @spec (Stream, Stats) -> ok
 %%
 %% @doc send event that user has connected
 %% @end
 %%----------------------------------------------------------------------
-user_connected(Session, Stats) ->
+user_connected(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = user.connected, options = Stats,
-                                             user = Session, user_id = UserId, session_id = SessionId}).
+  gen_event:notify(?MODULE, #flu_event{event = user.connected, stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
 %%--------------------------------------------------------------------
-%% @spec (Session) -> ok
+%% @spec (Stream, Stats) -> ok
 %%
 %% @doc send event that user has disconnected
 %% @end
 %%----------------------------------------------------------------------
-user_disconnected(Session, Stats) ->
+user_disconnected(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = user.disconnected, options = Stats,
-                                             user = Session, user_id = UserId, session_id = SessionId}).
+  gen_event:notify(?MODULE, #flu_event{event = user.connected, stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
 %%--------------------------------------------------------------------
 %% @spec (User, Name) -> ok
@@ -231,8 +229,6 @@ stream_stopped(Name) ->
 %%----------------------------------------------------------------------
 next_dvr_minute(Name, Options) ->
   gen_event:notify(?MODULE, #flu_event{event = stream.next_minute, stream = Name, options = Options}).
-
-
 
 %%%------------------------------------------------------------------------
 %%% Callback functions from gen_server
