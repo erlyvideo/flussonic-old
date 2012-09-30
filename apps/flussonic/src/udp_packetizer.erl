@@ -65,7 +65,9 @@ handle_info(#video_frame{} = Frame, #udp{mpegts = Mpegts, socket = Socket, host 
 handle_info(_Frame, State) ->
   {noreply, State}.
 
-terminate(_,_) -> ok.
+terminate(_,#udp{socket = Socket}) ->
+  gen_udp:close(Socket),
+  ok.
 
 split_chunks(Data) ->
   PacketNumber = size(Data) div 188,

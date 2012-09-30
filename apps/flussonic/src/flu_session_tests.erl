@@ -22,6 +22,8 @@ flu_session_test_() ->
   fun test_backend_request3/0,
   fun test_backend_request4/0,
   fun test_backend_request5/0,
+  fun test_backend_request6/0,
+  fun test_backend_request7/0,
 
   fun test_new_session1/0,
   fun test_new_session2/0,
@@ -29,7 +31,9 @@ flu_session_test_() ->
   fun test_remember_positive/0,
   fun test_remember_negative/0,
 
-  fun test_monitor_session/0
+  fun test_monitor_session/0,
+
+  fun test_session_info/0
   ]}.
 
 
@@ -58,6 +62,16 @@ test_backend_request5() ->
   meck:expect(http_stream, request_body, fun(_, _) -> {error, econnrefused} end),
   ?assertEqual({error, 404, [{access,denied}]},
     flu_session:backend_request(http_mock_url, [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
+
+test_backend_request6() ->
+  meck:expect(http_stream, request_body, fun(_, _) -> {ok, {socket,200,[{<<"X-AuthDuration">>, <<"600">>},{<<"X-UserId">>,<<"15">>}], <<"">>}} end),
+  ?assertEqual({ok, <<"cam0">>, [{access,granted},{expire,600},{referer,<<"http://ya.ru/">>},{user_id,15}]},
+    flu_session:backend_request(http_mock_url, [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+
+test_backend_request7() ->
+  meck:expect(http_stream, request_body, fun(_, _) -> {ok, {socket,200,[{<<"X-UserId">>,<<"15">>}], <<"">>}} end),
+  ?assertEqual({ok, <<"cam0">>, [{access,granted},{referer,<<"http://ya.ru/">>},{user_id,15}]},
+    flu_session:backend_request(http_mock_url, [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 
 test_new_session1() ->
@@ -111,6 +125,18 @@ test_monitor_session() ->
   ?assertEqual([], flu_session:list()),
   ok.
 
+
+
+
+test_session_info() ->
+  meck:expect(http_stream, request_body, fun(_, _) -> {ok, {socket,302,[{<<"X-UserId">>,<<"15">>},{<<"X-Name">>,<<"cam5">>}], <<"">>}} end),
+  ?assertEqual({ok, <<"cam5">>},
+    flu_session:verify(http_mock_url, [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])),
+  Info = flu_session:info([{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}]),
+  ?assertEqual(<<"cam5">>, proplists:get_value(name, Info)),
+  ?assertEqual(15, proplists:get_value(user_id, Info)),
+  ?assertEqual(granted, proplists:get_value(flag, Info)),
+  ok.
 
 
 

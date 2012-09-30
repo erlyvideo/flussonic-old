@@ -20,6 +20,7 @@
   hds,
   hls,
   udp,
+  rtmp,
   clients = [],
   gop = undefined
 }).

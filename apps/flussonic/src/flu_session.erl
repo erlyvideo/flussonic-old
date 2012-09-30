@@ -7,6 +7,7 @@
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([find_session/1, new_session/2, update_session/1, url/1, ref/1]).
+-export([info/1]).
 -export([table/0]).
 -export([stats/0]).
 -export([list/0, clients/0]).
@@ -73,10 +74,9 @@ backend_request(URL, Identity, Options) ->
   Name = proplists:get_value(name, Identity),
   case http_stream:request_body(RequestURL, [{noredirect, true}, {keepalive, false}]) of
     {ok, {_Socket, Code, Headers, _Body}} ->
-      Opts0 = case proplists:get_value(<<"X-AuthDuration">>, Headers) of % session expire
-        undefined -> Options;
-        Value -> merge([{expire, to_i(Value)}], Options)
-      end,
+      Opts0_ = [{expire,to_i(proplists:get_value(<<"X-AuthDuration">>, Headers))},
+        {user_id,to_i(proplists:get_value(<<"X-UserId">>, Headers))}],
+      Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
       case Code of
         200 -> {ok,    Name,                                             merge([{access, granted}],Opts0)};
         302 -> {ok,    proplists:get_value(<<"X-Name">>, Headers, Name), merge([{access, granted}],Opts0)};
@@ -88,6 +88,7 @@ backend_request(URL, Identity, Options) ->
   end.
 
 
+to_i(undefined) -> undefined;
 to_i(Bin) when is_binary(Bin) -> list_to_integer(binary_to_list(Bin)).
 
 
@@ -115,6 +116,12 @@ url(#session{name = Name}) -> Name.
 ref(#session{ref = Ref}) -> Ref.
 
 
+info(#session{} = Session) -> lists:zip(record_info(fields, session), tl(tuple_to_list(Session)));
+info(undefined) -> undefined;
+info(Identity) -> info(find_session(Identity)).
+  
+
+
 hex(Binary) when is_binary(Binary) ->
   iolist_to_binary([string:to_lower(lists:flatten(io_lib:format("~2.16.0B", [H]))) || <<H>> <= Binary]).
 
@@ -137,13 +144,14 @@ new_session(Identity, Opts) ->
   SessionId = session_id(Identity),
   Token = proplists:get_value(token,Identity),
   Ip = proplists:get_value(ip, Identity),
+  UserId = proplists:get_value(user_id, Opts),
   Name = proplists:get_value(name, Opts, proplists:get_value(name, Identity)),
   {ok, Ref} = if is_pid(Pid) -> gen_server:call(?MODULE, {register, Pid});
     Pid == undefined -> {ok, undefined}
   end,
   Session = #session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
                      expire_time = Expire, last_access_time = Now, type = proplists:get_value(type, Opts, <<"http">>),
-                     flag = Flag, bytes_sent = 0, pid = Pid, ref = Ref},
+                     flag = Flag, bytes_sent = 0, pid = Pid, ref = Ref, user_id = UserId},
   ets:insert(flu_session:table(), Session),
   erlang:put(<<"session_cookie">>, Token),
   Session.

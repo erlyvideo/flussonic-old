@@ -279,7 +279,7 @@ shutdown_packetizer({Module,State}) ->
   Module:terminate(normal, State).
   
 
-configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, options = Options, media_info = MediaInfo} = Stream) ->
+configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, options = Options, media_info = MediaInfo} = Stream) ->
   HLS = init_if_required(HLS1, hls_dvr_packetizer, Options),
   HDS = init_if_required(HDS1, hds_packetizer, Options),
   % ?D({configuring,Options, proplists:get_value(dvr,Options)}),
@@ -287,7 +287,11 @@ configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, options = Opti
     undefined -> shutdown_packetizer(UDP1), {blank_packetizer, undefined};
     _ -> init_if_required(UDP1, udp_packetizer, Options)
   end,
-  Stream1 = pass_message(MediaInfo, Stream#stream{hls = HLS, hds = HDS, udp = UDP}),
+  RTMP = case proplists:get_value(rtmp, Options) of
+    undefined -> shutdown_packetizer(RTMP1), {blank_packetizer, undefined};
+    _ -> init_if_required(RTMP1, rtmp_packerizer, Options)
+  end,
+  Stream1 = pass_message(MediaInfo, Stream#stream{hls = HLS, hds = HDS, udp = UDP, rtmp = RTMP}),
   Stream1.
 
 
