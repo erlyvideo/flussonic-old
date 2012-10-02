@@ -29,6 +29,12 @@ shell:
 	erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1
 
 
+vagrant:
+	vagrant destroy -f
+	vagrant up
+	vagrant ssh -c "sudo dpkg -i /vagrant/flussonic_$(VERSION)_amd64.deb"
+	vagrant ssh -c "sudo -s /etc/init.d/flussonic start"
+
 start:
 	mkdir -p log/pipe
 	run_erl -daemon log/pipe/ log/ "exec make run"
@@ -72,7 +78,7 @@ package:
 	cd tmproot && \
 	fpm -s dir -t deb -n flussonic -v $(VERSION) --category net \
 	--config-files /etc/flussonic/flussonic.conf --config-files /etc/flussonic/streams.conf --config-files '/etc/flussonic/*.conf' \
-	-d 'esl-erlang (>= 15) | erlang-base-hipe (>= 1:15)' --post-install opt/flussonic/priv/postinst -m "Max Lapshin <max@maxidoors.ru>" -a amd64 etc/init.d/flussonic etc/flussonic opt 
+	-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-base-hipe (>= 1:15)' --post-install opt/flussonic/priv/postinst -m "Max Lapshin <max@maxidoors.ru>" -a amd64 etc/init.d/flussonic etc/flussonic opt 
 	mv tmproot/*.deb .
 	rm -rf tmproot
 
