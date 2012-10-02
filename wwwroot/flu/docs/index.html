@@ -99,6 +99,7 @@
 	<!-- <li><code>{mpegts, "/mpegts"}.</code>&nbsp;&mdash; HTTP prefix of URL where to mount MPEG-TS sender. </li> -->
 	<li><code>{file, "vod", "/var/movies"}.</code>&nbsp;&mdash; HTTP prefix and folder where to serve static files from. To stream file <code>/var/movies/bunny.mp4</code> you should use url <code>http://localhost:8080/vod/bunny.mp4/manifest.f4m</code> for HDS and <code>http://localhost:8080/vod/bunny.mp4/index.m3u8</code> for HLS.</li>
 	<li><code>{live, "live", [{dvr,"livestreams"}]}.</code> or <code>{live, "live"}.</code>&nbsp;&mdash;HTTP prefix and RTMP application where to publish user streams and receive them via HDS or RTMP. You can also specify stream options like <code>dvr</code>, described below.</li>
+	<li><code>{sessions, "http://backend/auth.php"}.</code>&nbsp;&mdash; enabling global sessions for all kinds of connections: HTTP, RTMP, etc.</li>
 	<li><code>{api, [{admin,"admin","pass0"},{dvr,"movies"}]}.</code>&nbsp;&mdash; options for API. Supported option are:
 		<ul>
 		 <li><code>admin</code> with login and password for HTTP protection of destructive API calls</li>

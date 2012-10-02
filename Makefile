@@ -58,7 +58,7 @@ package:
 	rm -rf tmproot
 	mkdir -p tmproot/opt/flussonic
 	git archive master | (cd tmproot/opt/flussonic; tar x)
-	(cd tmproot/opt/flussonic/ && make)
+	(cd tmproot/opt/flussonic/ && ./rebar get-deps && ./rebar compile)
 	rm -rf tmproot/opt/flussonic/deps/proper*
 	rm -rf tmproot/opt/flussonic/apps/mpegts/contrib/build_table.rb tmproot/opt/flussonic/apps/rtsp/priv/* tmproot/opt/flussonic/deps/*/test
 	rm -rf tmproot/opt/flussonic/deps/*/.git tmproot/opt/flussonic/.git

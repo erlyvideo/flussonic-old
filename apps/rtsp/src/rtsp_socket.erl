@@ -66,7 +66,7 @@ read(URL, Options) when is_list(URL) ->
 read_raw(URL, Options) ->
   {ok, RTSP} = rtsp_sup:start_rtsp_socket([{consumer, proplists:get_value(consumer, Options, self())}]),
   ConnectResult = rtsp_socket:connect(RTSP, URL, Options),
-  ok == ConnectResult orelse erlang:error(ConnectResult),
+  ok == ConnectResult orelse erlang:throw(ConnectResult),
   {ok, _Methods} = rtsp_socket:options(RTSP, Options),
   {ok, MediaInfo, AvailableTracks} = rtsp_socket:describe(RTSP, Options),
   Tracks = 
@@ -318,8 +318,11 @@ handle_response(#rtsp_socket{state = {setup, StreamId}, rtp = RTP, transport = T
 handle_response(Socket, {response, 401, _Message, _Headers, _Body}) ->
   reply_pending(Socket#rtsp_socket{state = undefined, pending_reply = {error, unauthorized}});
 
+handle_response(Socket, {response, 404, _Message, _Headers, _Body}) ->
+  reply_pending(Socket#rtsp_socket{state = undefined, pending_reply = {error, not_found}});
+
 handle_response(Socket, {response, _Code, _Message, _Headers, _Body}) ->
-  reply_pending(Socket).
+  reply_pending(Socket#rtsp_socket{state = undefined, pending_reply = {error, _Code}}).
 
 
 reply_pending(#rtsp_socket{pending = undefined} = Socket) ->
