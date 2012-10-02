@@ -173,6 +173,7 @@ remove_handler(Handler) ->
 user_connected(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
+  flu_log:session(connected, Stats),
   gen_event:notify(?MODULE, #flu_event{event = user.connected, stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
 %%--------------------------------------------------------------------
@@ -184,6 +185,7 @@ user_connected(Stream, Stats) ->
 user_disconnected(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
+  flu_log:session(disconnected, Stats),
   gen_event:notify(?MODULE, #flu_event{event = user.connected, stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
 %%--------------------------------------------------------------------
