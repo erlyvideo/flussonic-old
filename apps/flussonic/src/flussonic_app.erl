@@ -41,6 +41,9 @@ start(_StartType, _StartArgs) ->
   % flu_session:start(),
   
   % sync:go(),
+  inets:start(),
+  inets:start(httpc, [{profile,auth}]),
+  httpc:set_options([{max_sessions,20},{max_keep_alive_length,100}]),
   {ok, Pid} = flussonic_sup:start_link(),
   load_config(),
   write_pid(),

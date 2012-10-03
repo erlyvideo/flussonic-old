@@ -243,9 +243,8 @@ check_sessions0(URL, Name0, Req0, Type) ->
   case retrieve_token(Req0) of
     {undefined, _} -> throw({return, 403, "denied"}); % no token specified
     {Token, Req1} ->
-      {PeerAddr, _} = cowboy_http_req:peer_addr(Req1),
+      Ip = peer_addr(Req1),
       {Referer, _} = cowboy_http_req:header('Referer', Req1),
-      Ip = list_to_binary(inet_parse:ntoa(PeerAddr)),
       Identity = [{token,Token},{name,Name0},{ip,Ip}],
       Options = [{type,Type},{referer,Referer}],
       case flu_session:verify(URL, Identity, Options) of
@@ -255,4 +254,28 @@ check_sessions0(URL, Name0, Req0, Type) ->
           throw({return,Code, Reply})
       end
   end.
+
+%% Temporary workaround for cowboy bug in 0.6
+peer_addr(Req1) ->
+  {ForwardedForRaw, _Req2} = cowboy_http_req:header('X-Forwarded-For', Req1),
+  ForwardedFor = case ForwardedForRaw of
+    undefined ->
+      undefined;
+    ForwardedForRaw ->
+      case re:run(ForwardedForRaw, "^(?<first_ip>[^\\,]+)",
+          [{capture, [first_ip], binary}]) of
+        {match, [FirstIp]} -> FirstIp;
+        _Any -> undefined
+      end
+  end,
+  case ForwardedFor of
+    undefined ->
+      {PeerAddr, _} = cowboy_http_req:peer_addr(Req1),
+      list_to_binary(inet_parse:ntoa(PeerAddr));
+    _ ->
+      ForwardedFor
+  end.
+
+
+
 

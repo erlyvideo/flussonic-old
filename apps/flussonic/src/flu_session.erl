@@ -69,19 +69,19 @@ verify(URL, Identity, Options) ->
 
 
 backend_request(URL, Identity, Options) ->
-  Query = string:join([io_lib:format("~s=~s&", [K,V]) || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V)], "&"),
+  Query = [io_lib:format("~s=~s&", [K,V]) || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V)],
   RequestURL = lists:flatten([URL, "?", Query]),
-  Name = proplists:get_value(name, Identity),
-  case http_stream:request_body(RequestURL, [{noredirect, true}, {keepalive, false}]) of
-    {ok, {_Socket, Code, Headers, _Body}} ->
-      Opts0_ = [{expire,to_i(proplists:get_value(<<"X-AuthDuration">>, Headers))},
-        {user_id,to_i(proplists:get_value(<<"X-UserId">>, Headers))}],
+  case httpc:request(RequestURL, auth) of
+    {ok, {{_,Code,_}, Headers, _Body}} ->
+      Opts0_ = [{expire,to_i(proplists:get_value("x-authduration", Headers))},
+        {user_id,to_i(proplists:get_value("x-userid", Headers))}],
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
+      Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),
       case Code of
-        200 -> {ok,    Name,                                             merge([{access, granted}],Opts0)};
-        302 -> {ok,    proplists:get_value(<<"X-Name">>, Headers, Name), merge([{access, granted}],Opts0)};
-        403 -> {error, 403,                                              merge([{access, denied}], Opts0)};
-        _ ->   {error, 403,                                              merge([{access, denied}], Opts0)}
+        200 -> {ok,    Name, merge([{access, granted}],Opts0)};
+        302 -> {ok,    Name, merge([{access, granted}],Opts0)};
+        403 -> {error, 403,  merge([{access, denied}], Opts0)};
+        _ ->   {error, 403,  merge([{access, denied}], Opts0)}
       end;
     {error, _} ->
       {error, 404, merge([{access, denied}], Options)}
@@ -89,8 +89,12 @@ backend_request(URL, Identity, Options) ->
 
 
 to_i(undefined) -> undefined;
+to_i(List) when is_list(List) -> list_to_integer(List);
 to_i(Bin) when is_binary(Bin) -> list_to_integer(binary_to_list(Bin)).
 
+to_b(undefined) -> undefined;
+to_b(List) when is_list(List) -> list_to_binary(List);
+to_b(Bin) when is_binary(Bin) -> Bin.
 
 clients() ->
   Now = flu:now_ms(),

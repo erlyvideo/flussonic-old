@@ -298,8 +298,13 @@ configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, 
 configs(#stream{media_info = undefined}) ->
   [];
   
-configs(#stream{last_dts = DTS, media_info = MediaInfo}) ->
-  [F#video_frame{dts = DTS, pts = DTS} || F <- video_frame:config_frames(MediaInfo)].
+configs(#stream{last_dts = DTS, media_info = MediaInfo}) when is_number(DTS) ->
+  [F#video_frame{dts = DTS, pts = DTS} || F <- video_frame:config_frames(MediaInfo)];
+
+configs(#stream{last_dts = undefined, media_info = MediaInfo}) ->
+  video_frame:config_frames(MediaInfo).
+
+
 
 handle_call({update_options, NewOptions}, _From, #stream{name = Name} = Stream) ->
   NewOptions1 = lists:ukeymerge(1, lists:ukeysort(1, NewOptions), [{name,Name}]),

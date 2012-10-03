@@ -66,8 +66,8 @@ handle_info(work, #rtsp{proto = Proto, url = URL} = RTSP) ->
 
 handle_info(#video_frame{codec = Codec} = Frame, #rtsp{consumer = Consumer} = RTSP) when 
   Codec == h264 orelse Codec == aac orelse Codec == mp3 ->
-  % #video_frame{codec = Codec, flavor = Flavor, dts = DTS} = Frame,
-  % io:format("~4s ~10s ~B~n", [Codec, Flavor, round(DTS)]),
+  % #video_frame{content = Content, codec = Codec, flavor = Flavor, dts = DTS} = Frame,
+  % io:format("~6s ~4s ~10s ~B~n", [Content, Codec, Flavor, round(DTS)]),
   Consumer ! Frame,
   {noreply, RTSP};
 

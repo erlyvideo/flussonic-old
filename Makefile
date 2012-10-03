@@ -32,8 +32,6 @@ shell:
 vagrant:
 	vagrant destroy -f
 	vagrant up
-	vagrant ssh -c "sudo dpkg -i /vagrant/flussonic_$(VERSION)_amd64.deb"
-	vagrant ssh -c "sudo mv /etc/flussonic/flussonic1.conf /etc/flussonic/flussonic.conf"
 	vagrant ssh -c "sudo -s /etc/init.d/flussonic start"
 
 start:
@@ -89,8 +87,8 @@ escriptize:
 
 upload:
 	./contrib/license_pack $(VERSION)
-	scp *$(VERSION)* erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary
-	scp flussonic erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary/flussonic
+	scp flussonic_$(VERSION)_amd64.deb flussonic flussonic-$(VERSION).tgz erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary
+	# scp flussonic erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary/flussonic
 	ssh erlyhub@erlyvideo.org "cd /apps/erlyvideo/debian ; ./update ; cd public/binary ; ln -sf flussonic-$(VERSION).tgz flussonic-latest.tgz "
 	@#echo "Erlyvideo version ${VERSION} uploaded to debian repo http://debian.erlyvideo.org/ ." | mail -r "Erlybuild <build@erlyvideo.org>" -s "Erlyvideo version ${VERSION}" -v erlyvideo-dev@googlegroups.com
 

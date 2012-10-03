@@ -29,6 +29,7 @@ Vagrant::Config.run do |config|
 
   # Forward a port from the guest to the host, which allows for outside
   # computers to access the VM, whereas host only networking does not.
+  config.vm.forward_port 80, 9070
   config.vm.forward_port 8080, 9080
   config.vm.forward_port 6081, 9081
   config.vm.forward_port 6082, 9082
@@ -56,10 +57,12 @@ Vagrant::Config.run do |config|
   # #               Managed by Puppet.\n"
   # # }
   #
-  config.vm.provision :puppet do |puppet|
-    puppet.manifests_path = "manifests"
-    puppet.manifest_file  = "precise64.pp"
-  end
+  # config.vm.provision :puppet do |puppet|
+  #   puppet.manifests_path = "manifests"
+  #   puppet.manifest_file  = "precise64.pp"
+  # end
+
+  config.vm.provision :shell, :path => "manifests/precise64.sh"
 
   # Enable provisioning with chef solo, specifying a cookbooks path, roles
   # path, and data_bags path (all relative to this Vagrantfile), and adding 

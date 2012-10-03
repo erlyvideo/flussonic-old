@@ -5,6 +5,16 @@ backend www {
 
 sub vcl_recv {
 	set req.backend = www;
+
+	if (req.restarts == 0) {
+	  if (req.http.x-forwarded-for) {
+	    set req.http.X-Forwarded-For =
+  		req.http.X-Forwarded-For + ", " + client.ip;
+  	} else {
+	    set req.http.X-Forwarded-For = client.ip;
+		}
+  }
+
 	
 	if (req.url ~ "^/flu" || req.url ~ "\.ts$" || req.url ~ "Seg(\d+)-Frag(\d+)$") {
 		unset req.http.cookie;

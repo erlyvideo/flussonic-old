@@ -13,7 +13,8 @@ media_handler_test_() ->
   [
     fun test_offline_stream_playlist/0,
     fun test_offline_rewrite_playlist/0,
-    fun test_live_dvr_playlist/0
+    fun test_live_dvr_playlist/0,
+    fun test_offline_live_dvr_ts/0
   ]}.
 
 
@@ -38,3 +39,9 @@ test_live_dvr_playlist() ->
   ?assertMatch({{hls_dvr_packetizer, playlist, [<<"test/files">>,1234567,3600]}, _, <<"livestream">>}, 
     media_handler:lookup_name([<<"livestream">>, <<"index-1234567-3600.m3u8">>], [{dvr,"test/files"}], req, [])).
 
+
+test_offline_live_dvr_ts() ->
+  meck:expect(flu_config, get_config, fun() -> [{live, <<"live">>, [{dvr, "test/files"}]}] end),
+  meck:expect(media_handler, check_sessions, fun(_, Name, _) -> Name end),
+  ?assertMatch({{dvr_handler, ts, [<<"test/files">>,1348748644,3600, _]}, [], <<"livestream">>}, 
+    media_handler:lookup_name([<<"livestream">>, <<"archive-1348748644-3600.ts">>], [{dvr,"test/files"}], req, [])).
