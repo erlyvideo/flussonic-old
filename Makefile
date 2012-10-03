@@ -33,6 +33,7 @@ vagrant:
 	vagrant destroy -f
 	vagrant up
 	vagrant ssh -c "sudo dpkg -i /vagrant/flussonic_$(VERSION)_amd64.deb"
+	vagrant ssh -c "sudo mv /etc/flussonic/flussonic1.conf /etc/flussonic/flussonic.conf"
 	vagrant ssh -c "sudo -s /etc/init.d/flussonic start"
 
 start:

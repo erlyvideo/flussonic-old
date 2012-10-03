@@ -25,4 +25,62 @@ class erlang {
  }
 }
 
+class varnish {
+  exec {"varnish_conf":
+    command => "/bin/mkdir -p /etc/varnish"
+  }
+  file {"varnish.vcl":
+    path => "/etc/varnish/default.vcl",
+    ensure => present,
+    owner => root,
+    source => "/vagrant/priv/sample/varnish.vcl",
+    require => Exec["varnish_conf"]
+  }
+
+  package { "varnish":
+    name => "varnish",
+    ensure => installed,
+    require => File["varnish.vcl"]
+  }
+}
+
+
+class flussonic_conf {
+  exec {"storage":
+    command => "/bin/mkdir -p /storage"
+  }
+  file {"movie":
+    path => "/storage/bunny.mp4",
+    source => "/vagrant/priv/bunny.mp4",
+    ensure => present,
+    require => Exec["storage"]
+  }
+
+  file {"playlist":
+    path => "/storage/playlist.txt",
+    ensure => present,
+    content => "/storage/bunny.mp4
+    ",
+    require => Exec["storage"]
+  }
+
+  exec {"flu_conf":
+    command => "/bin/mkdir -p /etc/flussonic"
+  }
+
+  file {"config":
+    path => "/etc/flussonic/flussonic1.conf",
+    ensure => present,
+    content => "{http,8080}.
+    {stream, \"channel\", \"playlist:///storage/playlist.txt\", [{sessions, \"http://127.0.0.1:8080/\"}]}.
+    {file, \"vod\", \"/storage\", [{sessions, \"http://127.0.0.1:8080/\"}]}.
+    api.
+    {root, \"wwwroot\"}.
+    ",
+    require => [ File["movie"], File["playlist"], Exec["flu_conf"] ]
+  }
+}
+
 include erlang
+include varnish
+include flussonic_conf
