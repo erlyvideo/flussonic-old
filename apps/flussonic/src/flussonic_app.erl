@@ -136,7 +136,13 @@ load_config() ->
 	    ?D({"Start RTSP server at port", RTSPPort}),
 	    rtsp:start_server(RTSPPort, rtsp_listener1, flu_rtsp)
 	end,
-	ok.
+  case proplists:get_value(file, proplists:get_value(sessions_log, Env, [])) of
+    undefined -> ok;
+    File ->
+      lager:trace_file(File, [{log, sessions}], info),
+      ?D({"Sessions will be logged", File})
+  end,
+  ok.
 
 
 start_http(Ref, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts)
