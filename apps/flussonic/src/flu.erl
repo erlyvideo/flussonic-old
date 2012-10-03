@@ -43,8 +43,8 @@ join(Items, Sep) ->
 rebuild() ->
   io:format("Recompiling flussonic ...~n"),
 	make:all([load]),
-  flussonic_app:unload_config(),
-	flussonic_app:load_config(),
+  % flussonic_app:unload_config(),
+	% flussonic_app:load_config(),
   ok.
 
 reconf() ->

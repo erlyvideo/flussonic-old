@@ -70,14 +70,16 @@ decode(<<2:2, 1:1, _Extension:1, 0:4, _Marker:1, _PayloadType:7, Sequence:16, Ti
   decode(Data, RTP#rtp_channel{sequence = (Sequence + 1) rem 65536}, Timecode).
 
 
-decode(<<AULength:16, AUHeaders:AULength/bitstring, AudioData/binary>>, #rtp_channel{codec = aac} = RTP, Timecode) ->
-  decode_aac(AudioData, AUHeaders, RTP, Timecode, []);
+decode(<<AULength:16, AUHeaders:AULength/bitstring, AudioData/binary>>, #rtp_channel{codec = aac, 
+  stream_info = #stream_info{track_id = TrackId}} = RTP, Timecode) ->
+  Frames = decode_aac(AudioData, AUHeaders, RTP, Timecode),
+  {ok, RTP, [F#video_frame{track_id = TrackId} || F <- Frames]};
 
-decode(Body, #rtp_channel{codec = h264, buffer = Buffer} = RTP, Timecode) ->
+decode(Body, #rtp_channel{codec = h264, buffer = Buffer, stream_info = #stream_info{track_id = TrackId}} = RTP, Timecode) ->
   DTS = timecode_to_dts(RTP, Timecode),
   {ok, Buffer1, Frames} = decode_h264(Body, Buffer, DTS),
   % ?D({decode,h264,Timecode,DTS, length(Frames), size(Body), size(Buffer1#h264_buffer.buffer)}),
-  {ok, RTP#rtp_channel{buffer = Buffer1}, Frames};
+  {ok, RTP#rtp_channel{buffer = Buffer1}, [F#video_frame{track_id = TrackId} || F <- Frames]};
 
 decode(Body, #rtp_channel{codec = mpegts, buffer = undefined} = RTP, Timecode) ->
   {ok, Decoder} = mpegts_reader:init([[]]),
@@ -87,7 +89,7 @@ decode(Body, #rtp_channel{codec = mpegts, buffer = Decoder} = RTP, _Timecode) ->
   {ok, Decoder1, Frames} = mpegts_reader:decode(Body, Decoder),
   {ok, RTP#rtp_channel{buffer = Decoder1}, Frames};
 
-decode(Body, #rtp_channel{stream_info = #stream_info{codec = Codec, content = Content} = Info} = RTP, Timecode) ->
+decode(Body, #rtp_channel{stream_info = #stream_info{codec = Codec, content = Content, track_id = TrackId} = Info} = RTP, Timecode) ->
   DTS = timecode_to_dts(RTP, Timecode),
   Frame = #video_frame{
     content = Content,
@@ -96,6 +98,7 @@ decode(Body, #rtp_channel{stream_info = #stream_info{codec = Codec, content = Co
     body    = Body,
 	  codec	  = Codec,
 	  flavor  = frame,
+    track_id = TrackId,
 	  sound	  = video_frame:frame_sound(Info)
   },
   {ok, RTP, [Frame]}.
@@ -128,10 +131,10 @@ decode_h264(Body, #h264_buffer{time = OldDTS, buffer = Buffer}, DTS) when OldDTS
 
 
 
-decode_aac(<<>>, <<>>, RTP, _, Frames) ->
-  {ok, RTP, lists:reverse(Frames)};
+decode_aac(<<>>, <<>>, _RTP, _) ->
+  [];
 
-decode_aac(AudioData, <<AUSize:13, _Delta:3, AUHeaders/bitstring>>, RTP, Timecode, Frames) ->
+decode_aac(AudioData, <<AUSize:13, _Delta:3, AUHeaders/bitstring>>, RTP, Timecode) ->
   <<Body:AUSize/binary, Rest/binary>> = AudioData,
   DTS = timecode_to_dts(RTP, Timecode),
   Frame = #video_frame{
@@ -143,7 +146,7 @@ decode_aac(AudioData, <<AUSize:13, _Delta:3, AUHeaders/bitstring>>, RTP, Timecod
 	  flavor  = frame,
 	  sound	  = {stereo, bit16, rate44}
   },
-  decode_aac(Rest, AUHeaders, RTP, Timecode + 1024, [Frame|Frames]).
+  [Frame|decode_aac(Rest, AUHeaders, RTP, Timecode + 1024)].
 
 timecode_to_dts(#rtp_channel{timescale = Scale, timecode = BaseTimecode, wall_clock = WallClock}, Timecode) ->
   % ?D({tdts, WallClock, BaseTimecode, Scale, WallClock + (Timecode - BaseTimecode)/Scale, Timecode}),

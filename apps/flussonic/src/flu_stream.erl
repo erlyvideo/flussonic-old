@@ -382,6 +382,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
     tshttp -> mpegts:read(URL, []);
     udp -> mpegts:read(URL, []);
     rtsp -> flu_rtsp:read(Name, URL, Options);
+    rtsp2 -> flu_rtsp:read2(Name, URL, Options);
     hls -> hls:read(URL, Options);
     file -> file_source:read(URL, Options);
     rtmp -> flu_rtmp:play_url(Name, URL);
@@ -466,7 +467,7 @@ handle_info(#video_frame{} = Frame, #stream{retry_count = Count} = Stream) when 
   
 handle_info(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, clients = Clients} = Stream) ->
   if Dump ->
-    ?D({frame, Name, Frame#video_frame.codec, Frame#video_frame.flavor, Frame#video_frame.sound, round(Frame#video_frame.dts), round(Frame#video_frame.pts)});
+    ?D({frame, Name, Frame#video_frame.codec, Frame#video_frame.flavor, Frame#video_frame.track_id, round(Frame#video_frame.dts), round(Frame#video_frame.pts)});
     true -> ok
   end,
   Stream1 = save_config(Frame, Stream),

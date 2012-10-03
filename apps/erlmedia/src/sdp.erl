@@ -73,6 +73,7 @@ sdp_codecs() ->
   {pcma, "PCMA"},
   {pcmu, "PCMU"},
   {g726_16, "G726-16"},
+  {g726_32, "G726-32"},
   {mpa, "MPA"},
   {mp4a, "MP4A-LATM"},
   {mp4v, "MP4V-ES"},
