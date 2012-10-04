@@ -144,11 +144,35 @@ write_loop(Socket, Transport, Mpegts, Started) ->
   end.
   
 
+mpegts_test_() ->
+  {foreach,
+  fun() ->
+      Modules = [flu_config],
+      meck:new(Modules, [{passthrough,true}]),
+      Config = [{mpegts, <<"mpegts">>, []}],
+      meck:expect(flu_config, get_config, fun() -> Config end),
+      lager:set_loglevel(lager_console_backend, notice),
+      cowboy:start_listener(fake_http, 3, 
+        cowboy_tcp_transport, [{port,5555}],
+        cowboy_http_protocol, [{dispatch,[{'_',flu_config:parse_routes(Config)}]}]
+      ), 
 
-mpegts_test() ->
+      Modules
+  end,
+  fun(Modules) ->
+    cowboy:stop_listener(fake_http),
+    lager:set_loglevel(lager_console_backend, info),
+    meck:unload(Modules) 
+  end,
+  [
+    fun test_mpegts/0
+  ]
+  }.
+
+test_mpegts() ->
   {ok, Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
   Stream ! flu_rtmp_tests:h264_aac_media_info(),
-  {ok, Sock} = gen_tcp:connect("127.0.0.1", 8080, [binary,{packet,http},{active,false}]),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock, "GET /mpegts/testlivestream HTTP/1.0\r\n\r\n"),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   read_headers(Sock),

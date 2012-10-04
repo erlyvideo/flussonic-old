@@ -175,8 +175,7 @@ parse_routes([{root, Root}|Env]) ->
 
 parse_routes([{mpegts,Prefix,Options}|Env]) ->
   Tokens = tokens(Prefix),
-  [
-    {Tokens ++ ['...'], mpegts_handler, Options}
+  [{Tokens ++ ['...'], mpegts_handler, Options}
   |parse_routes(Env)];
 
 parse_routes([{api,Options}|Env]) ->
@@ -258,7 +257,7 @@ parse_route_test_() ->
   [
     ?_assertMatch([{[<<"live">>,<<"injest">>, '...'], media_handler, _}], 
       parse_routes([{live, <<"live/injest">>, []}])),
-    ?_assertMatch([{[<<"vod">>,<<"mp4">>,'...'], media_handler, _}],
+    ?_assertMatch([{[<<"vod">>,<<"mp4">>,'...'], media_handler, [{module,flu_file},{root,<<"/movies">>}]}],
       parse_routes([{file, <<"vod/mp4">>, <<"/movies">>, []}]))
   ].
 

@@ -18,7 +18,7 @@
 -export([verify/3]).
 
 
--export([backend_request/3]).
+-export([backend_request/3, timeout/0]).
 
 % -record(session, {
 %   id,
@@ -66,12 +66,14 @@ verify(URL, Identity, Options) ->
   end.
 
 
-
+timeout() ->
+  3000.
 
 backend_request(URL, Identity, Options) ->
   Query = [io_lib:format("~s=~s&", [K,V]) || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V)],
   RequestURL = lists:flatten([URL, "?", Query]),
-  case httpc:request(RequestURL, auth) of
+  case httpc:request(get, {RequestURL, []}, [{connect_timeout, flu_session:timeout()},{timeout, flu_session:timeout()},{autoredirect,false}],
+    [], auth) of
     {ok, {{_,Code,_}, Headers, _Body}} ->
       Opts0_ = [{expire,to_i(proplists:get_value("x-authduration", Headers))},
         {user_id,to_i(proplists:get_value("x-userid", Headers))}],

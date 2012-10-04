@@ -9,6 +9,7 @@ setup_flu_session() ->
   meck:new([flu_config,flu_session,http_stream], [{passthrough,true}]),
   Table = ets:new(test_sessions, [{keypos,2},public]),
   meck:expect(flu_session,table, fun() -> Table end),
+  meck:expect(flu_session, timeout, fun() -> 100 end),
   meck:new(fake_auth),
   meck:expect(fake_auth, init, fun(_, Req, _) -> {ok, Req, state} end),
   meck:expect(fake_auth, handle, fun(Req, _) -> 
@@ -51,7 +52,9 @@ flu_session_test_() ->
 
   fun test_monitor_session/0,
 
-  fun test_session_info/0
+  fun test_session_info/0,
+
+  fun test_backend_down/0
   ]}.
 
 http_mock_url() -> "http://127.0.0.1:6070/auth".
@@ -144,7 +147,8 @@ test_monitor_session() ->
   ok.
 
 
-
+test_backend_down() ->
+  ?assertMatch({error,403,_}, flu_session:verify("http://127.0.0.5/", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])).
 
 test_session_info() ->
   meck:expect(fake_auth, reply, fun() -> {302,[{<<"X-UserId">>,<<"15">>},{<<"X-Name">>,<<"cam5">>}], <<"">>} end),

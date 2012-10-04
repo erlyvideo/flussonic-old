@@ -35,6 +35,7 @@
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
 -include_lib("erlmedia/include/mp4.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -define(SEGMENT_DURATION,10000).
 
 -record(state, {

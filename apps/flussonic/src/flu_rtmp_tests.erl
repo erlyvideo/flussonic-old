@@ -6,12 +6,12 @@
 
 -compile(export_all).
 
--define(STREAM, <<"testlivecam">>).
 -define(S, {stereo, bit16, rate44}).
 
 -record(env, {
   rtmp,
   stream,
+  name,
   env
 }).
 
@@ -35,6 +35,7 @@ setup_publish() ->
 
 setup_publish(Options) ->
   Env = flu_config:get_config(),
+  lager:set_loglevel(lager_console_backend, notice),
   Auth = case proplists:get_value(auth, Options) of
     undefined -> 
       Env1 = lists:keydelete(publish_password, 1, Env),
@@ -46,37 +47,38 @@ setup_publish(Options) ->
       application:set_env(flussonic, config, Env1),
       <<"?login=", (list_to_binary(Login))/binary, "&password=", (list_to_binary(Password))/binary>>
   end,
-  flussonic_sup:stop_stream(?STREAM),
+  StreamName = iolist_to_binary([<<"testlivecam">>, integer_to_list(random:uniform(100))]),
+
+  flussonic_sup:stop_stream(StreamName),
   {ok, RTMP} = rtmp_lib:connect("rtmp://localhost/live"),
   Stream = rtmp_lib:createStream(RTMP),
-  StreamName = ?STREAM,
   rtmp_lib:publish(RTMP, Stream, <<StreamName/binary, Auth/binary>>),
-  #env{rtmp = RTMP, stream=Stream, env=Env}.
+  #env{rtmp = RTMP, stream=Stream, name = StreamName, env=Env}.
 
-teardown_publish(#env{rtmp=RTMP, env=Env}) ->
+teardown_publish(#env{rtmp=RTMP, name = StreamName, env=Env}) ->
   rtmp_socket:close(RTMP),
-  flussonic_sup:stop_stream(?STREAM),
+  flussonic_sup:stop_stream(StreamName),
   application:set_env(flussonic, config, Env),
+  lager:set_loglevel(lager_console_backend, info),
   ok.
 
 
-publish_h264_aac_test() ->
-  R = setup_publish(),
-  publish(h264_aac, R),
-  teardown_publish(R).
+flu_rtmp_test_() ->
+  {foreach, 
+  fun setup_publish/0,
+  fun teardown_publish/1,
+  [ {with, [fun(R) -> publish(h264_aac, R) end]},
+    {with, [fun(R) -> publish(h264_mp3, R) end]}
+  ]}.
 
-
-publish_with_password_test() ->
-  R = setup_publish([{auth, "l0gin:passw"}]),
-  publish(h264_aac, R),
-  teardown_publish(R).
-
-
-publish_h264_mp3_test() ->
-  R = setup_publish(),
-  publish(h264_mp3, R),
-  teardown_publish(R).
-
+publish_with_password_test_() ->
+  {setup,
+  fun() -> setup_publish([{auth, "l0gin:passw"}]) end,
+  fun teardown_publish/1,
+  {with,[
+    fun(R) -> publish(h264_aac, R) end
+  ]}}.
+  
 
 h264_aac_frames() ->
 [
@@ -110,30 +112,34 @@ h264_aac_media_info() ->
   MI2 = video_frame:define_media_info(MI1, aac_config()),
   MI2.
 
-publish(h264_aac, #env{rtmp= RTMP, stream=Stream}) ->
+publish(h264_aac, #env{rtmp= RTMP, name = StreamName, stream=Stream}) ->
   [rtmp_publish:send_frame(RTMP, Stream, Frame) || Frame <- h264_aac_frames()],
   
   timer:sleep(300),
   
-  MediaInfo = flu_stream:media_info(?STREAM),
+  MediaInfo = flu_stream:media_info(StreamName),
   ?assertMatch(#media_info{streams = [#stream_info{codec = h264}, #stream_info{codec = aac}]}, MediaInfo),
   ok;
 
-publish(h264_mp3, #env{rtmp= RTMP, stream=Stream}) ->
+publish(h264_mp3, #env{rtmp= RTMP, name = StreamName, stream=Stream}) ->
   rtmp_publish:send_frame(RTMP, Stream, h264_config()),
 
   rtmp_publish:send_frame(RTMP, Stream, #video_frame{content = video, codec = h264, flavor = keyframe, dts = 0, pts = 0, body = <<"keyframe">>}),
   rtmp_publish:send_frame(RTMP, Stream, mp3_frame(0)),
   rtmp_publish:send_frame(RTMP, Stream, mp3_frame(23)),
   rtmp_publish:send_frame(RTMP, Stream, #video_frame{content = video, codec = h264, flavor = frame, dts = 40, pts = 40, body = <<"frame">>}),
-  rtmp_publish:send_frame(RTMP, Stream, mp3_frame(23)),
+  rtmp_publish:send_frame(RTMP, Stream, mp3_frame(46)),
   rtmp_publish:send_frame(RTMP, Stream, #video_frame{content = video, codec = h264, flavor = frame, dts = 80, pts = 80, body = <<"frame">>}),
-
+  rtmp_publish:send_frame(RTMP, Stream, mp3_frame(69)),
+  rtmp_publish:send_frame(RTMP, Stream, mp3_frame(92)),
+  rtmp_publish:send_frame(RTMP, Stream, #video_frame{content = video, codec = h264, flavor = frame, dts = 120, pts = 120, body = <<"frame">>}),
+ 
   timer:sleep(300),
 
-  MediaInfo = flu_stream:media_info(?STREAM),
+  MediaInfo = flu_stream:media_info(StreamName),
   ?assertMatch(#media_info{streams = [#stream_info{codec = h264}, #stream_info{codec = mp3}]}, MediaInfo),
   ok.
+
 
   
 run(Suite) ->
@@ -141,8 +147,7 @@ run(Suite) ->
     R -> R
   catch
     Class:Error -> 
-      ?debugFmt("~s:~p ~240p~n", [Class, Error, erlang:get_stacktrace()]),
-      flussonic_sup:stop_stream(?STREAM)
+      ?debugFmt("~s:~p ~240p~n", [Class, Error, erlang:get_stacktrace()])
   end.
 
 run0(Suite) ->
@@ -154,9 +159,13 @@ run0(Suite) ->
 play_rejected_test_() ->
   {foreach, fun() ->
     meck:new([flu_config], [{passthrough,true}]),
+    lager:set_loglevel(lager_console_backend, notice),
     [flu_config]
   end,
-  fun(Modules) -> meck:unload(Modules) end,
+  fun(Modules) ->
+    lager:set_loglevel(lager_console_backend, info),
+    meck:unload(Modules) 
+  end,
   [
     fun test_forbidden_password/0
   ]}.
@@ -165,5 +174,87 @@ test_forbidden_password() ->
   meck:expect(flu_config, get_config, fun() -> [{sessions, "http://127.0.0.5/"}] end),
   ?assertThrow({rtmp_error,{play,<<"ort">>}},rtmp_lib:play("rtmp://127.0.0.1/live/ort", [{timeout,500}])),
   ok.
+
+
+
+
+
+rtmp_session_test_() ->
+  {foreach, 
+  fun() ->
+    Modules = [fake_rtmp, flu_config],
+    meck:new(Modules, [{passthrough,true}]),
+    meck:expect(fake_rtmp, create_client, fun(Socket) ->
+      {ok, Sess} = supervisor:start_child(rtmp_session_sup, [fake_rtmp]),
+      rtmp_session:set_socket(Sess, Socket),
+      {ok, Sess}
+    end),
+    meck:expect(fake_rtmp, init, fun(Session) -> {ok, Session} end),
+    meck:expect(fake_rtmp, handle_control, fun(_Msg, Session) -> {ok, Session} end),
+    meck:expect(fake_rtmp, handle_rtmp_call, fun(Session, #rtmp_funcall{command = Command} = AMF) ->
+      fake_rtmp:Command(Session, AMF)
+    end),
+    meck:expect(fake_rtmp, connect, fun(Session, AMF) -> {unhandled, Session, AMF} end),
+    meck:expect(fake_rtmp, createStream, fun(Session, AMF) -> {unhandled, Session, AMF} end),
+    {ok, RTMP} = rtmp_listener:start_link(5556,fake_rtmp,fake_rtmp,[]),
+    unlink(RTMP),
+    {RTMP, Modules}
+  end,
+  fun({RTMP, Modules}) ->
+    erlang:exit(RTMP, shutdown),
+    timer:sleep(50),
+    meck:unload(Modules)
+  end,
+  [
+    fun test_publish_catch_dvr/0
+  ]}.
+
+
+
+test_publish_catch_dvr() ->
+  meck:expect(flu_config, get_config, fun() -> [{live, <<"livedvr">>, [{dvr, "movies"}]}] end),
+  Self = self(),
+  meck:expect(fake_rtmp, publish, fun(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name|_]} = AMF) ->
+    Socket = rtmp_session:get(Session, socket),
+    rtmp_lib:notify_publish_start(Socket, StreamId, 0, Name),
+    Self ! {publish, Session, AMF},
+    Session 
+  end),
+  {ok, RTMP} = rtmp_lib:connect("rtmp://localhost:5556/livedvr"),
+  Stream = rtmp_lib:createStream(RTMP),
+  rtmp_lib:publish(RTMP, Stream, <<"stream0">>),
+  receive
+    {publish, Session, _AMF} ->
+      ?assertEqual([{dvr,"movies"}], flu_rtmp:publish_options(Session))
+  after
+    1000 -> ?assert(false)
+  end,
+  erlang:exit(RTMP, shutdown),
+  ok.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   

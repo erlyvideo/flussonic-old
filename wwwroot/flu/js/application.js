@@ -175,7 +175,11 @@ Erlyvideo = {
   
   enable_play_tab: function() {
     $("#play-tab form").submit(function() {
-      Erlyvideo.play_stream($("#requested-stream-name").val(), "hds");
+      return false;
+    });
+
+    $("#play-tab form button").click(function() {
+      Erlyvideo.play_stream($("#requested-stream-name").val(), $(this).val());
       return false;
     });
   },

@@ -44,6 +44,10 @@ recheck(Stream, URL, StreamOpts) ->
   flu_stream:autostart(Stream, Opts).
 
 handle_info(recheck, State) ->
+  erlang:function_exported(flu_config, get_config, 0) orelse begin
+    erlang:send_after(3000, self(), recheck),
+    throw({noreply, State})
+  end,
   Config = flu_config:get_config(),
   % {http, HTTPPort} = lists:keyfind(http, 1, Env),
   Streams = [Name || {Name, _} <- flu_stream:list()],

@@ -100,13 +100,13 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       {{DefaultModule, hls_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
     [<<"hls">>, SegmentPath] ->
       Root = proplists:get_value(root, Opts),
-      is_list(Root) orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {match, [Number]} = re:run(SegmentPath, "(\\d+)\\.ts", [{capture,all_but_first,list}]),
       {{DefaultModule, hls_segment, [to_b(Root), to_i(Number)]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
     [<<"archive-", FromDurationSpec/binary>>] ->
       {match, [From, Duration, Extension]} = re:run(FromDurationSpec, "(\\d+)-(\\d+)\\.(\\w+)", [{capture, all_but_first, binary}]),
       Root = proplists:get_value(dvr, Opts),
-      is_list(Root) orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       Function = case Extension of
         <<"mp4">> -> mp4;
         <<"ts">> -> ts
@@ -115,7 +115,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
     [<<"save-mp4-", FromDurationSpec/binary>>] ->
       {match, [From, Duration]} = re:run(FromDurationSpec, "(\\d+)-(\\d+)", [{capture, all_but_first, binary}]),
       Root = proplists:get_value(dvr, Opts),
-      is_list(Root) orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {FileName, _Req1} = cowboy_http_req:qs_val(<<"file">>, Req),
       File = re:replace(FileName, "\\.\\.", "", [{return,binary}]),
       {{dvr_handler, save_mp4, [to_b(Root), to_i(From), to_i(Duration), File]}, [{<<"Content-Type">>, <<"text/plain">>}], name_or_pi(Opts, Acc)};
@@ -134,7 +134,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
     [<<"archive">>, From, Duration, <<"manifest.f4m">>] ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
-      is_list(Root) orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {{dvr_session, hds_manifest, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], Stream};
     [<<"archive">>, From, Duration, <<"index.m3u8">>] ->
       throw({return, 302, [{<<"Location">>, <<"/", (name_or_pi(Opts,Acc))/binary, "/index-", From/binary, "-", Duration/binary, ".m3u8">>}], <<"Redirect\n">>});
@@ -142,13 +142,13 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       {match, [From, Duration]} = re:run(IndexSpec, "(\\d+)-(\\w+)\\.m3u8", [{capture, all_but_first, list}]),
       Root = proplists:get_value(dvr, Opts),
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
-      is_list(Root) orelse throw({return, 424, ["no dvr root specified ", Stream]}),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", Stream]}),
       % {dvr_session, hls_abs_playlist, [list_to_binary(Root), list_to_integer(From), list_to_integer(Duration)], [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}], name_or_pi(Opts, Acc)};
       {{hls_dvr_packetizer, playlist, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
     [<<"archive">>, From, Duration, _Bitrate, <<"Seg", SegmentPath/binary>>] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "(\\d+)-Frag(\\d+)", [{capture,all_but_first,binary}]),
       Root = proplists:get_value(dvr, Opts),
-      is_list(Root) orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {{dvr_session, hds_fragment, [to_b(Root), to_i(From), to_i(Duration), to_i(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
     [Else|PathInfo1] ->
       lookup_name(PathInfo1, Opts, Req, [Else|Acc]);

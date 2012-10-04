@@ -66,7 +66,7 @@ start(_Options) ->
   application:start(compiler),
   application:load(lager),
   application:set_env(lager,handlers,[{lager_console_backend,info}]),
-  application:set_env(lager,error_logger_redirect,false),
+  application:set_env(lager,error_logger_redirect,true),
   lager:start(),
   license_client:load(),
 	application:start(sasl),
@@ -106,7 +106,7 @@ load_app(App) ->
 
 
 test() ->
-  eunit:test([
+  Modules = [
     aac
     ,flv_video_frame
     ,h264
@@ -132,5 +132,11 @@ test() ->
     ,dvr_handler
     ,media_handler
     ,flu_session
-  ]).
+    ,flu_file
+  ],
+  [begin
+    io:format("Test: ~p~n", [Module]),
+    Module:test()
+  end || Module <- Modules],
+  ok.
 

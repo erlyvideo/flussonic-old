@@ -37,6 +37,7 @@
 
 
 -export([clients/0]).
+-export([publish_options/1]).
 
 clients() ->
   case erlang:whereis(rtmp_session_sup) of
@@ -248,6 +249,15 @@ play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _St
   Session1.
 
 
+publish_options(Session) ->
+  Prefix = rtmp_session:get_field(Session, app),
+  Env = flu_config:get_config(),
+  case [Entry || {live,Pref,_Options} = Entry <- Env, Pref == Prefix] of
+    [{live, Prefix, Opts}] -> Opts;
+    [] -> []
+  end.
+
+
 publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, false|_]} = _AMF) ->
   Stream = rtmp_session:get_stream(StreamId, Session),
   Pid = rtmp_stream:get(Stream, pid),
@@ -255,13 +265,9 @@ publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, false|_]} = _
   rtmp_session:set_stream(rtmp_stream:set(Stream, pid, undefined), Session);
 
 publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _AMF) ->
-  Prefix = binary_to_list(rtmp_session:get(Session, path)),
-  {ok, Env} = application:get_env(flussonic, config),
-  Options = case [Entry || {live,Pref,_Options} = Entry <- Env, Pref == Prefix] of
-    [{live, Prefix, Opts}] -> Opts;
-    [] -> []
-  end,
+  Options = publish_options(Session),
   {match,[StreamName]}=re:run(Name,"([^?]+)\\?*",[{capture,all_but_first,binary}]),
+  Env = flu_config:get_config(),
   
   case proplists:get_value(publish_password, Env) of
     undefined ->
@@ -282,7 +288,7 @@ publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _
   end,
   
   {ok, Recorder} = flu_stream:autostart(StreamName, [{clients_timeout,false},{static,false}|Options]),
-  gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,rtmp_session:get(Session, path)}]),
+  gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,rtmp_session:get_field(Session,app)}]),
   flu_stream:set_source(Recorder, self()),
   
   {ok, Proxy} = flussonic_sup:start_stream_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder]}),

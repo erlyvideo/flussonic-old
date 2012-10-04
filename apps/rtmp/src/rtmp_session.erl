@@ -52,12 +52,18 @@
 -export([connect/2]).
 -export([createStream/2, deleteStream/2, closeStream/2, releaseStream/2]).
 -export([receiveAudio/2, receiveVideo/2]).
+-export([get_field/2]).
+
 
 -include("meta_access.hrl").
 
 
 
+get_field(Pid, Field) when is_pid(Pid) ->
+  gen_server:call(Pid, {get_field, Field});
 
+get_field(#rtmp_session{player_info = Info} = State, Field) ->
+  proplists:get_value(Field, Info, get(State, Field)).
 
 
 
@@ -163,7 +169,7 @@ handle_call({socket_ready, RTMP}, _From, State) ->
   {reply, ok, State#rtmp_session{socket = RTMP}};
 
 handle_call({get_field, Field}, _From, State) ->
-  {reply, get(State, Field), State};
+  {reply, get_field(State, Field), State};
 
 
 handle_call(accept_connection, _From, Session) ->
