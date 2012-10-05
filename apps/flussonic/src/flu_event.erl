@@ -26,15 +26,7 @@
 -behaviour(gen_event).
 -include("log.hrl").
 -include("jsonerl.hrl").
-
--record(flu_event, {
-  event,
-  user,
-  user_id,
-  session_id,
-  stream,
-  options
-}).
+-include("flu_event.hrl").
 
 %% External API
 -export([start_link/0, notify/1, add_handler/2, subscribe_to_events/1, add_sup_handler/2, remove_handler/1]).
@@ -162,7 +154,7 @@ add_sup_handler(Handler, Args) ->
 %% @end
 %%----------------------------------------------------------------------
 remove_handler(Handler) ->
-  gen_event:remove_handler(?MODULE, Handler).
+  gen_event:delete_handler(?MODULE, Handler, []).
 
 %%--------------------------------------------------------------------
 %% @spec (Stream, Stats) -> ok
@@ -184,7 +176,7 @@ user_connected(Stream, Stats) ->
 user_disconnected(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = user.connected, stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
+  gen_event:notify(?MODULE, #flu_event{event = user.disconnected, stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
 %%--------------------------------------------------------------------
 %% @spec (User, Name) -> ok
