@@ -52,16 +52,16 @@ merge(List1, List2) ->
 
 verify(URL, Identity, Options) ->
 
-  Session = case find_session(Identity) of
+  {Session, ErrorMessage} = case find_session(Identity) of
     undefined ->
       case backend_request(URL, Identity, Options) of
-        {error,  _, Opts1} -> new_session(Identity, Opts1 ++ Options);
-        {ok, Name1, Opts1} -> new_session(Identity, merge([{name,Name1}], Opts1 ++ Options))
+        {error,  {_Code,ErrMsg}, Opts1} -> {new_session(Identity, Opts1 ++ Options), ErrMsg};
+        {ok, Name1, Opts1} -> {new_session(Identity, merge([{name,Name1}], Opts1 ++ Options)), "cached_positive"}
       end;
-    R -> R
+    R -> {R, "cached_negative"}
   end,
   case update_session(Session) of
-    denied -> {error, 403, "denied"};
+    denied -> {error, 403, ErrorMessage};
     granted -> {ok, url(Session)}
   end.
 
@@ -82,11 +82,11 @@ backend_request(URL, Identity, Options) ->
       case Code of
         200 -> {ok,    Name, merge([{access, granted}],Opts0)};
         302 -> {ok,    Name, merge([{access, granted}],Opts0)};
-        403 -> {error, 403,  merge([{access, denied}], Opts0)};
-        _ ->   {error, 403,  merge([{access, denied}], Opts0)}
+        403 -> {error, {403, "backend_denied"},  merge([{access, denied}], Opts0)};
+        _ ->   {error, {403, io_lib:format("backend_code: ~B", [Code])},  merge([{access, denied}], Opts0)}
       end;
-    {error, _} ->
-      {error, 404, merge([{access, denied}], Options)}
+    {error, _Error} ->
+      {error, {404, "backend_http_error"}, merge([{access, denied}], Options)}
   end.
 
 

@@ -241,7 +241,7 @@ check_sessions(Req, Name, Opts) ->
 check_sessions0(URL, Name0, Req0, Type) ->
   % case cowboy_http_req:qs_val(<<"session">>, Req0, undefined) of
   case retrieve_token(Req0) of
-    {undefined, _} -> throw({return, 403, "denied"}); % no token specified
+    {undefined, _} -> throw({return, 403, "no_token_passed"}); % no token specified
     {Token, Req1} ->
       Ip = peer_addr(Req1),
       {Referer, _} = cowboy_http_req:header('Referer', Req1),

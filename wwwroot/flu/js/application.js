@@ -24,7 +24,7 @@ Erlyvideo = {
   
   jwplayer: function(element, url) {
     var flashvars = {
-        file: url,
+        file: url+"?session="+((new Date()).getTime()),
         streamer:'rtmp://'+window.location.hostname+':1935/ondemand/',
         'rtmp.tunneling':false,
         autostart: true
@@ -39,7 +39,7 @@ Erlyvideo = {
   },
   
   hls: function(element, stream) {
-    $(element).html("<video width=640 height=480 src=\""+stream+"\" autoplay controls></video>");
+    $(element).html("<video width=640 height=480 src=\""+stream+"?session="+((new Date()).getTime())+"\" autoplay controls></video>");
   },
   
   load_stream_info: function() {

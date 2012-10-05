@@ -76,12 +76,12 @@ test_backend_request3() ->
 
 test_backend_request4() ->
   meck:expect(fake_auth, reply, fun() -> {403,[], <<"">>} end),
-  ?assertEqual({error, 403, [{access,denied}]},
+  ?assertEqual({error, {403, "backend_denied"}, [{access,denied}]},
     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_backend_request5() ->
   cowboy:stop_listener(fake_http),
-  ?assertEqual({error, 404, [{access,denied}]},
+  ?assertEqual({error, {404, "backend_http_error"}, [{access,denied}]},
     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_backend_request6() ->

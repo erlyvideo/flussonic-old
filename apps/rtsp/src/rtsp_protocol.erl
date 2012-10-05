@@ -117,11 +117,11 @@ handle_info({request, Ref, Request, RequestHeaders}, #rtsp{socket = Socket, cons
   inet:setopts(Socket, [{active,once}]),
   {noreply, RTSP2};
 
-handle_info(keepalive, #rtsp{socket = Socket} = RTSP) ->
-  {RTSP2, _, _, _} = call_with_authenticate(RTSP, 'GET_PARAMETER', [{session,false}]),
+handle_info(keepalive, #rtsp{socket = Socket, dump = Dump} = RTSP) ->
+  {RTSP2, _, _, _} = call_with_authenticate(RTSP#rtsp{dump = false}, 'GET_PARAMETER', [{session,false}]),
   inet:setopts(Socket, [{active,once},{packet,raw}]),
   erlang:send_after(5000, self(), keepalive),
-  {noreply, RTSP2};  
+  {noreply, RTSP2#rtsp{dump = Dump}};
 
 
 handle_info(send_rr, #rtsp{chan1 = undefined, chan2 = undefined} = RTSP) ->
