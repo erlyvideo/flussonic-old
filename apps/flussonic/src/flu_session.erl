@@ -75,6 +75,7 @@ backend_request(URL, Identity, Options) ->
   case httpc:request(get, {RequestURL, []}, [{connect_timeout, flu_session:timeout()},{timeout, flu_session:timeout()},{autoredirect,false}],
     [], auth) of
     {ok, {{_,Code,_}, Headers, _Body}} ->
+      ?DBG("Backend auth request \"~s\": ~B code", [RequestURL, Code]),
       Opts0_ = [{expire,to_i(proplists:get_value("x-authduration", Headers))},
         {user_id,to_i(proplists:get_value("x-userid", Headers))}],
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
@@ -86,6 +87,7 @@ backend_request(URL, Identity, Options) ->
         _ ->   {error, {403, io_lib:format("backend_code: ~B", [Code])},  merge([{access, denied}], Opts0)}
       end;
     {error, _Error} ->
+      ?DBG("Backend auth request \"~s\": failed: ~p", [RequestURL, _Error]),
       {error, {404, "backend_http_error"}, merge([{access, denied}], Options)}
   end.
 

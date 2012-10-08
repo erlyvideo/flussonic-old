@@ -106,7 +106,9 @@ handle_info(connect, #rtsp{socket = undefined, url = URL} = RTSP) when URL =/= u
   {_, AuthInfo, Host, Port, _, _} = http_uri2:parse(URL),
   {ok, Socket} = case gen_tcp:connect(Host, Port, [binary, {active,false}, {send_timeout, 10000}]) of
     {ok, Sock} -> {ok, Sock};
-    {error, Error} -> throw({stop, {error, {Error, URL}}, RTSP})
+    {error, Error} ->
+      ?ERR("Failed to connect to \"~s\": ~p", [URL, Error]),
+      throw({stop, normal, RTSP})
   end,
 
   {Auth, AuthType} = case AuthInfo of
@@ -233,7 +235,8 @@ flush_rtp_packets(#rtsp{socket = Socket} = RTSP) ->
 read_response_code(#rtsp{socket = Socket} = RTSP) ->
   inet:setopts(Socket, [{packet, line},{active,false}]),
   case gen_tcp:recv(Socket, 0, 10000) of
-    {error, Error} -> 
+    {error, Error} ->
+      
       throw({stop, {error, {socket_recv, Error}}, RTSP});
     {ok, Bin} ->
       inet:setopts(Socket, [{packet,raw}]),
@@ -327,7 +330,8 @@ dump_out(#rtsp{dump = false}, _) -> ok;
 dump_out(_, Call) -> io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Call]).
 
 
-terminate(_,_) -> ok.
+terminate(_,_) ->
+  ok.
 
 
 

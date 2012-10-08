@@ -72,6 +72,8 @@ terminate(_,#rtsp{}) ->
 try_read(#rtsp{url = URL} = RTSP) ->
   try try_read0(RTSP)
   catch
+    throw:{rtsp, exit, normal} ->
+      throw({stop, normal, RTSP});
     throw:{rtsp, Error, Reason} ->
       ?ERR("Failed to read from \"~s\": ~p:~240p", [URL, Error, Reason]),
       throw({stop, normal, RTSP})
