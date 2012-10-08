@@ -56,7 +56,8 @@ handle_frame(#video_frame{} = Frame, Media) ->
 %   {Mega, Sec, Micro} = erlang:now(),
 %   (Mega*1000000+Sec)*1000 + Micro / 1000.
 
-calculate_new_stream_shift(#video_frame{dts = DTS} = Frame, #stream{ts_delta = undefined, last_dts_at = LostAt, last_dts = LDTS} = Media) ->
+calculate_new_stream_shift(#video_frame{dts = DTS} = Frame, 
+  #stream{name = Name, ts_delta = undefined, last_dts_at = LostAt, last_dts = LDTS} = Media) ->
   GlueDelta = case LostAt of
     undefined -> 0;
     _ -> timer:now_diff(erlang:now(), LostAt) div 1000
@@ -65,7 +66,7 @@ calculate_new_stream_shift(#video_frame{dts = DTS} = Frame, #stream{ts_delta = u
     undefined -> Now = DTS, {Now, Now - DTS};
     _ -> {LDTS, LDTS - DTS + GlueDelta}
   end,
-  ?D({"New ts_delta", Media#stream.name, round(LastDTS), round(DTS), round(TSDelta)}),
+  ?DBG("Stream \"~s\" resynchronized time. last DTS: ~B, new DTS: ~B, new delta: ~B", [Name, round(LastDTS), round(DTS), round(TSDelta)]),
   % ems_event:stream_started(proplists:get_value(host,Media#stream.options), Media#stream.name, self(), Media#stream.options),
   {Frame, Media#stream{ts_delta = TSDelta, last_dts_at = undefined}}; %% Lets glue new instance of stream to old one plus small glue time
 

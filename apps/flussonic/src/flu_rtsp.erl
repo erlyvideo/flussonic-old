@@ -40,13 +40,15 @@ read(Stream, URL, Options) ->
   
 read2(Stream, URL, Options) ->
   % {ok, Proxy} = flussonic_sup:start_stream_helper(Stream, publish_proxy, {flu_publish_proxy, start_link, [undefined, self()]}),
-  % {ok, RTSP} = rtsp_reader:start_link(URL, [{consumer,Proxy}|Options]),
-  % Proxy ! {set_source, RTSP},
   URL1 = re:replace(URL, "rtsp2://", "rtsp://", [{return,list}]),
+  % {ok, RTSP} = rtsp_reader:start_link(URL1, [{consumer,self()}|Options]),
+  % Proxy ! {set_source, RTSP},
   {ok, RTSP} = flussonic_sup:start_stream_helper(Stream, rtsp_reader, {rtsp_reader, start_link, [URL1, [{consumer,self()}|Options]]}),
-  {ok, MediaInfo} = rtsp_reader:media_info(RTSP),
-  % ?D({read2, URL1, RTSP, MediaInfo}),
-  {ok, RTSP, MediaInfo}.
+  try rtsp_reader:media_info(RTSP) of
+    {ok, MediaInfo} -> {ok, RTSP, MediaInfo}
+  catch
+    exit:{normal,_} -> undefined
+  end.
 
 hostpath(URL) ->
   {HostPort, Path} = http_uri2:extract_path_with_query(URL),

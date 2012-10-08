@@ -8,7 +8,7 @@
 -export([start_link/1]).
 
 -export([init/1, handle_info/2, handle_call/3, terminate/2]).
--export([call/3]).
+-export([call/3, stop/1]).
 -export([add_channel/3, sync/3]).
 
 -export([to_hex/1, digest_auth/5]).
@@ -23,6 +23,8 @@
 start_link(Options) ->
   gen_server:start_link(?MODULE, [Options], []).
 
+stop(Proto) ->
+  gen_server:call(Proto, stop).
 
 call(Proto, Request, RequestHeaders) ->
   Ref = erlang:make_ref(),
@@ -31,11 +33,11 @@ call(Proto, Request, RequestHeaders) ->
     {response, Ref, Code, Headers, Body} ->
       {ok, Code, Headers, Body};
     {'DOWN', _, _, Proto, Reason} ->
-      error({rtsp_exit, Reason})
+      throw({rtsp, exit, Reason})
   after
     10000 ->
       erlang:exit(Proto, kill),
-      error({rtsp_timeout, Request})
+      throw({rtsp, timeout, Request})
   end.
 
 
@@ -79,7 +81,8 @@ init([Options]) ->
   erlang:monitor(process, Consumer),
   self() ! connect,
   URL = proplists:get_value(url, Options),
-  {ok, #rtsp{consumer = Consumer, url = URL}}.
+  Dump = proplists:get_value(dump_rtsp, Options, true),
+  {ok, #rtsp{consumer = Consumer, url = URL, dump = Dump}}.
 
 
 
@@ -88,6 +91,9 @@ handle_call({sync, Channel, Seq, Timecode}, _From, #rtsp{} = RTSP) ->
   Decoder1 = rtp_decoder:sync(Decoder, [{seq,Seq},{rtptime,Timecode}]),
   Chan1 = Chan#rtp{decoder = Decoder1, seq = Seq, timecode = Timecode, wall_clock = 0},
   {reply, ok, setelement(#rtsp.chan1 + Channel, RTSP, Chan1)};
+
+handle_call(stop, _From, #rtsp{} = RTSP) ->
+  {stop, normal, ok, RTSP};
 
 handle_call({add_channel, Channel, #stream_info{codec = Codec, timescale = Scale} = StreamInfo}, _From, #rtsp{} = RTSP) ->
   Decoder = rtp_decoder:init(StreamInfo),
@@ -98,7 +104,10 @@ handle_call({add_channel, Channel, #stream_info{codec = Codec, timescale = Scale
 
 handle_info(connect, #rtsp{socket = undefined, url = URL} = RTSP) when URL =/= undefined ->
   {_, AuthInfo, Host, Port, _, _} = http_uri2:parse(URL),
-  {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {active,false}, {send_timeout, 10000}]),
+  {ok, Socket} = case gen_tcp:connect(Host, Port, [binary, {active,false}, {send_timeout, 10000}]) of
+    {ok, Sock} -> {ok, Sock};
+    {error, Error} -> throw({stop, {error, {Error, URL}}, RTSP})
+  end,
 
   {Auth, AuthType} = case AuthInfo of
     [] -> {fun empty_auth/2, undefined};
@@ -225,7 +234,7 @@ read_response_code(#rtsp{socket = Socket} = RTSP) ->
   inet:setopts(Socket, [{packet, line},{active,false}]),
   case gen_tcp:recv(Socket, 0, 10000) of
     {error, Error} -> 
-      throw({stop, {error, {response_code, Error}}, RTSP});
+      throw({stop, {error, {socket_recv, Error}}, RTSP});
     {ok, Bin} ->
       inet:setopts(Socket, [{packet,raw}]),
       case read_rtp_packets(Bin, RTSP) of

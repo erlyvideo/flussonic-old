@@ -221,7 +221,7 @@ init([Name,Options1]) ->
   
   Stream2 = set_options(Stream1),
   
-  ?D({starting_stream,Name, Options}),
+  ?DBG("Start stream \"~s\" with url ~p and options: ~p", [Name, Stream2#stream.url, Options]),
   self() ! reconnect_source,
   {ok, Stream2}.
 
@@ -409,7 +409,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
       end, Stream1, Configs),
       {noreply, Stream2};
     _ ->
-      ?D({Stream#stream.name, URL, failed, Stream#stream.retry_count, Stream#stream.retry_limit}),
+      ?ERR("Stream \"~s\" can't open source \"~s\". Retries: ~B/~B", [Name, URL, Count, Stream#stream.retry_limit]),
       Delay = ((Count rem 30) + 1)*1000,
       erlang:send_after(Delay, self(), reconnect_source),
       {noreply, Stream#stream{retry_count = Count+1}}

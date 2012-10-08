@@ -31,38 +31,16 @@ init([URL, Options]) ->
   {consumer, Consumer} = lists:keyfind(consumer, 1, Options),
   erlang:monitor(process, Consumer),
   % erlang:send_after(5000, self(), teardown),
-  {ok, Proto} = rtsp_protocol:start_link([{consumer, self()}, {url, URL}]),
+  {ok, Proto} = rtsp_protocol:start_link([{consumer, self()}, {url, URL}|Options]),
+  unlink(Proto),
   erlang:monitor(process, Proto),
   self() ! work,
   {ok, #rtsp{url = URL, content_base = URL, proto = Proto, consumer = Consumer}}.
 
 
-handle_info(work, #rtsp{proto = Proto, url = URL} = RTSP) ->
-  {ok, 200, _, _} = rtsp_protocol:call(Proto, 'OPTIONS', []),
-  {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_protocol:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
-  DescribeCode == 401 andalso throw({stop, {error, {denied, URL}}, RTSP}),
-  DescribeCode == 404 andalso throw({stop, {error, {not_found,URL}}, RTSP}),
-  ContentBase = parse_content_base(DescribeHeaders, URL, RTSP#rtsp.content_base),
-
-  MI1 = #media_info{streams = Streams1} = sdp:decode(SDP),
-  MI2 = MI1#media_info{streams = [S || #stream_info{content = Content, codec = Codec} = S <- Streams1,
-    (Content == audio orelse Content == video) andalso Codec =/= undefined]},
-  MediaInfo = MI2,
-  lists:foldl(fun(#stream_info{options = Opt, track_id = TrackId} = StreamInfo, N) ->
-    Track = ContentBase ++ proplists:get_value(control, Opt),
-    Transport = io_lib:format("RTP/AVP/TCP;unicast;interleaved=~B-~B", [N, N+1]),
-    rtsp_protocol:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
-    rtsp_protocol:add_channel(Proto, TrackId-1, StreamInfo),
-    N + 2
-  end, 0, MediaInfo#media_info.streams),
-
-  {ok, 200, PlayHeaders, _} = rtsp_protocol:call(Proto, 'PLAY', []),
-  RtpInfo = parse_rtp_info(PlayHeaders),
-
-  [rtsp_protocol:sync(Proto, N, Sync) || {N, Sync} <- lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo)],
-
-  ?D({work,reader_done,URL}),
-  {noreply, RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo}};
+handle_info(work, #rtsp{} = RTSP) ->
+  RTSP1 = try_read(RTSP),
+  {noreply, RTSP1};
 
 handle_info(#video_frame{codec = Codec} = Frame, #rtsp{consumer = Consumer} = RTSP) when 
   Codec == h264 orelse Codec == aac orelse Codec == mp3 ->
@@ -87,8 +65,43 @@ handle_call(media_info, _From, #rtsp{media_info = MediaInfo} = RTSP) ->
   {reply, {ok, MediaInfo}, RTSP}.
 
 
-terminate(_,_) ->
+terminate(_,#rtsp{}) ->
   ok.
+
+
+try_read(#rtsp{url = URL} = RTSP) ->
+  try try_read0(RTSP)
+  catch
+    throw:{rtsp, Error, Reason} ->
+      ?ERR("Failed to read from \"~s\": ~p:~240p", [URL, Error, Reason]),
+      throw({stop, normal, RTSP})
+  end.
+
+try_read0(#rtsp{proto = Proto, url = URL} = RTSP) ->
+  {ok, 200, _, _} = rtsp_protocol:call(Proto, 'OPTIONS', []),
+  {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_protocol:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
+  DescribeCode == 401 andalso throw({rtsp, denied, 401}),
+  DescribeCode == 404 andalso throw({stop, not_found, 404}),
+  ContentBase = parse_content_base(DescribeHeaders, URL, RTSP#rtsp.content_base),
+
+  MI1 = #media_info{streams = Streams1} = sdp:decode(SDP),
+  MI2 = MI1#media_info{streams = [S || #stream_info{content = Content, codec = Codec} = S <- Streams1,
+    (Content == audio orelse Content == video) andalso Codec =/= undefined]},
+  MediaInfo = MI2,
+  lists:foldl(fun(#stream_info{options = Opt, track_id = TrackId} = StreamInfo, N) ->
+    Track = ContentBase ++ proplists:get_value(control, Opt),
+    Transport = io_lib:format("RTP/AVP/TCP;unicast;interleaved=~B-~B", [N, N+1]),
+    rtsp_protocol:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
+    rtsp_protocol:add_channel(Proto, TrackId-1, StreamInfo),
+    N + 2
+  end, 0, MediaInfo#media_info.streams),
+
+  {ok, 200, PlayHeaders, _} = rtsp_protocol:call(Proto, 'PLAY', []),
+  RtpInfo = parse_rtp_info(PlayHeaders),
+
+  [rtsp_protocol:sync(Proto, N, Sync) || {N, Sync} <- lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo)],
+
+  RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo}.
 
 
 
