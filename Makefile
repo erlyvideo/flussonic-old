@@ -2,6 +2,7 @@
 VERSION := $(shell grep vsn apps/flussonic/src/flussonic.app.src | ruby -e 'puts STDIN.read[/\"([0-9\.]+)\"/, 1]')
 NODENAME ?= flussonic
 DESTDIR ?= /opt/flussonic
+REBAR := $(shell which rebar || echo ./rebar)
 
 all: app
 
@@ -13,13 +14,13 @@ install: all
 
 
 app: deps/cowboy
-	@./rebar compile
+	@$(REBAR) compile
 
 deps/cowboy:
-	@./rebar get-deps
+	@$(REBAR) get-deps
 
 clean:
-	@./rebar clean
+	@$(REBAR) clean
 	rm -f erl_crash.dump
 
 run:
@@ -82,7 +83,7 @@ package:
 	cd tmproot && \
 	fpm -s dir -t deb -n flussonic -v $(VERSION) --category net \
 	--config-files /etc/flussonic/flussonic.conf --config-files /etc/flussonic/streams.conf --config-files '/etc/flussonic/*.conf' \
-	-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-base-hipe (>= 1:15)' --post-install opt/flussonic/priv/postinst -m "Max Lapshin <max@maxidoors.ru>" -a amd64 etc/init.d/flussonic etc/flussonic opt 
+	-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-nox (>= 1:15)' -m "Max Lapshin <max@maxidoors.ru>" -a amd64 etc/init.d/flussonic etc/flussonic opt 
 	mv tmproot/*.deb .
 	rm -rf tmproot
 

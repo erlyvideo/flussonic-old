@@ -1,0 +1,15 @@
+Source: flussonic
+Priority: extra
+Author: Max Lapshin <info@erlyvideo.org>
+Maintainer: Max Lapshin <info@erlyvideo.org>
+Build-Depends: debhelper (>= 7), erlang-nox (>= 1:15) | erlang (>= 1:15), erlang-dev, make, gcc, rebar
+Standards-Version: 3.8.3
+Section: net
+Homepage: http://erlyvideo.org/
+
+Package: flussonic
+Section: net
+Homepage: http://erlyvideo.org/
+Depends: ${shlibs:Depends}, ${misc:Depends}, erlang-nox (>= 1:15) | erlang (>= 1:15)
+Description: Flussonic (former erlyvideo) is a videostreaming server in Erlang
+ It can stream RTSP, RTMP, MPEG-TS, HDS, HLS, etc.

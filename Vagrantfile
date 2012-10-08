@@ -8,12 +8,18 @@ Vagrant::Config.run do |config|
     conf.vm.box = "precise64"
     conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
     conf.vm.provision :shell, :path => "manifests/precise64.sh"
+
+    conf.vm.forward_port 8080, 9080
+    conf.vm.forward_port 6081, 9081
+    conf.vm.forward_port 6082, 9082
   end
 
-  # config.vm.define :squeeze64 do |conf|
-  #   conf.vm.box = "squeeze64"
-  #   conf.vm.box_url = "http://puppetlabs.s3.amazonaws.com/pub/squeeze64.box"
-  # end
+  config.vm.define :squeeze64 do |conf|
+    conf.vm.box = "squeeze64"
+    conf.vm.box_url = "http://puppetlabs.s3.amazonaws.com/pub/squeeze64.box"
+    conf.vm.provision :shell, :path => "manifests/squeeze64.sh"
+    conf.vm.forward_port 8080, 9180
+  end
 
   # All Vagrant configuration is done here. The most common configuration
   # options are documented and commented below. For a complete reference,
@@ -40,10 +46,7 @@ Vagrant::Config.run do |config|
 
   # Forward a port from the guest to the host, which allows for outside
   # computers to access the VM, whereas host only networking does not.
-  config.vm.forward_port 80, 9070
-  config.vm.forward_port 8080, 9080
-  config.vm.forward_port 6081, 9081
-  config.vm.forward_port 6082, 9082
+  # config.vm.forward_port 80, 9070
   
   # Share an additional folder to the guest VM. The first argument is
   # an identifier, the second is the path on the guest to mount the
