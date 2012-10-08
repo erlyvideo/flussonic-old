@@ -13,7 +13,7 @@ install: all
 
 
 app: deps/cowboy
-	@ERL_LIBS=apps:deps erl -make
+	@./rebar compile
 
 deps/cowboy:
 	@./rebar get-deps
@@ -33,6 +33,11 @@ vagrant:
 	vagrant destroy -f
 	vagrant up
 	vagrant ssh -c "sudo -s /etc/init.d/flussonic start"
+
+
+# check_public:
+# 	vagrant destroy -f
+	
 
 start:
 	mkdir -p log/pipe

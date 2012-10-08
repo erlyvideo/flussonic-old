@@ -83,7 +83,7 @@ try_read0(#rtsp{proto = Proto, url = URL} = RTSP) ->
   {ok, 200, _, _} = rtsp_protocol:call(Proto, 'OPTIONS', []),
   {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_protocol:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
   DescribeCode == 401 andalso throw({rtsp, denied, 401}),
-  DescribeCode == 404 andalso throw({stop, not_found, 404}),
+  DescribeCode == 404 andalso throw({rtps, not_found, 404}),
   ContentBase = parse_content_base(DescribeHeaders, URL, RTSP#rtsp.content_base),
 
   MI1 = #media_info{streams = Streams1} = sdp:decode(SDP),
@@ -91,14 +91,17 @@ try_read0(#rtsp{proto = Proto, url = URL} = RTSP) ->
     (Content == audio orelse Content == video) andalso Codec =/= undefined]},
   MediaInfo = MI2,
   lists:foldl(fun(#stream_info{options = Opt, track_id = TrackId} = StreamInfo, N) ->
-    Track = ContentBase ++ proplists:get_value(control, Opt),
+    Control = proplists:get_value(control, Opt),
+    Track = control_url(ContentBase, Control),
     Transport = io_lib:format("RTP/AVP/TCP;unicast;interleaved=~B-~B", [N, N+1]),
-    rtsp_protocol:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
+    {ok, SetupCode, _, _} = rtsp_protocol:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
+    SetupCode == 200 orelse throw({rtsp, failed_setup, {SetupCode, Track}}),
     rtsp_protocol:add_channel(Proto, TrackId-1, StreamInfo),
     N + 2
   end, 0, MediaInfo#media_info.streams),
 
-  {ok, 200, PlayHeaders, _} = rtsp_protocol:call(Proto, 'PLAY', []),
+  {ok, PlayCode, PlayHeaders, _} = rtsp_protocol:call(Proto, 'PLAY', []),
+  PlayCode == 200 orelse throw({rtsp, rejected_play, PlayCode}),
   RtpInfo = parse_rtp_info(PlayHeaders),
 
   [rtsp_protocol:sync(Proto, N, Sync) || {N, Sync} <- lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo)],
@@ -106,6 +109,9 @@ try_read0(#rtsp{proto = Proto, url = URL} = RTSP) ->
   RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo}.
 
 
+% Axis cameras have "rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1" in SDP
+control_url(_ContentBase, "rtsp://" ++ _ = ControlUrl) -> ControlUrl;
+control_url(ContentBase, ControlUrl) -> ContentBase ++ ControlUrl.
 
 parse_content_base(Headers, URL, OldContentBase) ->
   case proplists:get_value('Content-Base', Headers) of

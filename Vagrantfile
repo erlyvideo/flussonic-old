@@ -2,16 +2,27 @@
 # vi: set ft=ruby :
 
 Vagrant::Config.run do |config|
+
+
+  config.vm.define :precise64 do |conf|
+    conf.vm.box = "precise64"
+    conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
+    conf.vm.provision :shell, :path => "manifests/precise64.sh"
+  end
+
+  # config.vm.define :squeeze64 do |conf|
+  #   conf.vm.box = "squeeze64"
+  #   conf.vm.box_url = "http://puppetlabs.s3.amazonaws.com/pub/squeeze64.box"
+  # end
+
   # All Vagrant configuration is done here. The most common configuration
   # options are documented and commented below. For a complete reference,
   # please see the online documentation at vagrantup.com.
 
   # Every Vagrant virtual environment requires a box to build off of.
-  config.vm.box = "precise64"
 
   # The url from where the 'config.vm.box' box will be fetched if it
   # doesn't already exist on the user's system.
-  config.vm.box_url = "http://files.vagrantup.com/precise64.box"
 
   # Boot with a GUI so you can see the screen. (Default is headless)
   # config.vm.boot_mode = :gui
@@ -62,7 +73,6 @@ Vagrant::Config.run do |config|
   #   puppet.manifest_file  = "precise64.pp"
   # end
 
-  config.vm.provision :shell, :path => "manifests/precise64.sh"
 
   # Enable provisioning with chef solo, specifying a cookbooks path, roles
   # path, and data_bags path (all relative to this Vagrantfile), and adding 
