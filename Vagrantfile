@@ -4,14 +4,20 @@
 Vagrant::Config.run do |config|
 
 
-  config.vm.define :precise64 do |conf|
+  config.vm.define :precise64_deploy do |conf|
     conf.vm.box = "precise64"
     conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
-    conf.vm.provision :shell, :path => "manifests/precise64.sh"
+    conf.vm.provision :shell, :path => "manifests/precise64_deply.sh"
 
     conf.vm.forward_port 8080, 9080
     conf.vm.forward_port 6081, 9081
     conf.vm.forward_port 6082, 9082
+  end
+
+  config.vm.define :precise64 do |conf|
+    conf.vm.box = "precise64"
+    conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
+    conf.vm.provision :shell, :path => "manifests/precise64.sh"
   end
 
   config.vm.define :squeeze64 do |conf|
@@ -19,6 +25,12 @@ Vagrant::Config.run do |config|
     conf.vm.box_url = "http://puppetlabs.s3.amazonaws.com/pub/squeeze64.box"
     conf.vm.provision :shell, :path => "manifests/squeeze64.sh"
     conf.vm.forward_port 8080, 9180
+  end
+
+  config.vm.define :centos6 do |conf|
+    conf.vm.box = "centos6"
+    conf.vm.box_url = "https://vagrant-centos-6.s3.amazonaws.com/centos-6.box"
+    conf.vm.provision :shell, :path => "manifests/centos6_build.sh"
   end
 
   # All Vagrant configuration is done here. The most common configuration

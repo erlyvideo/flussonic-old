@@ -83,7 +83,8 @@ try_read0(#rtsp{proto = Proto, url = URL} = RTSP) ->
   {ok, 200, _, _} = rtsp_protocol:call(Proto, 'OPTIONS', []),
   {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_protocol:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
   DescribeCode == 401 andalso throw({rtsp, denied, 401}),
-  DescribeCode == 404 andalso throw({rtps, not_found, 404}),
+  DescribeCode == 404 andalso throw({rtsp, not_found, 404}),
+  DescribeCode == 200 orelse throw({rtsp, invalid_describe, DescribeCode}),
   ContentBase = parse_content_base(DescribeHeaders, URL, RTSP#rtsp.content_base),
 
   MI1 = #media_info{streams = Streams1} = sdp:decode(SDP),

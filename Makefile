@@ -1,16 +1,23 @@
 # include version.mk
 VERSION := $(shell grep vsn apps/flussonic/src/flussonic.app.src | ruby -e 'puts STDIN.read[/\"([0-9\.]+)\"/, 1]')
 NODENAME ?= flussonic
-DESTDIR ?= /opt/flussonic
 REBAR := $(shell which rebar || echo ./rebar)
 
 all: app
 
 
-install: all
-	mkdir -p $(DESTDIR)
-	cp -r Emakefile Makefile apps contrib deps priv rebar wwwroot $(DESTDIR)
-	
+install:
+	mkdir -p $(DESTDIR)/usr/share/flussonic/deps $(DESTDIR)/etc/init.d/ $(DESTDIR)/etc/default
+	cp -r apps deps wwwroot $(DESTDIR)/usr/share/flussonic
+	cp priv/flussonic $(DESTDIR)/etc/init.d/
+	echo "FLUDIR=/usr/share/flussonic" >> $(DESTDIR)/etc/default/flussonic
+	mkdir -p $(DESTDIR)/usr/share/doc/flussonic/ $(DESTDIR)/etc/flussonic/
+	cp COPYING $(DESTDIR)/usr/share/doc/flussonic/copyright
+	cp priv/sample/flussonic.conf $(DESTDIR)/etc/flussonic/flussonic.conf
+
+
+compile:
+	ERL_LIBS=apps:deps erl -make
 
 
 app: deps/cowboy
@@ -60,7 +67,17 @@ dist-clean: clean
 opensource:
 	rm -rf flussonic-$(VERSION)
 	git archive --prefix=flussonic-$(VERSION)/ master | tar x
-	cd flussonic-$(VERSION) && ./rebar get-deps && ./rebar compile && find . -name *.beam -delete && find . -name *.so -delete
+	cd flussonic-$(VERSION) && ./rebar get-deps && ./rebar compile
+	find flussonic-$(VERSION) -name *.beam -delete
+	find flussonic-$(VERSION) -name *.so -delete
+	find flussonic-$(VERSION) -name .gitignore -delete
+	rm -rf flussonic-$(VERSION)/deps/meck
+	rm -rf flussonic-$(VERSION)/deps/cowboy/test
+	rm -rf flussonic-$(VERSION)/deps/cowboy/examples
+	rm -rf flussonic-$(VERSION)/deps/*/.git
+	rm -rf flussonic-$(VERSION)/apps/rtsp/priv
+	rm -rf flussonic-$(VERSION)/deps/lager/rebar
+	rm -rf flussonic-$(VERSION)/deps/mimetypes/post_compile.escript
 	rm -f flussonic-$(VERSION)/apps/mpegts/contrib/build_table.rb
 	tar zcf flussonic-$(VERSION).tgz flussonic-$(VERSION)
 	rm -rf flussonic-$(VERSION)

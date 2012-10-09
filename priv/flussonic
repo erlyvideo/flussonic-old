@@ -10,6 +10,8 @@
 
 FLUDIR=/opt/flussonic
 
+[ -f /etc/default/flussonic ] && . /etc/default/flussonic
+
 [ -e priv/flussonic.conf ] && CONF=priv/flussonic.conf
 [ -e priv/sample/flussonic.conf ] && CONF=priv/sample/flussonic.conf
 

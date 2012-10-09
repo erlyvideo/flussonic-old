@@ -166,7 +166,7 @@ call_with_authenticate(#rtsp{} = RTSP, Request, RequestHeaders) ->
   RTSP1 = send(RTSP0, Request, RequestHeaders),
 
   case recv(RTSP1) of
-    {#rtsp{auth_type = undefined, auth_info = AuthInfo} = RTSP2, 401, Headers, _} = Response ->
+    {#rtsp{auth_type = OldType, auth_info = AuthInfo} = RTSP2, 401, Headers, _} = Response when OldType =/= digest ->
       case parse_auth_headers(Headers) of
         undefined ->
           Response;
