@@ -170,7 +170,7 @@ handle_call(connect, _From, #decoder{options = Options} = Decoder) ->
   case Schema of
     udp -> 
       {ok, Socket} = connect_udp(URL),
-      ?D({connected_udp, URL}),
+      ?DBG("MPEG-TS reader connected to \"~s\"", [URL]),
   	  {reply, ok, Decoder#decoder{socket = Socket}};
     _ ->
       case  http_stream:request(URL, [{timeout,Timeout}]) of 
@@ -267,7 +267,7 @@ connect_udp(URL) ->
   Common = [binary,{active,once},{recbuf,65536},inet,{ip,Addr}],
   case is_multicast(Addr) of
     true ->
-      Multicast = [{reuseaddr,true},{multicast_ttl,4},{multicast_loop,false}],
+      Multicast = [{reuseaddr,true},{multicast_ttl,4},{multicast_loop,true}],
       {ok, Socket} = gen_udp:open(Port, Common ++ Multicast),
       inet:setopts(Socket,[{add_membership,{Addr,{0,0,0,0}}}]),
       {ok, Socket};

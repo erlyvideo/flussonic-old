@@ -397,12 +397,12 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
   case Result of
     {ok, Source} -> 
       erlang:monitor(process, Source),
-      {noreply, Stream#stream{source = Source}};
+      {noreply, Stream#stream{source = Source, retry_count = Count+1}};
     {ok, Source, MediaInfo} -> 
       erlang:monitor(process, Source),
       {noreply, Stream0} = handle_info(MediaInfo, Stream#stream{media_info = undefined}),
       Configs = video_frame:config_frames(MediaInfo),
-      Stream1 = Stream0#stream{source = Source},
+      Stream1 = Stream0#stream{source = Source, retry_count = Count+1},
       Stream2 = lists:foldl(fun(C, Stream_) ->
         {_,Stream1_} = flu_stream_frame:save_config(C, Stream_),
         Stream1_
@@ -420,28 +420,33 @@ handle_info(#media_info{} = MediaInfo, #stream{media_info = undefined} = Stream)
   Stream1 = pass_message(MediaInfo, Stream#stream{media_info = MediaInfo}),
   {noreply, Stream1};
 
-handle_info({'DOWN', _, process, Source, _Reason}, #stream{source = Source, retry_count = Count} = Stream) ->
+handle_info({'DOWN', _, process, Source, _Reason}, 
+  #stream{source = Source, retry_count = Count, name = Name, url = URL, retry_limit = Limit} = Stream) ->
   Delay = ((Count rem 30) + 1)*1000,
   erlang:send_after(Delay, self(), reconnect_source),
   
-  ?D({source_dead,Stream#stream.name,Stream#stream.url, Count, Stream#stream.retry_limit}),
+  ?DBG("stream \"~s\" lost source \"~s\". Retry count ~p/~p", [Name, URL, Count, Limit]),
   {noreply, Stream#stream{source = undefined, ts_delta = undefined, retry_count = Count + 1}};
 
 handle_info(check_timeout, #stream{name = Name, static = Static,
-  source_timeout = SourceTimeout, url = URL, source = Source, last_dts_at = LastDtsAt,
+  source_timeout = SourceTimeout, url = URL, source = Source, last_dts_at = LastDtsAt, retry_count = Count,
   clients_timeout = ClientsTimeout, last_access_at = LastTouchedAt, clients = Clients} = Stream) ->
   
   Now = os:timestamp(),
   SourceDelta = timer:now_diff(Now, LastDtsAt) div 1000,
   ClientsDelta = timer:now_diff(Now, LastTouchedAt) div 1000,
+
+  UsingSourceTimeout = lists:max([Count,1])*SourceTimeout,
+
   % ?D({{source_delta,SourceDelta},{clients_delta,ClientsDelta}}),
   if 
   is_number(ClientsTimeout) andalso not Static andalso ClientsDelta >= ClientsTimeout andalso length(Clients) == 0 ->
-    ?D({stop_stream,Name,no_clients_timeout,ClientsDelta,ClientsTimeout}),
+    ?DBG("Stop stream \"~s\" (url \"~s\"): no clients during timeout: ~p/~p", [Name, URL, ClientsDelta,ClientsTimeout]),
     {stop, normal, Stream};
-  is_number(SourceTimeout) andalso SourceDelta >= 10*SourceTimeout andalso is_pid(Source) ->
-    erlang:exit(Source, source_timeout),
-    ?D({kill_source,Name,source_timeout,SourceDelta,10*SourceTimeout}),
+  is_number(SourceTimeout) andalso SourceDelta >= UsingSourceTimeout andalso is_pid(Source) ->
+    erlang:exit(Source, shutdown),
+    ?DBG("stream \"~s\" is killing source \"~s\" because of timeout ~B > ~B", [Name, URL, SourceDelta, Count*SourceTimeout]),
+    erlang:exit(Source, kill),
     {noreply, Stream};
   is_number(SourceTimeout) andalso SourceDelta >= SourceTimeout andalso not Static ->
     ?D({stop_stream,Name,source_timeout,SourceDelta,SourceTimeout}),
