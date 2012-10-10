@@ -66,9 +66,7 @@ clients0() ->
   [Client || Client <- Clients, Client =/= undefined].
 
 play_url(Name, URL) ->
-  {ok, Proxy} = flussonic_sup:start_stream_helper(Name, publish_proxy, {flu_publish_proxy, start_link, [fun() ->
-    rtmp_lib:play(URL)
-  end, self()]}),
+  {ok, Proxy} = flussonic_sup:start_stream_helper(Name, publish_proxy, {flu_publish_proxy, start_link, [URL, self()]}),
   {ok, Proxy}.
   
 

@@ -397,12 +397,12 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
   case Result of
     {ok, Source} -> 
       erlang:monitor(process, Source),
-      {noreply, Stream#stream{source = Source, retry_count = Count+1}};
+      {noreply, Stream#stream{source = Source}};
     {ok, Source, MediaInfo} -> 
       erlang:monitor(process, Source),
       {noreply, Stream0} = handle_info(MediaInfo, Stream#stream{media_info = undefined}),
       Configs = video_frame:config_frames(MediaInfo),
-      Stream1 = Stream0#stream{source = Source, retry_count = Count+1},
+      Stream1 = Stream0#stream{source = Source},
       Stream2 = lists:foldl(fun(C, Stream_) ->
         {_,Stream1_} = flu_stream_frame:save_config(C, Stream_),
         Stream1_

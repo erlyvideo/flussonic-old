@@ -42,9 +42,23 @@ handle_info(init, #proxy{start_spec = StartSpec} = Proxy) ->
       erlang:monitor(process, StartSpec),
       StartSpec;
     is_function(StartSpec) ->
-      {ok, Pid} = StartSpec(),
-      erlang:monitor(process, Pid),
-      Pid;
+      case StartSpec() of
+        {ok, Pid} ->
+          erlang:monitor(process, Pid),
+          Pid;
+        {error, Error} ->
+          ?ERR("Failed to connect to upstream: ~p", [Error]),
+          throw({stop, normal, Proxy})
+      end;
+    is_list(StartSpec) orelse is_binary(StartSpec) ->
+      case rtmp_lib:play(StartSpec) of
+        {ok, Pid} ->
+          erlang:monitor(process, Pid),
+          Pid;
+        {error, Error} ->
+          ?ERR("Failed to connect to \"~s\": ~p", [StartSpec, Error]),
+          throw({stop, normal, Proxy})
+      end;
     StartSpec == undefined ->
       undefined
   end,
