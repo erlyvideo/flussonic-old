@@ -68,7 +68,7 @@ tgz:
 	rm -rf flussonic-$(VERSION)
 	git archive --prefix=flussonic-$(VERSION)/ master | tar x
 	mkdir -p flussonic-$(VERSION)/deps
-	for d in deps/* ; do git clone $$d flussonic-$(VERSION)/deps/`basename $$d`; done
+	[ -d deps ] && for d in deps/* ; do git clone $$d flussonic-$(VERSION)/deps/`basename $$d`; done || true
 	cd flussonic-$(VERSION) && ./rebar get-deps && ./rebar compile
 	cp -f contrib/Makefile.debian flussonic-$(VERSION)/Makefile
 	find flussonic-$(VERSION) -name *.beam -delete
