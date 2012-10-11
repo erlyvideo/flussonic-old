@@ -215,9 +215,11 @@ init([Name,Options1]) ->
   put(configs, []),
   Source = proplists:get_value(source, Options1),
   if is_pid(Source) -> erlang:monitor(process, Source); true -> ok end,
-  Stream1 = #stream{last_dts_at=os:timestamp(), last_access_at = os:timestamp(), name = Name, options = Options, source = Source},
+  CheckTimer = erlang:send_after(3000, self(), check_timeout),
+  Stream1 = #stream{last_dts_at=os:timestamp(), last_access_at = os:timestamp(), 
+    name = Name, options = Options, source = Source,
+    check_timer = CheckTimer},
   % timer:send_interval(1000, next_second),
-  timer:send_interval(3000, check_timeout),
   
   Stream2 = set_options(Stream1),
   
@@ -428,10 +430,11 @@ handle_info({'DOWN', _, process, Source, _Reason},
   ?DBG("stream \"~s\" lost source \"~s\". Retry count ~p/~p", [Name, URL, Count, Limit]),
   {noreply, Stream#stream{source = undefined, ts_delta = undefined, retry_count = Count + 1}};
 
-handle_info(check_timeout, #stream{name = Name, static = Static,
+handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = OldCheckTimer,
   source_timeout = SourceTimeout, url = URL, source = Source, last_dts_at = LastDtsAt, retry_count = Count,
   clients_timeout = ClientsTimeout, last_access_at = LastTouchedAt, clients = Clients} = Stream) ->
   
+  erlang:cancel_timer(OldCheckTimer),
   Now = os:timestamp(),
   SourceDelta = timer:now_diff(Now, LastDtsAt) div 1000,
   ClientsDelta = timer:now_diff(Now, LastTouchedAt) div 1000,
@@ -439,6 +442,8 @@ handle_info(check_timeout, #stream{name = Name, static = Static,
   UsingSourceTimeout = lists:max([Count,1])*SourceTimeout,
 
   % ?D({{source_delta,SourceDelta},{clients_delta,ClientsDelta}}),
+  CheckTimer = erlang:send_after(3000, self(), check_timeout),
+
   if 
   is_number(ClientsTimeout) andalso not Static andalso ClientsDelta >= ClientsTimeout andalso length(Clients) == 0 ->
     ?DBG("Stop stream \"~s\" (url \"~s\"): no clients during timeout: ~p/~p", [Name, URL, ClientsDelta,ClientsTimeout]),
@@ -447,7 +452,7 @@ handle_info(check_timeout, #stream{name = Name, static = Static,
     erlang:exit(Source, shutdown),
     ?DBG("stream \"~s\" is killing source \"~s\" because of timeout ~B > ~B", [Name, URL, SourceDelta, Count*SourceTimeout]),
     erlang:exit(Source, kill),
-    {noreply, Stream};
+    {noreply, Stream#stream{check_timer = CheckTimer}};
   is_number(SourceTimeout) andalso SourceDelta >= SourceTimeout andalso not Static ->
     ?D({stop_stream,Name,source_timeout,SourceDelta,SourceTimeout}),
     {stop, normal, Stream};
@@ -455,7 +460,7 @@ handle_info(check_timeout, #stream{name = Name, static = Static,
     ?D({no_url,no_source, Name, stopping}),
     {stop, normal, Stream};  
   true ->  
-    {noreply, Stream}
+    {noreply, Stream#stream{check_timer = CheckTimer}}
   end;
 
 handle_info(reload_playlist, #stream{source = Source} = Stream) ->
@@ -480,8 +485,7 @@ handle_info(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, cli
     ?D({frame, Name, Frame#video_frame.codec, Frame#video_frame.flavor, Frame#video_frame.track_id, round(Frame#video_frame.dts), round(Frame#video_frame.pts)});
     true -> ok
   end,
-  Stream1 = save_config(Frame, Stream),
-  {reply, Frame1, Stream2} = flu_stream_frame:handle_frame(Frame, Stream1),
+  {reply, Frame1, Stream2} = flu_stream_frame:handle_frame(Frame, Stream),
   Stream3 = pass_message(Frame1, Stream2),
   Frame2 = Frame1#video_frame{stream_id = self()},
   
@@ -504,10 +508,6 @@ handle_info(Message, #stream{} = Stream) ->
   Stream1 = pass_message(Message, Stream),
   {noreply, Stream1}.
 
-
-save_config(#video_frame{content = video, flavor = config} = V, #stream{} = Stream) -> Stream#stream{video_config = V};
-save_config(#video_frame{content = audio, flavor = config} = A, #stream{} = Stream) -> Stream#stream{audio_config = A};
-save_config(#video_frame{}, #stream{} = Stream) -> Stream.
 
 pass_message(Message, #stream{hls = {HLSMod, HLS}, hds = {HDSMod, HDS}, udp = {UDPMod, UDP}} = Stream) ->
   {noreply, HLS1} = HLSMod:handle_info(Message, HLS),

@@ -16,7 +16,7 @@
 -record(hds, {
   name,
   options = [],
-  fragments = [],
+  fragments,
   media_info,
   segment=?SEGMENT_START,
   fragment=?FRAGMENT_START
@@ -32,7 +32,8 @@ init(Options) ->
   gen_tracker:setattr(flu_streams, Name, [{hds,true}]),
   {ok, #hds{
     name = Name, 
-    options = Options
+    options = Options,
+    fragments = queue:new()
   }}.
 
 
@@ -66,21 +67,21 @@ create_new_fragment([#video_frame{dts = DTS}|_] = GOP, #hds{fragment = Fragment,
   Bin = iolist_to_binary([<<(iolist_size(Bin1) + 8):32, "mdat">>, Bin1]),
   flu_stream_data:set(Name, {hds_segment, Segment,Fragment}, Bin),
   % erlang:put({hds_segment, Segment,Fragment}, Bin),
-  HDS#hds{fragment = Fragment + 1, fragments = [#fragment{number = Fragment, dts = DTS}|Fragments]}.
+  HDS#hds{fragment = Fragment + 1, fragments = queue:in(#fragment{number = Fragment, dts = DTS}, Fragments)}.
 
 delete_old_fragment(#hds{segment = Segment, fragments = Fragments, name = Name} = HDS) ->
-  NewFragments = if length(Fragments) > ?FRAGMENTS_COUNT ->
-    {Leaving, Deleting} = lists:split(?FRAGMENTS_COUNT, Fragments),
-    % [erlang:erase({hds_segment, Segment, Frag}) || #fragment{number = Frag} <- Deleting],
-    [flu_stream_data:erase(Name, {hds_segment, Segment, Frag}) || #fragment{number = Frag} <- Deleting],
-    Leaving;
-  true -> Fragments
+  NewFragments = case queue:len(Fragments) of
+    Count when Count > ?FRAGMENTS_COUNT ->
+      {{value, #fragment{number = Fragment}}, Leaving} = queue:out(Fragments),
+      flu_stream_data:erase(Name, {hds_segment, Segment, Fragment}),
+      Leaving;
+    _ -> Fragments
   end,
   HDS#hds{fragments = NewFragments}.
 
 regenerate_bootstrap(#hds{fragments = Fragments, options = Options, name = Name, media_info = MediaInfo} = HDS) ->
-  #fragment{number = FirstNumber} = lists:nth(length(Fragments), Fragments),
-  Timestamps = lists:reverse([D || #fragment{dts = D} <- Fragments]),
+  #fragment{number = FirstNumber} = queue:get(Fragments),
+  Timestamps = [D || #fragment{dts = D} <- queue:to_list(Fragments)],
   {ok,Bootstrap} = hds:stream_bootstrap(Timestamps,[{start_fragment, FirstNumber}|Options]),
   flu_stream_data:set(Name,bootstrap,Bootstrap),
   % erlang:put(bootstrap,Bootstrap),

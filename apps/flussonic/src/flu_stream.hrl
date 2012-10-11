@@ -15,12 +15,11 @@
   dump_frames,
   timeout,
   media_info,
-  audio_config,
-  video_config,
   hds,
   hls,
   udp,
   rtmp,
   clients = [],
-  gop = undefined
+  gop = undefined,
+  check_timer
 }).

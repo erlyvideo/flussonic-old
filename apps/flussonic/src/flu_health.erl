@@ -23,9 +23,13 @@ init([event]) ->
 handle_event({set, {process_memory_high_watermark, Pid}}, #health{} = State) ->
   error_logger:info_msg("Warning! Process ~p is consuming too much memory~n", [Pid]),
   spawn(fun() -> 
+    erlang:monitor(process,Pid),
     erlang:exit(Pid, normal),
-    timer:sleep(1000),
-    erlang:exit(Pid, kill)
+    receive
+      {'DOWN', _, _, Pid, _} -> ok
+    after
+      1000 -> erlang:exit(Pid, kill)
+    end
   end),
   {ok, State};
 
@@ -45,9 +49,23 @@ handle_info(check, #health{ref = OldRef} = State) ->
   case memsup:get_memory_data() of
     {Total, _, _} when Total > 0 andalso Enabled ->
       case ems_debug:top(full_memory) of
+        [{Pid,Worst}|_] when Worst > 0 andalso Worst / Total > 0.6 ->
+          error_logger:info_msg("Warning! Process ~p is consuming too much memory: ~B out of ~B. Killing~n", [Pid, Worst, Total]),
+          erlang:exit(Pid, kill),
+          ok;
         [{Pid,Worst}|_] when Worst > 0 andalso Worst / Total > 0.4 ->
           error_logger:info_msg("Warning! Process ~p is consuming too much memory: ~B out of ~B~n", [Pid, Worst, Total]),
-          io:format("~p~n", [ems_debug:dump()]),
+          Dumper = spawn(fun() ->
+            io:format("~p~n", [ems_debug:dump()])
+          end),
+          erlang:monitor(process,Dumper),
+          receive
+            {'DOWN', _, _, Dumper, _} -> ok
+          after
+            5000 ->
+              error_logger:error_msg("Warning! Dumping info took too much time. Perhaps need health check~n", []),
+              erlang:exit(Dumper, kill)
+          end,
           % erlang:exit(Pid, normal),
           % timer:sleep(1000),
           % erlang:exit(Pid, kill),
@@ -58,8 +76,8 @@ handle_info(check, #health{ref = OldRef} = State) ->
     _ ->
       ok
   end,
-  Ref = erlang:send_after(20001, self(), check),
-  {noreply, State#health{ref = Ref}}.
+  Ref = erlang:send_after(2000, self(), check),
+  {noreply, State#health{ref = Ref}, hibernate}.
 
 terminate(_Arg, _State) ->
   ok.

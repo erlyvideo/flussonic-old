@@ -19,5 +19,5 @@ install:
 
 
 escriptize:
-  ./contrib/escriptize
+	./contrib/escriptize
 

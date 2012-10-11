@@ -54,7 +54,7 @@ handle_call({register, Name, Pid}, _From, #data{streams = Streams} = Data) ->
   {reply, ok, Data#data{streams = Streams1}};
 
 handle_call({set, Name, Key, Value}, {Pid, _Ref}, #data{streams = Streams} = Data) ->
-  Data1 = case lists:keyfind(Name, 2, Streams) of
+  Data1 = case lists:keyfind(Name, 1, Streams) of
     false ->
       erlang:monitor(process, Pid),
       Data#data{streams = [{Name,Pid}|Streams]};
