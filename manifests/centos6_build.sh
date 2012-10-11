@@ -6,9 +6,11 @@ yum install -y mock rpm-build
 
 
 rpmbuild
+mkdir -p /root/rpmbuild/SPECS /root/rpmbuild/SOURCES
 cp /vagrant/flussonic.spec /root/rpmbuild/SPECS
 cp /vagrant/flussonic-*.tgz /root/rpmbuild/SOURCES
 cd /root
 rpmbuild -bs rpmbuild/SPECS/flussonic.spec
 usermod  -a -G mock root
-mock -v /root/rpmbuild/SRPMS/flussonic-*.src.rpm
+usermod  -a -G mock vagrant
+/usr/bin/mock -v /root/rpmbuild/SRPMS/flussonic-*.src.rpm

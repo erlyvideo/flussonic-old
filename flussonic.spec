@@ -8,9 +8,9 @@ Release: 3%{?dist}
 License: GPL
 Group: Network
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
-Source: http://debian.erlyvideo.org/tgz/flussonic-%{version}.tar.gz
+Source: http://debian.erlyvideo.org/tgz/flussonic-%{version}.tgz
 URL: http://erlyvideo.org/
-BuildRequires: erlang, ruby
+BuildRequires: erlang
 Requires: erlang
 
 

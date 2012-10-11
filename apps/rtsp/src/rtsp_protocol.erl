@@ -232,26 +232,26 @@ flush_rtp_packets(#rtsp{socket = Socket} = RTSP) ->
 
 
 
-read_response_code(#rtsp{socket = Socket} = RTSP) ->
+read_response_code(#rtsp{socket = Socket, url = URL} = RTSP) ->
   inet:setopts(Socket, [{packet, line},{active,false}]),
   case gen_tcp:recv(Socket, 0, 10000) of
     {error, Error} ->
       
-      throw({stop, {error, {socket_recv, Error}}, RTSP});
+      throw({stop, {error, {socket_recv, Error, URL}}, RTSP});
     {ok, Bin} ->
       inet:setopts(Socket, [{packet,raw}]),
       case read_rtp_packets(Bin, RTSP) of
         {ok, RTSP1, <<"RTSP", _/binary>> = Line} ->
           case re:run(Line, "RTSP/1.0 (\\d+) .*", [{capture,all_but_first,list}]) of
             {match, [Code_]} -> {list_to_integer(Code_), Line, RTSP1};
-            nomatch -> throw({stop, {error, {response_line, Line}}, RTSP1})
+            nomatch -> throw({stop, {error, {response_line, Line, URL}}, RTSP1})
           end;
         {ok, RTSP1, <<>>} ->
           read_response_code(RTSP1)
       end
   end.
 
-recv(#rtsp{socket = Socket, dump = NeedToDump} = RTSP) ->
+recv(#rtsp{socket = Socket, dump = NeedToDump, url = URL} = RTSP) ->
   {Code, Dump1, RTSP1} = read_response_code(RTSP),
   inet:setopts(Socket, [{packet, httph_bin}]),
   {Headers, Dump2} = collect_headers(Socket, [], []),
@@ -259,7 +259,7 @@ recv(#rtsp{socket = Socket, dump = NeedToDump} = RTSP) ->
   if NeedToDump ->
   io:format(">>>>>> RTSP IN (~p:~p) >>>>>~n~s~s~n", [?MODULE, ?LINE, Dump1, Dump2]);
   true -> ok end,
-  is_list(Headers) orelse throw({stop, {error, {headers, Headers}}, RTSP1}),
+  is_list(Headers) orelse throw({stop, {error, {headers, Headers, URL}}, RTSP1}),
   Body = case proplists:get_value('Content-Length', Headers) of
     undefined -> undefined;
     ContentLength_ ->
@@ -268,7 +268,7 @@ recv(#rtsp{socket = Socket, dump = NeedToDump} = RTSP) ->
         {ok, Bin} ->
           if NeedToDump -> io:format("~s~n", [Bin]); true -> ok end,
           Bin;
-        {error, Err} -> throw({stop, {error, {read_body, ContentLength, Err}}, RTSP1})
+        {error, Err} -> throw({stop, {error, {read_body, ContentLength, Err, URL}}, RTSP1})
       end
   end,
   RTSP2 = case proplists:get_value(<<"Session">>, Headers) of

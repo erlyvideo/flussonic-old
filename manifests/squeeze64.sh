@@ -10,6 +10,7 @@ if [ ! -f /etc/apt/sources.list.d/sid.list ] ; then
 fi
 
 apt-get update
-apt-get -y install erlang-nox rebar build-essential
+apt-get -y install erlang-base-hipe erlang-eunit erlang-os-mon erlang-runtime-tools erlang-tools erlang-crypto
+apt-get -y install rebar build-essential
 
 

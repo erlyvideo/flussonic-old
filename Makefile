@@ -1,5 +1,5 @@
 # include version.mk
-VERSION := $(shell grep vsn apps/flussonic/src/flussonic.app.src | ruby -e 'puts STDIN.read[/\"([0-9\.]+)\"/, 1]')
+VERSION := $(shell ./contrib/version.erl)
 NODENAME ?= flussonic
 REBAR := $(shell which rebar || echo ./rebar)
 
@@ -64,12 +64,17 @@ stop:
 
 dist-clean: clean
 
-opensource:
+tgz:
 	rm -rf flussonic-$(VERSION)
 	git archive --prefix=flussonic-$(VERSION)/ master | tar x
+	mkdir -p flussonic-$(VERSION)/deps
+	for d in deps/* ; do git clone $$d flussonic-$(VERSION)/deps/`basename $$d`; done
 	cd flussonic-$(VERSION) && ./rebar get-deps && ./rebar compile
+	cp -f contrib/Makefile.debian flussonic-$(VERSION)/Makefile
 	find flussonic-$(VERSION) -name *.beam -delete
 	find flussonic-$(VERSION) -name *.so -delete
+	find flussonic-$(VERSION) -name *.o -delete
+	find flussonic-$(VERSION) -name *.app.src -delete
 	find flussonic-$(VERSION) -name .gitignore -delete
 	rm -rf flussonic-$(VERSION)/deps/meck
 	rm -rf flussonic-$(VERSION)/deps/cowboy/test
@@ -79,6 +84,8 @@ opensource:
 	rm -rf flussonic-$(VERSION)/deps/lager/rebar
 	rm -rf flussonic-$(VERSION)/deps/mimetypes/post_compile.escript
 	rm -f flussonic-$(VERSION)/apps/mpegts/contrib/build_table.rb
+	rm -f flussonic-$(VERSION)/apps/flussonic/src/reloader.erl
+	rm -f flussonic-$(VERSION)/apps/flussonic/mibs-unused/ERLYVIDEO-MIB.mib
 	tar zcf flussonic-$(VERSION).tgz flussonic-$(VERSION)
 	rm -rf flussonic-$(VERSION)
 
@@ -115,5 +122,5 @@ upload:
 	ssh erlyhub@erlyvideo.org "cd /apps/erlyvideo/debian ; ./update ; cd public/binary ; ln -sf flussonic-$(VERSION).tgz flussonic-latest.tgz "
 	@#echo "Erlyvideo version ${VERSION} uploaded to debian repo http://debian.erlyvideo.org/ ." | mail -r "Erlybuild <build@erlyvideo.org>" -s "Erlyvideo version ${VERSION}" -v erlyvideo-dev@googlegroups.com
 
-new_version: opensource package escriptize upload
+new_version: tgz package escriptize upload
 
