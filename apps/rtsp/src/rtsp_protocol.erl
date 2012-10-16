@@ -61,6 +61,10 @@ sync(Proto, Channel, Sync) ->
   auth,
   chan1,
   chan2,
+  chan3,
+  chan4,
+  chan5,
+  chan6,
   dump = true
 }).
 
@@ -87,10 +91,14 @@ init([Options]) ->
 
 
 handle_call({sync, Channel, Seq, Timecode}, _From, #rtsp{} = RTSP) ->
-  Chan = #rtp{decoder = Decoder} = element(#rtsp.chan1 + Channel, RTSP),
-  Decoder1 = rtp_decoder:sync(Decoder, [{seq,Seq},{rtptime,Timecode}]),
-  Chan1 = Chan#rtp{decoder = Decoder1, seq = Seq, timecode = Timecode, wall_clock = 0},
-  {reply, ok, setelement(#rtsp.chan1 + Channel, RTSP, Chan1)};
+  case element(#rtsp.chan1 + Channel, RTSP) of
+    Chan = #rtp{decoder = Decoder} ->
+      Decoder1 = rtp_decoder:sync(Decoder, [{seq,Seq},{rtptime,Timecode}]),
+      Chan1 = Chan#rtp{decoder = Decoder1, seq = Seq, timecode = Timecode, wall_clock = 0},
+      {reply, ok, setelement(#rtsp.chan1 + Channel, RTSP, Chan1)};
+    undefined ->
+      {reply, {error, no_channel}, RTSP}
+  end;
 
 handle_call(stop, _From, #rtsp{} = RTSP) ->
   {stop, normal, ok, RTSP};

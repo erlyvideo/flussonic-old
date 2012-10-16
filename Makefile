@@ -69,20 +69,22 @@ tgz:
 	git archive --prefix=flussonic-$(VERSION)/ master | tar x
 	mkdir -p flussonic-$(VERSION)/deps
 	[ -d deps ] && for d in deps/* ; do git clone $$d flussonic-$(VERSION)/deps/`basename $$d`; done || true
-	cd flussonic-$(VERSION) && ./rebar get-deps && ./rebar compile
+	cd flussonic-$(VERSION) && ./rebar get-deps
 	cp -f contrib/Makefile.debian flussonic-$(VERSION)/Makefile
+	perl -pi -e s,vsn_subst,$(VERSION),g flussonic-$(VERSION)/Makefile
+	rm -f flussonic-$(VERSION)/deps/mimetypes/src/mimetypes_parse.erl
 	find flussonic-$(VERSION) -name *.beam -delete
 	find flussonic-$(VERSION) -name *.so -delete
 	find flussonic-$(VERSION) -name *.o -delete
-	find flussonic-$(VERSION) -name *.app.src -delete
+	find flussonic-$(VERSION) -name *.app.src -exec perl -pi -e s,git,'"v1.0"',g {} \;
 	find flussonic-$(VERSION) -name .gitignore -delete
+	cat rebar.config |grep -v meck > flussonic-$(VERSION)/rebar.config
 	rm -rf flussonic-$(VERSION)/deps/meck
 	rm -rf flussonic-$(VERSION)/deps/cowboy/test
 	rm -rf flussonic-$(VERSION)/deps/cowboy/examples
 	rm -rf flussonic-$(VERSION)/deps/*/.git
 	rm -rf flussonic-$(VERSION)/apps/rtsp/priv
 	rm -rf flussonic-$(VERSION)/deps/lager/rebar
-	rm -rf flussonic-$(VERSION)/deps/mimetypes/post_compile.escript
 	rm -f flussonic-$(VERSION)/apps/mpegts/contrib/build_table.rb
 	rm -f flussonic-$(VERSION)/apps/flussonic/src/reloader.erl
 	rm -f flussonic-$(VERSION)/apps/flussonic/mibs-unused/ERLYVIDEO-MIB.mib

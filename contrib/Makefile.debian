@@ -1,21 +1,23 @@
-VERSION := $(shell ./contrib/version.erl)
+VERSION := vsn_subst
+REBAR := $(shell which rebar || echo ./rebar)
 
 
 all: compile
 
 
 compile:
-	ERL_LIBS=apps:deps erl -make
-
+	$(REBAR) compile
 
 install:
-	mkdir -p $(DESTDIR)/usr/share/flussonic/deps $(DESTDIR)/etc/init.d/ $(DESTDIR)/etc/default
-	cp -r apps deps wwwroot $(DESTDIR)/usr/share/flussonic
-	cp priv/flussonic $(DESTDIR)/etc/init.d/
-	echo "FLUDIR=/usr/share/flussonic" >> $(DESTDIR)/etc/default/flussonic
-	mkdir -p $(DESTDIR)/usr/share/doc/flussonic/ $(DESTDIR)/etc/flussonic/
-	cp COPYING $(DESTDIR)/usr/share/doc/flussonic/copyright
-	cp priv/sample/flussonic.conf $(DESTDIR)/etc/flussonic/flussonic.conf
+	mkdir -p $(DESTROOT)/usr/share/flussonic/deps $(DESTROOT)/etc/init.d/ $(DESTROOT)/etc/default
+	cp -r apps deps wwwroot $(DESTROOT)/usr/share/flussonic
+	cp priv/flussonic $(DESTROOT)/etc/init.d/
+	echo "FLUDIR=/usr/share/flussonic" >> $(DESTROOT)/etc/default/flussonic
+	mkdir -p $(DESTROOT)/usr/share/doc/flussonic/ $(DESTROOT)/etc/flussonic/
+	cp COPYING $(DESTROOT)/usr/share/doc/flussonic/copyright
+	cp priv/sample/flussonic.conf $(DESTROOT)/etc/flussonic/flussonic.conf
+	mkdir -p $(DESTROOT)/var/run/flussonic
+	mkdir -p $(DESTROOT)/var/log/flussonic
 
 
 escriptize:

@@ -30,7 +30,7 @@ Vagrant::Config.run do |config|
   config.vm.define :centos6 do |conf|
     conf.vm.box = "centos6"
     conf.vm.box_url = "https://vagrant-centos-6.s3.amazonaws.com/centos-6.box"
-    conf.vm.provision :shell, :path => "manifests/centos6_build.sh"
+    conf.vm.provision :shell, :path => "manifests/centos6.sh"
   end
 
   # All Vagrant configuration is done here. The most common configuration

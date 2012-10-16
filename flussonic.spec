@@ -3,7 +3,7 @@
 
 Summary: Flussonic multiprotocol streaming server
 Name: flussonic
-Version: 3.51
+Version: 3.52
 Release: 3%{?dist}
 License: GPL
 Group: Network
@@ -53,14 +53,16 @@ make DESTROOT=%{buildroot} install
 
 %files
 %defattr(-, root, root)
-%{_bindir}/*
-%{_libdir}/erlang
+%{_sysconfdir}/default/%{name}
 %{_initrddir}/%{name}
+%{_datadir}/%{name}
+%{_datadir}/doc/%{name}
+#%{_localstatedir}/run/%{name}
+#%{_localstatedir}/log/%{name}
 %config(noreplace) %{_sysconfdir}/%{name}
-%doc README.md
-%attr(-, %{user}, %{group}) %{_localstatedir}/lib/%{name}
+#%doc README.md
+%attr(-, %{user}, %{group}) %{_localstatedir}/run/%{name}
 %attr(-, %{user}, %{group}) %{_localstatedir}/log/%{name}
-%attr(-, %{user}, %{group}) %{_localstatedir}/cache/%{name}
 
 
 %clean
