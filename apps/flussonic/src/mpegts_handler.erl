@@ -64,6 +64,9 @@ handle0(Req, #mpegts{name = RawName, options = Options, method = 'GET'} = State)
   
   Name = media_handler:check_sessions(Req, RawName, Options),
 
+  OurName = iolist_to_binary(io_lib:format("mpegts_client(~s)", [Name])),
+  erlang:put(name, OurName),
+
   {ok, Pid} = case flu_stream:autostart(Name, Options) of
      {ok, P} -> {ok, P};
      _ -> throw({return, 404, "No stream found\n"})
@@ -71,10 +74,12 @@ handle0(Req, #mpegts{name = RawName, options = Options, method = 'GET'} = State)
   Mpegts = mpegts:init([{resync_on_keyframe,true}]),
   flu_stream:subscribe(Pid, Options),
   ?D({mpegts_play,Name}),
+  inet:setopts(Socket, [{send_timeout,10000},{sndbuf,1200000}]),
   Transport:send(Socket, "HTTP/1.0 200 OK\r\nContent-Type: video/mpeg2\r\nConnection: close\r\n\r\n"),
   case (catch write_loop(Socket, Transport, Mpegts, false)) of
     {'EXIT', Error} -> ?D({exit,Error,erlang:get_stacktrace()});
     ok -> ok;
+    {error, closed} -> ok;
     _Else -> ?D(_Else)
   end,
   ?D({mpegts_play,Name,stop}),
@@ -143,63 +148,4 @@ write_loop(Socket, Transport, Mpegts, Started) ->
       timeout
   end.
   
-
-mpegts_test_() ->
-  {foreach,
-  fun() ->
-      Modules = [flu_config],
-      meck:new(Modules, [{passthrough,true}]),
-      Config = [{mpegts, <<"mpegts">>, []}],
-      meck:expect(flu_config, get_config, fun() -> Config end),
-      lager:set_loglevel(lager_console_backend, notice),
-      cowboy:start_listener(fake_http, 3, 
-        cowboy_tcp_transport, [{port,5555}],
-        cowboy_http_protocol, [{dispatch,[{'_',flu_config:parse_routes(Config)}]}]
-      ), 
-
-      Modules
-  end,
-  fun(Modules) ->
-    cowboy:stop_listener(fake_http),
-    lager:set_loglevel(lager_console_backend, info),
-    meck:unload(Modules) 
-  end,
-  [
-    fun test_mpegts/0
-  ]
-  }.
-
-test_mpegts() ->
-  {ok, Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
-  Stream ! flu_rtmp_tests:h264_aac_media_info(),
-  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
-  gen_tcp:send(Sock, "GET /mpegts/testlivestream HTTP/1.0\r\n\r\n"),
-  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
-  read_headers(Sock),
-  ?assertEqual(200, Code),
-  [Stream ! Frame || Frame <- flu_rtmp_tests:h264_aac_frames()],
-  Data = read_stream(Sock),
-  gen_tcp:close(Sock),
-  flussonic_sup:stop_stream(<<"testlivestream">>),
-  ?assert(size(Data) > 0),
-  ?assert(size(Data) > 100),
-  {ok, Frames} = mpegts_decoder:decode_file(Data),
-  ?assert(length(Frames) > 10),
-  ok.
-
-
-read_headers(Sock) ->
-  case gen_tcp:recv(Sock, 0) of
-    {ok, {http_header, _, _, _, _}} -> read_headers(Sock);
-    {ok, http_eoh} -> inet:setopts(Sock, [binary,{packet,raw}]), ok
-  end.
-
-read_stream(Sock) -> read_stream(Sock, []).
-
-
-read_stream(Sock, Acc) ->
-  case gen_tcp:recv(Sock, 188, 500) of
-    {ok, Data} -> read_stream(Sock, [Data|Acc]);
-    {error, _} -> iolist_to_binary(lists:reverse(Acc))
-  end.
 

@@ -25,7 +25,7 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 
 
--export([start/0, main/1, test/0]).
+-export([start/0, main/1]).
 
 main(["-h"]) ->
   io:format(
@@ -85,7 +85,20 @@ start(_Options) ->
 	try_start_app(playlist),
 	start_app(mpegts),
   start_app(flussonic),
+  flussonic_app:load_config(),
+  write_pid(),
   ok.
+
+
+
+write_pid() ->
+  Path = case os:getenv("PID_PATH") of
+    false -> "log/flussonic.pid";
+    PidPath -> PidPath
+  end,
+  filelib:ensure_dir(Path),
+  file:write_file(Path, os:getpid()).
+
 
 try_start_app(App) ->
   case application:start(App) of
@@ -103,40 +116,4 @@ start_app(App) ->
 load_app(App) ->
   {ok, Mods} = application:get_key(App, modules),
   [code:load_file(Mod) || Mod <- Mods].
-
-
-test() ->
-  Modules = [
-    aac
-    ,flv_video_frame
-    ,h264
-    ,mp4
-    % mp4_writer,
-    ,packet_codec
-    % sdp, 
-    ,sdp_encoder
-    ,license_client
-    ,mpeg2_crc32
-    ,mpegts_psi
-    ,mpegts_reader
-    ,rtmp
-    ,rtmp_handshake
-    ,rtp
-    ,rtp_decoder
-    % ,rtsp  % Camera snapshots are required
-    ,rtsp_inbound
-    ,rtsp_socket
-    ,flu_rtmp
-    ,mpegts_handler
-    ,flu_config
-    ,dvr_handler
-    ,media_handler
-    ,flu_session
-    ,flu_file
-  ],
-  [begin
-    io:format("Test: ~p~n", [Module]),
-    Module:test()
-  end || Module <- Modules],
-  ok.
 

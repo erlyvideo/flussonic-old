@@ -4,6 +4,8 @@
 
 -behaviour(gen_server).
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 
 -export([start_link/1, find/2, find_or_open/3, list/1, setattr/3, getattr/3, getattr/4, increment/4,delattr/3]).
 
@@ -61,9 +63,11 @@ find(Zone, Name) ->
   end.
 
 find_or_open(Zone, Name, SpawnFun) ->
-  case ets:lookup(Zone, Name) of
+  try ets:lookup(Zone, Name) of
     [] -> gen_server:call(Zone, {find_or_open, Name, SpawnFun}, 10000);
     [#entry{pid = Pid}] -> {ok, Pid}
+  catch
+    error:badarg -> {error, gen_tracker_not_started}
   end.
 
 start_link(Zone) ->

@@ -4,7 +4,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_tracker/1]).
+-export([start_link/0, start_tracker/1, stop_tracker/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -48,6 +48,13 @@ start_tracker(Name) ->
   end,
   {ok, Pid1}.
       
+
+stop_tracker(Name) ->
+  supervisor:terminate_child(gen_tracker_sup, Name),
+  supervisor:delete_child(gen_tracker_sup, Name),
+  ok.
+
+
 
 %% ===================================================================
 %% Supervisor callbacks

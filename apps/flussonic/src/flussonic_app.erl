@@ -45,22 +45,12 @@ start(_StartType, _StartArgs) ->
   inets:start(httpc, [{profile,auth}]),
   httpc:set_options([{max_sessions,20},{max_keep_alive_length,100}]),
   {ok, Pid} = flussonic_sup:start_link(),
-  load_config(),
-  write_pid(),
   {ok, Pid}.
   
   
 stop(_State) ->
   ok.
 
-
-write_pid() ->
-  Path = case os:getenv("PID_PATH") of
-    false -> "log/flussonic.pid";
-    PidPath -> PidPath
-  end,
-  filelib:ensure_dir(Path),
-  file:write_file(Path, os:getpid()).
 
 unload_config() ->
   flu_event:remove_handler(flu_session_log),

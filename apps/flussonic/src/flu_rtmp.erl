@@ -264,7 +264,7 @@ publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, false|_]} = _
 
 publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _AMF) ->
   Options = publish_options(Session),
-  {match,[StreamName]}=re:run(Name,"([^?]+)\\?*",[{capture,all_but_first,binary}]),
+  {match,[StreamName]} = re:run(Name,"([^?]+)\\?*",[{capture,all_but_first,binary}]),
   Env = flu_config:get_config(),
   
   case proplists:get_value(publish_password, Env) of
@@ -284,7 +284,7 @@ publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _
           throw(reject)
       end
   end,
-  
+
   {ok, Recorder} = flu_stream:autostart(StreamName, [{clients_timeout,false},{static,false}|Options]),
   gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,rtmp_session:get_field(Session,app)}]),
   flu_stream:set_source(Recorder, self()),

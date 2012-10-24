@@ -179,7 +179,7 @@ decode_nal(<<0:1, _NalRefIdc:2, ?NAL_SPS:5, Profile, _:8, Level, _/binary>> = SP
   % ?D({"Parsing SPS", SPS}),
   % _SPSInfo = parse_sps(SPS),
   % ?D({"SPS", profile_name(Profile), Level/10, _SPSInfo#h264_sps.width, _SPSInfo#h264_sps.height}),
-  ?D({sps,Profile,Level}),
+  % ?D({sps,Profile,Level}),
   {H264#h264{profile = Profile, level = Level, sps = [SPS]}, []};
 
 decode_nal(<<0:1, _NalRefIdc:2, ?NAL_PPS:5, Bin/binary>> = PPS, #h264{} = H264) ->

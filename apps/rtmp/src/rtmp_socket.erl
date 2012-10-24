@@ -47,6 +47,7 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 -include("../include/rtmp.hrl").
 -include("rtmp_private.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -version(1.1).
 
 -export([accept/1, connect/1, connect/2, start_link/1, getopts/2, setopts/2, getstat/2, getstat/1, send/2, get_socket/1]).

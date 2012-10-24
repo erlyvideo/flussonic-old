@@ -511,8 +511,8 @@ dts_to_durations([#video_frame{dts = DTS1}, #video_frame{dts = DTS2}], Acc) when
 dts_to_durations([#video_frame{dts = DTS1}, #video_frame{dts = DTS2} = F|ReverseFrames], Acc) when DTS1 > DTS2 ->
 	dts_to_durations([F|ReverseFrames], [round((DTS1 - DTS2)*?H264_SCALE) | Acc]);
 	
-dts_to_durations(Frames, _) ->
-  file:write_file("a.dump", erlang:term_to_binary(Frames)),
+dts_to_durations(_Frames, _) ->
+  % file:write_file("a.dump", erlang:term_to_binary(Frames)),
   erlang:error({invalid_frames}).
 
 positive(Durations) ->
@@ -773,8 +773,12 @@ mp4_serialize1_test_() ->
   ?_assertEqual(<<16:32, "ftyp", 5:32, 100:32>>, iolist_to_binary(mp4_serialize({ftyp, [5, 100]})))].
 
 pack_durations_test() ->
-  Frames = [#video_frame{dts = 2, pts = 1, content = video}, #video_frame{dts = 1, pts = 2, content = video}, #video_frame{dts = 0, pts = 0, content = video}],
-  ?assertEqual(<<0:32, 3:32, 1:32, 24:32, 1:32, 24:32, 1:32, 24:32>>, iolist_to_binary(pack_durations(Frames))).
+  Frames = [
+    #video_frame{dts = 4, content = video},
+    #video_frame{dts = 4, content = video},
+    #video_frame{dts = 2, content = video}
+  ],
+  ?assertEqual(<<0:32, 2:32, 1:32, 2:32, 2:32, 4:32>>, iolist_to_binary(pack_durations(Frames))).
 
 % pack_glue_durations_test() ->
 %   Frames = [#video_frame{dts = 2, pts = 2, content = video}, #video_frame{dts = 2, pts = 1, content = video}, #video_frame{dts = 0, pts = 0, content = video}],

@@ -1,7 +1,6 @@
 # include version.mk
 VERSION := $(shell ./contrib/version.erl)
 NODENAME ?= flussonic
-REBAR := $(shell which rebar || echo ./rebar)
 
 all: app
 
@@ -16,22 +15,22 @@ install:
 	cp priv/sample/flussonic.conf $(DESTDIR)/etc/flussonic/flussonic.conf
 
 
-compile:
-	ERL_LIBS=apps:deps erl -make
 
+test:
+	./rebar eunit skip_deps=true
 
 app: deps/cowboy
-	@$(REBAR) compile
+	./rebar compile skip_deps=true
 
 deps/cowboy:
-	@$(REBAR) get-deps
+	./rebar get-deps compile
 
 clean:
-	@$(REBAR) clean
+	./rebar clean
 	rm -f erl_crash.dump
 
 run:
-	ERL_LIBS=apps:deps erl +K true +A 16 +a 2048 -name $(NODENAME)@127.0.0.1 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s reloader -s flussonic -sasl errlog_type error
+	ERL_LIBS=apps:deps erl +K true +A 16 +a 2048 -name $(NODENAME)@127.0.0.1 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error
 
 shell:
 	erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1
@@ -42,6 +41,8 @@ vagrant:
 	vagrant up
 	vagrant ssh -c "sudo -s /etc/init.d/flussonic start"
 
+
+.PHONY: test
 
 # check_public:
 # 	vagrant destroy -f
@@ -86,7 +87,6 @@ tgz:
 	rm -rf flussonic-$(VERSION)/apps/rtsp/priv
 	rm -rf flussonic-$(VERSION)/deps/lager/rebar
 	rm -f flussonic-$(VERSION)/apps/mpegts/contrib/build_table.rb
-	rm -f flussonic-$(VERSION)/apps/flussonic/src/reloader.erl
 	rm -f flussonic-$(VERSION)/apps/flussonic/mibs-unused/ERLYVIDEO-MIB.mib
 	tar zcf flussonic-$(VERSION).tgz flussonic-$(VERSION)
 	rm -rf flussonic-$(VERSION)

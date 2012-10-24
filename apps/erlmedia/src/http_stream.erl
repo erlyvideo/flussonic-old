@@ -299,11 +299,9 @@ do(Mod) ->
   end.
 
 handle_test_req(#mod{absolute_uri="127.0.0.1:9090/redirect"}) ->
-  ?D("Test redirect"),
   {proceed, [{response,{response,[{code,301},{location,"http://127.0.0.1:9090/123.txt"}],nobody}}]};
 
 handle_test_req(#mod{absolute_uri="127.0.0.1:9090/chunk"}) ->
-  ?D("Chunked response"),
   Body = "25\nThis is the data in the first chunk\r\n3\nsec\r\n0",
   {proceed, [{response,{response,[{code,200},{transfer_encoding,"chunked"}],Body}}]};
 
@@ -312,52 +310,62 @@ handle_test_req(_Mod) ->
 
 
 
-calculate_redirected_url_test() ->
-  ?assertEqual(<<"http://ya.ru/145">>, calculate_redirected_url("http://ya.ru/", "/145")),
-  ?assertEqual(<<"http://ya.ru/145">>, calculate_redirected_url("http://ya.ru/", "http://ya.ru/145")),
-  ?assertEqual(<<"http://yahoo.com/145">>, calculate_redirected_url("http://ya.ru/", "http://yahoo.com/145")).
+calculate_redirected_url_test_() ->
+  [
+  ?_assertEqual(<<"http://ya.ru/145">>, calculate_redirected_url("http://ya.ru/", "/145")),
+  ?_assertEqual(<<"http://ya.ru/145">>, calculate_redirected_url("http://ya.ru/", "http://ya.ru/145")),
+  ?_assertEqual(<<"http://yahoo.com/145">>, calculate_redirected_url("http://ya.ru/", "http://yahoo.com/145"))
+  ].
 
 
-request_body_test_ () ->
+request_body_test_() ->
   {setup, 
    fun() ->
        inets:start(),
-       inets:start(httpd,[{server_root,"test/wwwroot"},{port,9090},{server_name,"test_server"},{document_root,"test/files"},{modules,[mod_alias,mod_range, http_stream, mod_auth, mod_esi, mod_actions, mod_cgi, mod_dir, mod_get, mod_head, mod_log, mod_disk_log]}])
+       inets:start(httpd,[
+        {server_root,"../test"},
+        {port,9090},
+        {server_name,"test_server"},
+        {document_root,"../test/files"},
+        {modules,[mod_alias,mod_range, ?MODULE, mod_auth, mod_actions, mod_dir, mod_get, mod_head]}
+      ])
    end, 
    fun({ok,Pid}) ->
-       inets:stop(httpd,Pid),
-       inets:stop()
+      error_logger:delete_report_handler(error_logger_tty_h),
+      inets:stop(httpd,Pid)
    end,
-   fun() ->
-%%%  Simple body request test
-       ?assertMatch({ok,{_Socket,200,_Headers,<<"123\n">>}},http_stream:request_body("http://127.0.0.1:9090/123.txt",[])),
-%%% Case when connection is enstablished
-       ?assertEqual({error,econnrefused},http_stream:request_body("http://127.0.0.1:9091/",[])),
-%%% Case when page not found 
-       ?assertEqual({error,{http_code,404}},http_stream:request_body("http://127.0.0.1:9090/wrong.file",[])),
-%%% Range request test
-       ?assertMatch({ok,{_Socket,206,_Headers,<<"1">>}},http_stream:request_body("http://127.0.0.1:9090/123.txt",[{range,{0,1}}])),
-%%% Range out test 
-       ?assertEqual({error,{http_code,416}}, http_stream:request_body("http://127.0.0.1:9090/123.txt",[{range,{5,10}}])),
+   [
+   %%%  Simple body request test
+   ?_assertMatch({ok,{_Socket,200,_Headers,<<"123\n">>}},http_stream:request_body("http://127.0.0.1:9090/123.txt",[])),
+   %%% Case when connection is enstablished
+   ?_assertEqual({error,econnrefused},http_stream:request_body("http://127.0.0.1:9091/",[])),
+   %%% Case when page not found 
+   ?_assertEqual({error,{http_code,404}},http_stream:request_body("http://127.0.0.1:9090/wrong.file",[])),
+    %%% Range request test
+   ?_assertMatch({ok,{_Socket,206,_Headers,<<"1">>}},http_stream:request_body("http://127.0.0.1:9090/123.txt",[{range,{0,1}}])),
+    %%% Range out test 
+   ?_assertEqual({error,{http_code,416}}, http_stream:request_body("http://127.0.0.1:9090/123.txt",[{range,{5,10}}])),
+
 %%% Redirect test
-       ?assertMatch({ok,{_Socket,200,
-			 [{'Server',_ServerName},
-			  {'Date',_Date},
-			  {'Content-Type',<<"text/plain">>},
-			  {'Etag',_ETag},
-			  {'Content-Length',<<"4">>},
-			  {'Last-Modified',_LastMod},
-			  {redirected_url,<<"http://127.0.0.1:9090/123.txt">>}]}},
-		    http_stream:request("http://127.0.0.1:9090/redirect",[])),
+   ?_assertMatch({ok,{_Socket,200,
+       [{'Server',_ServerName},
+        {'Date',_Date},
+        {'Content-Type',<<"text/plain">>},
+        {'Etag',_ETag},
+        {'Content-Length',<<"4">>},
+        {'Last-Modified',_LastMod},
+        {redirected_url,<<"http://127.0.0.1:9090/123.txt">>}]}},
+        http_stream:request("http://127.0.0.1:9090/redirect",[])),
+
 %%% Noredirect option test
-       ?assertMatch({ok,{_Socket,301,
+   ?_assertMatch({ok,{_Socket,301,
 			 [{'Server', _ServerName},
 			  {'Content-Type',<<"text/html">>},
 			  {'Date', _Date},
 			  {'Location',<<"http://127.0.0.1:9090/123.txt">>}]}},
 		    http_stream:request("http://127.0.0.1:9090/redirect",[{noredirect, true}])),
 %%% Chunked body test
-       ?assertMatch({ok,{_Socket, 200,
+   ?_assertMatch({ok,{_Socket, 200,
 			 [{'Server', _ServerName},
 			  {'Content-Type',<<"text/html">>},
 			  {'Date', _Date},
@@ -365,5 +373,6 @@ request_body_test_ () ->
 			  {redirected_url,"http://127.0.0.1:9090/chunk"}],
 			 <<"This is the data in the first chunk\r\nsec">>}},
 		    http_stream:request_body("http://127.0.0.1:9090/chunk",[]))
-   end}.
+   ]
+   }.
     

@@ -1,24 +1,9 @@
 %%% @author     Max Lapshin <max@maxidoors.ru> [http://erlyvideo.org]
-%%% @copyright  2010 Max Lapshin
+%%% @copyright  2010-2012 Max Lapshin
 %%% @doc        AAC unpacking module
 %%% @reference  See <a href="http://erlyvideo.org" target="_top">http://erlyvideo.org</a> for more information
 %%% @end
 %%%
-%%%
-%%% This file is part of erlmedia.
-%%% 
-%%% erlmedia is free software: you can redistribute it and/or modify
-%%% it under the terms of the GNU General Public License as published by
-%%% the Free Software Foundation, either version 3 of the License, or
-%%% (at your option) any later version.
-%%%
-%%% erlmedia is distributed in the hope that it will be useful,
-%%% but WITHOUT ANY WARRANTY; without even the implied warranty of
-%%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-%%% GNU General Public License for more details.
-%%%
-%%% You should have received a copy of the GNU General Public License
-%%% along with erlmedia.  If not, see <http://www.gnu.org/licenses/>.
 %%%
 %%%---------------------------------------------------------------------------------------
 -module(aac).
@@ -28,11 +13,18 @@
 
 -export([decode_config/1, encode_config/1, unpack_adts/1, pack_adts/2, adts_to_config/1, to_fmtp/1]).
 
+-type aac_frame() :: binary().
+-type adts_frame() :: binary().
+-type aac_config() :: #aac_config{}.
+
+-export_type([aac_frame/0, adts_frame/0, aac_config/0]).
+
 %%--------------------------------------------------------------------
 %% @spec (Body::binary(), Config::aac_config()) -> ADTS::binary()
-%% @doc Packs AAC frame into ADTS frame, suitable for transmitting in MPEG-TS PES or Shoutcast
+%% @doc Packs AAC frame (from mp4 or flv container) into ADTS frame, suitable for transmitting in MPEG-TS PES or Shoutcast
 %% @end 
 %%--------------------------------------------------------------------
+-spec pack_adts(AAC::aac_frame(), Config::aac_config()) -> ADTS::adts_frame().
 pack_adts(Frame, #aac_config{adts_header = CachedHeader} = Config) ->
   Header = case CachedHeader of
     undefined -> (cache_adts(Config))#aac_config.adts_header;
@@ -73,6 +65,8 @@ cache_adts(#aac_config{type = ObjectType, sample_rate = Frequency, channels = Ch
 %% 
 %% @end 
 %%--------------------------------------------------------------------
+-spec unpack_adts(ADTS::adts_frame()) -> {ok, AAC::aac_frame(), Rest::binary()} | 
+  {more, undefined} | {error, Body::binary()}.
 unpack_adts(<<16#FFF:12, _ID:1, _Layer:2, 1:1, _Profile:2, _SampleRate:4,
          _Private:1, _Channels:3, _Original:1, _Home:1, _Copyright:1, _CopyrightStart:1,
          FrameLength:13, _ADTS:11, _Count:2, Data/binary>>) when size(Data) >= FrameLength - 7 ->
@@ -232,6 +226,7 @@ to_fmtp(Config) when is_binary(Config) ->
   lists:flatten(["profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3;config=", Encoded]).
   
 
+-ifdef(TEST).
 %%
 %% Tests
 %%
@@ -243,6 +238,7 @@ to_fmtp(Config) when is_binary(Config) ->
 fmtp_test() ->
   ?assertEqual("profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3;config=11B056E500", aac:to_fmtp(<<17,176,86,229,0>>)).
 
+-endif.
 
 
 

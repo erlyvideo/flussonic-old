@@ -23,6 +23,7 @@
 -module(rtmp_lib).
 -author('Max Lapshin <max@maxidoors.ru>').
 -version(1.1).
+-include_lib("eunit/include/eunit.hrl").
 
 -include("../include/rtmp.hrl").
 -export([wait_for_reply/2]).
@@ -50,7 +51,8 @@ wait_for_reply(RTMP, InvokeId) ->
   receive
     {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_result">>, id = InvokeId, args = [null|Args]}}} -> Args;
     {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_result">>, id = InvokeId, args = Args}}} -> Args;
-    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId}}} -> rtmp_error
+    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId}}} -> rtmp_error;
+    {rtmp, RTMP, disconnect, _} -> rtmp_closed
   after
     20000 ->
       ?D({reply_timeout,InvokeId,process_info(self(), messages)}),
@@ -219,7 +221,9 @@ play(RTMP, Stream, Path) ->
     {rtmp, RTMP, #rtmp_message{type = stream_begin, stream_id = Stream}} -> 
       ok;
     {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId}}} -> 
-      throw({rtmp_error, {play,Path}})
+      throw({rtmp_error, {play,Path}});
+    {'DOWN', _, _, RTMP, _} ->
+      throw({rtmp_closed, {play,Path}})
   after
     30000 ->
       ?D({timeout, Path, process_info(self(), messages)}),
@@ -286,7 +290,8 @@ publish(RTMP, Stream, Path, Type) ->
   },
   rtmp_socket:invoke(RTMP, AMF),
   receive
-    {rtmp, RTMP, #rtmp_message{type = stream_begin}} -> ok
+    {rtmp, RTMP, #rtmp_message{type = stream_begin}} -> ok;
+    {rtmp, RTMP, disconnect, _} -> throw({rtmp_closed, {publish,Path}})
   after
     30000 -> erlang:error(timeout)
   end.

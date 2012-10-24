@@ -28,6 +28,7 @@
 -include_lib("erlmedia/include/media_info.hrl").
 -include("../include/rtmp.hrl").
 -include("rtmp_session.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -behaviour(gen_server).
 
@@ -401,8 +402,17 @@ call_function(#rtmp_session{} = State, #rtmp_funcall{command = connect, args = [
 
 call_function(#rtmp_session{} = State, #rtmp_funcall{} = AMF) ->
   call_function_callback(State, AMF).
-  
-call_function_callback(#rtmp_session{module = M} = Session, #rtmp_funcall{} = AMF) ->
+
+
+call_function_callback(Session, #rtmp_funcall{command = Command, args = Args} = AMF) ->
+  try call_function_callback0(Session, AMF)
+  catch
+    Class:Error ->
+      ?debugFmt("Failed RTMP ~p(~p): ~p:~p, ~p", [Command, Args, Class, Error, erlang:get_stacktrace()])
+      % error_logger:error_msg("Failed RTMP ~p(~p): ~p:~p, ~p", [Command, Args, Class, Error, erlang:get_stacktrace()])
+  end.
+
+call_function_callback0(#rtmp_session{module = M} = Session, #rtmp_funcall{} = AMF) ->
   case M:handle_rtmp_call(Session, AMF) of
     unhandled ->
       call_default_function(Session, AMF);
