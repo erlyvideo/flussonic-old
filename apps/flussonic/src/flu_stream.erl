@@ -40,6 +40,7 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
+-export([autostart/1]).
 -export([autostart/2, list/0, json_list/0, publish/2]).
 
 -export([get/2, get/3, pass_message/2, find/1]).
@@ -137,6 +138,30 @@ update_options(Stream, Options) ->
     {ok, Pid} -> gen_server:call(Pid, {update_options, Options});
     _ -> false
   end.
+
+autostart(Stream) ->
+  case lookup_in_config(Stream, flu_config:get_config()) of
+    undefined -> gen_tracker:find(flu_streams, Stream);
+    {ok, Stream1, Options} -> autostart(Stream1, Options)
+  end.
+
+
+lookup_in_config(Path, [{live, Prefix, Options}|Config]) ->
+  PrefixLen = size(Prefix),
+  case Path of
+    <<Prefix:PrefixLen/binary, "/", Stream/binary>> -> {ok, Stream, Options};
+    _ -> lookup_in_config(Path, Config)
+  end;
+
+lookup_in_config(Path, [{stream, Path, URL, Opts}|_Config]) ->
+  {ok, Path, [{url,URL}|Opts]};
+
+lookup_in_config(Path, [_|Config]) ->
+  lookup_in_config(Path, Config);
+
+lookup_in_config(_, []) ->
+  undefined.
+
 
 autostart(Stream, Options) ->
   gen_tracker:find_or_open(flu_streams, Stream, fun() -> flussonic_sup:start_flu_stream(Stream,Options) end).
@@ -394,6 +419,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
     file -> file_source:read(URL, Options);
     rtmp -> flu_rtmp:play_url(Name, URL);
     playlist -> playlist:read(Name, URL, Options);
+    mixer -> flu_mixer:read(Name, URL, Options);
     passive -> {ok, undefined}
   end,
   case Result of

@@ -142,6 +142,8 @@ decode(#video_frame{content = metadata} = Frame, Metadata) ->
 %%--------------------------------------------------------------------
 
 to_tag(#video_frame{content = Content, stream_id = StreamId, dts = DTS1} = Frame) ->
+  is_number(DTS1) orelse throw({need_number_dts,DTS1}),
+  is_number(StreamId) orelse throw({need_number_stream_id,StreamId}),
   DTS = round(DTS1),
   % By spec StreamId MUST be 0. But fuck the spec, we need this streamid
   Body = encode(Frame),
