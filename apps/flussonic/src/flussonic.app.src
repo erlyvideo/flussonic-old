@@ -1,7 +1,7 @@
 {application, flussonic,
  [
   {description, ""},
-  {vsn, "3.53"},
+  {vsn, "3.54"},
   {registered, []},
   {applications, [
                   kernel,
