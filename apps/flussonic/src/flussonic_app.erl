@@ -98,10 +98,10 @@ load_config() ->
 
   ProtoOpts = [{dispatch, Dispatch},{max_keepalive,4096}],
   
-  stop_http(http),
-  start_http(http, 100, 
-    cowboy_tcp_transport, [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
-    cowboy_http_protocol, ProtoOpts
+  stop_http(flu_http),
+  start_http(flu_http, 100, 
+    [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
+    ProtoOpts
   ),
 
   % (catch cowboy:stop_listener(http)),
@@ -138,16 +138,9 @@ load_config() ->
   ok.
 
 
-start_http(Ref, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts)
-    when is_integer(NbAcceptors) andalso is_atom(Transport)
-    andalso is_atom(Protocol) ->
-  supervisor:start_child(flu_http_sup, cowboy:child_spec(Ref, NbAcceptors,
-    Transport, TransOpts, Protocol, ProtoOpts)).
+start_http(Ref, NbAcceptors, TransOpts, ProtoOpts)
+    when is_integer(NbAcceptors) ->
+  cowboy:start_http(Ref, NbAcceptors, TransOpts, ProtoOpts).
 
 stop_http(Ref) ->
-  case supervisor:terminate_child(flu_http_sup, {cowboy_listener_sup, Ref}) of
-    ok ->
-      supervisor:delete_child(flu_http_sup, {cowboy_listener_sup, Ref});
-    {error, Reason} ->
-      {error, Reason}
-  end.
+  cowboy:stop_listener(Ref).

@@ -47,13 +47,13 @@ handle(Req, Opts) ->
     Reply -> Reply
   catch
     throw:{return, Code, Msg} ->
-      {ok, R1} = cowboy_http_req:reply(Code, [], [Msg, "\n"], Req),
+      {ok, R1} = cowboy_req:reply(Code, [], [Msg, "\n"], Req),
       {ok, R1, undefined};
     throw:{return,Code,Headers,Msg} ->
-      {ok, R1} = cowboy_http_req:reply(Code, Headers, [Msg, "\n"], Req),
+      {ok, R1} = cowboy_req:reply(Code, Headers, [Msg, "\n"], Req),
       {ok, R1, undefined};
     exit:Reason ->
-      {ok, R1} = cowboy_http_req:reply(500, [], ["Internal server error\n", io_lib:format("~p~n~p~n", [Reason, erlang:get_stacktrace()])], Req),
+      {ok, R1} = cowboy_req:reply(500, [], ["Internal server error\n", io_lib:format("~p~n~p~n", [Reason, erlang:get_stacktrace()])], Req),
       {ok, R1, undefined}
   end.
 
@@ -74,7 +74,7 @@ name_or_pi(_Opts, Acc) ->
   flu:join(lists:reverse(Acc), "/").
 
 lookup_name(Req, Opts) ->
-  {PathInfo, _} = cowboy_http_req:path_info(Req),
+  {PathInfo, _} = cowboy_req:path_info(Req),
   lookup_name(PathInfo, Opts, Req, []).
 
 no_cache() ->
@@ -116,7 +116,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       {match, [From, Duration]} = re:run(FromDurationSpec, "(\\d+)-(\\d+)", [{capture, all_but_first, binary}]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
-      {FileName, _Req1} = cowboy_http_req:qs_val(<<"file">>, Req),
+      {FileName, _Req1} = cowboy_req:qs_val(<<"file">>, Req),
       File = re:replace(FileName, "\\.\\.", "", [{return,binary}]),
       {{dvr_handler, save_mp4, [to_b(Root), to_i(From), to_i(Duration), File]}, [{<<"Content-Type">>, <<"text/plain">>}], name_or_pi(Opts, Acc)};
     [_Year, _Month, _Day, _Hour, _Minute, <<_Second:2/binary, "-", _Duration:4/binary, ".ts">>] ->
@@ -186,16 +186,16 @@ call_mfa({M,F,A}, ReplyHeaders, Name, Req) ->
     {done, R1} ->
       {ok, R1, undefined};
     {ok, Reply} ->
-      {ok, R1} = cowboy_http_req:reply(200, ReplyHeaders, Reply, Req),
+      {ok, R1} = cowboy_req:reply(200, ReplyHeaders, Reply, Req),
       {ok, R1, undefined};
     undefined ->
-      {ok, R1} = cowboy_http_req:reply(404, [], "No playlist found\n", Req),
+      {ok, R1} = cowboy_req:reply(404, [], "No playlist found\n", Req),
       {ok, R1, undefined};
     {error, Error} ->
-      {ok, R1} = cowboy_http_req:reply(500, [], iolist_to_binary(["Error: ", io_lib:format("~p~n", [Error]), "\n"]), Req),
+      {ok, R1} = cowboy_req:reply(500, [], iolist_to_binary(["Error: ", io_lib:format("~p~n", [Error]), "\n"]), Req),
       {ok, R1, undefined};
     {return, Code, Msg} ->
-      {ok, R1} = cowboy_http_req:reply(Code, [], iolist_to_binary([Msg, "\n"]), Req),
+      {ok, R1} = cowboy_req:reply(Code, [], iolist_to_binary([Msg, "\n"]), Req),
       {ok, R1, undefined}
   end.
 
@@ -222,13 +222,13 @@ update_cookie(Req) ->
   case erlang:erase(<<"session_cookie">>) of
     undefined -> Req;
     V ->
-      {ok, Req1} = cowboy_http_req:set_resp_cookie(<<"session">>, V, [{max_age, 10 * 60}], Req),
+      {ok, Req1} = cowboy_req:set_resp_cookie(<<"session">>, V, [{max_age, 10 * 60}], Req),
       Req1
   end.
 
 retrieve_token(Req0) ->
-  case cowboy_http_req:qs_val(<<"session">>, Req0, undefined) of
-    {undefined, Req1} -> cowboy_http_req:cookie(<<"session">>, Req1, undefined);
+  case cowboy_req:qs_val(<<"session">>, Req0, undefined) of
+    {undefined, Req1} -> cowboy_req:cookie(<<"session">>, Req1, undefined);
     V -> V
   end.
 
@@ -239,12 +239,12 @@ check_sessions(Req, Name, Opts) ->
   end.
 
 check_sessions0(URL, Name0, Req0, Type) ->
-  % case cowboy_http_req:qs_val(<<"session">>, Req0, undefined) of
+  % case cowboy_req:qs_val(<<"session">>, Req0, undefined) of
   case retrieve_token(Req0) of
     {undefined, _} -> throw({return, 403, "no_token_passed"}); % no token specified
     {Token, Req1} ->
       Ip = peer_addr(Req1),
-      {Referer, _} = cowboy_http_req:header('Referer', Req1),
+      {Referer, _} = cowboy_req:header('Referer', Req1),
       Identity = [{token,Token},{name,Name0},{ip,Ip}],
       Options = [{type,Type},{referer,Referer}],
       case flu_session:verify(URL, Identity, Options) of
@@ -257,7 +257,7 @@ check_sessions0(URL, Name0, Req0, Type) ->
 
 %% Temporary workaround for cowboy bug in 0.6
 peer_addr(Req1) ->
-  {ForwardedForRaw, _Req2} = cowboy_http_req:header('X-Forwarded-For', Req1),
+  {ForwardedForRaw, _Req2} = cowboy_req:header('X-Forwarded-For', Req1),
   ForwardedFor = case ForwardedForRaw of
     undefined ->
       undefined;
@@ -270,7 +270,7 @@ peer_addr(Req1) ->
   end,
   case ForwardedFor of
     undefined ->
-      {PeerAddr, _} = cowboy_http_req:peer_addr(Req1),
+      {PeerAddr, _} = cowboy_req:peer_addr(Req1),
       list_to_binary(inet_parse:ntoa(PeerAddr));
     _ ->
       ForwardedFor

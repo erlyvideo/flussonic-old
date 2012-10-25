@@ -27,7 +27,7 @@
 
 -behaviour(supervisor).
 
--export([init/1,start_link/0, start_rtmpt/2, start_rtmp_socket/1, start_rtmp_listener/4, stop_rtmp_listener/1]).
+-export([init/1,start_link/0, start_rtmp_socket/1]).
 -export([start_shared_object/2, start_rtmp_session/2]).
 
 %%--------------------------------------------------------------------
@@ -39,7 +39,6 @@
 start_link() ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_rtmpt(SessionID, IP) -> supervisor:start_child(rtmpt_session_sup, [SessionID, IP]).
 start_rtmp_socket(Type) -> supervisor:start_child(rtmp_socket_sup, [Type]).
 
 -spec start_rtmp_session(RTMPSocket::pid(), Callback::atom()) -> {'error',_} | {'ok',pid()}.
@@ -52,20 +51,6 @@ start_rtmp_session(RTMPSocket, Callback) ->
 start_shared_object(Name, Persistent) -> supervisor:start_child(shared_object_sup, [Name, Persistent]).
 
 
-start_rtmp_listener(Port, Name, Callback, Args) ->
-  Listener = {
-    Name,
-    {rtmp_listener, start_link ,[Port, Name, Callback, Args]},
-    permanent,
-    10000,
-    worker,
-    [rtmp_listener]
-  },
-  supervisor:start_child(?MODULE, Listener).
-
-stop_rtmp_listener(Name) ->
-  supervisor:terminate_child(?MODULE, Name),
-  supervisor:delete_child(?MODULE, Name).
 
 init([shared_object]) ->
   {ok,
@@ -112,31 +97,8 @@ init([rtmp_session]) ->
     }
   };
 
-init([rtmpt_session]) ->
-  {ok,
-    {{simple_one_for_one, 5, 60},
-      [
-        {   undefined,                               % Id       = internal id
-            {rtmpt,start_link,[]},             % StartFun = {M, F, A}
-            temporary,                               % Restart  = permanent | transient | temporary
-            2000,                                    % Shutdown = brutal_kill | int() >= 0 | infinity
-            worker,                                  % Type     = worker | supervisor
-            []                            % Modules  = [Module] | dynamic
-        }
-      ]
-    }
-  };
-
-
 init([]) ->
   Supervisors = [
-    {rtmpt_session_sup,
-      {supervisor,start_link,[{local, rtmpt_session_sup}, ?MODULE, [rtmpt_session]]},
-      permanent,                               % Restart  = permanent | transient | temporary
-      infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
-      supervisor,                              % Type     = worker | supervisor
-      []                                       % Modules  = [Module] | dynamic
-    },
     {rtmp_socket_sup,
       {supervisor,start_link,[{local, rtmp_socket_sup}, ?MODULE, [rtmp_socket]]},
       permanent,                               % Restart  = permanent | transient | temporary

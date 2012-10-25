@@ -48,7 +48,7 @@ read(URL, Options) ->
   
 
 handle(Req, _Env) ->
-  cowboy_http_req:reply(404, [], <<"404  not found\n">>, Req).
+  cowboy_req:reply(404, [], <<"404  not found\n">>, Req).
   
 handle(Req, _Env, _Path) ->
-  cowboy_http_req:reply(404, [], <<"404  not found\n">>, Req).
+  cowboy_req:reply(404, [], <<"404  not found\n">>, Req).

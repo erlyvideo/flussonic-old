@@ -3,7 +3,7 @@
 
 rpmbuild
 mkdir -p /root/rpmbuild/SPECS /root/rpmbuild/SOURCES
-cp /vagrant/flussonic.spec /root/rpmbuild/SPECS
+cp /vagrant/manifests/flussonic.spec /root/rpmbuild/SPECS
 cp /vagrant/flussonic-*.tgz /root/rpmbuild/SOURCES
 cd /root
 rpmbuild -bs rpmbuild/SPECS/flussonic.spec

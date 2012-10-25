@@ -26,35 +26,21 @@
 
 %% External API
 -export([start_link/4]).
--export([accept/2]).
+-export([init/4]).
 
 
 
-%%--------------------------------------------------------------------
-%% @spec (Port::any(), Name::atom(), Callback::atom()) -> {ok, Pid} | {error, Reason}
-%%
-%% @doc Called by a supervisor to start the listening process.
-%% @end
-%%----------------------------------------------------------------------
-start_link(Port, Name, Callback, Args) ->
-  rtmp_gen_listener:start_link(Name, Port, ?MODULE, [Callback|Args]).
-
-accept(CliSocket, Args) ->
-  % raw_accept(CliSocket, Args).
-  try raw_accept(CliSocket, Args) of
-    Reply -> Reply
-  catch
-    % _Class:{noproc, _} -> ok;
-    _Error:Reason -> error_logger:error_msg("Error in RTMP Listener: ~p~n~p~n", [Reason, erlang:get_stacktrace()])
-  end.  
-
-raw_accept(CliSocket, [Callback|Args]) ->
-  {ok, RTMP} = rtmp_sup:start_rtmp_socket(accept),
-  gen_tcp:controlling_process(CliSocket, RTMP),
-  {ok, Pid} = erlang:apply(Callback, create_client, [RTMP|Args]),
-  rtmp_socket:setopts(RTMP, [{consumer, Pid}]),
-  rtmp_socket:set_socket(RTMP, CliSocket),
-  ok.
+start_link(ListenerPid, Socket, _Transport, [Callback, Args]) ->
+  % {ok, RTMP} = rtmp_sup:start_rtmp_socket(accept),
+  RTMP = proc_lib:spawn_link(?MODULE, init, [ListenerPid, Socket, Callback, Args]),
+  {ok, RTMP}.
 
 
+init(ListenerPid, Socket, Callback, Args) ->
+  ranch:accept_ack(ListenerPid),
+  {ok, Pid} = erlang:apply(Callback, create_client, [self()|Args]),
+  {ok, StateName, StateData1, Timeout} = rtmp_socket:init([accept]),
+  StateData2 = rtmp_socket:set_options(StateData1, [{consumer, Pid}]),
 
+  rtmp_socket:set_socket(self(), Socket),
+  gen_fsm:enter_loop(rtmp_socket, [], StateName, StateData2, Timeout).

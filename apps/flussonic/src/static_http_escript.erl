@@ -15,14 +15,14 @@ terminate(_, _) ->
 handle(Req, Opts) ->
   Path = case proplists:get_value(file, Opts) of
     undefined ->
-      {PathInfo, _} = cowboy_http_req:path_info(Req),
+      {PathInfo, _} = cowboy_req:path_info(Req),
       filename:join(PathInfo);
     File ->
       File
   end,
   {ok, Req2} = case static_file:send_internal(Req, [{path,Path}]) of
     unhandled ->
-      {ok, _Req2} = cowboy_http_req:reply(404, [], "404 Not found\n", Req);
+      {ok, _Req2} = cowboy_req:reply(404, [], "404 Not found\n", Req);
     {ok, Req2_} ->
       {ok, Req2_}
   end,

@@ -135,13 +135,6 @@ init([]) ->
       supervisor,                              % Type     = worker | supervisor
       []                                       % Modules  = [Module] | dynamic
   },
-  {   flu_http_sup,
-      {supervisor, start_link, [{local, flu_http_sup}, ?MODULE, [flu_http]]},
-      permanent,
-      infinity,
-      supervisor,
-      []
-  },
   {   static_stream_watcher_sup,
       {static_stream_watcher, start_link, []},
       permanent,

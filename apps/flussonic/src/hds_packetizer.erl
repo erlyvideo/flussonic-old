@@ -1,7 +1,7 @@
 -module(hds_packetizer).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--define(FRAGMENTS_COUNT, 20).
+-define(FRAGMENTS_COUNT, 3).
 -define(SEGMENT_START,1).
 -define(FRAGMENT_START,1).
 

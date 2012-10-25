@@ -29,7 +29,6 @@
 -export([write_loop/4]).
 
 
--include_lib("cowboy/include/http.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -43,9 +42,9 @@
 }).
 
 init({_Any,http}, Req, Opts) ->
-  {PathInfo, Req1} = cowboy_http_req:path_info(Req),
+  {PathInfo, Req1} = cowboy_req:path_info(Req),
   Name = flu:join(PathInfo, "/"),
-  {Method, Req2} = cowboy_http_req:method(Req1),
+  {Method, Req2} = cowboy_req:method(Req1),
   {ok, Req2, #mpegts{name = Name, method = Method, options = Opts}}.
 
 handle(Req, State) ->
@@ -53,14 +52,14 @@ handle(Req, State) ->
     Reply -> Reply
   catch
     throw:{return,Code,Text} ->
-      {ok, R1} = cowboy_http_req:reply(Code, [], Text, Req),
+      {ok, R1} = cowboy_req:reply(Code, [], Text, Req),
       {ok, R1, undefined}
   end.
 
 
-handle0(Req, #mpegts{name = RawName, options = Options, method = 'GET'} = State) ->
-  Socket = Req#http_req.socket,
-  Transport = Req#http_req.transport,
+handle0(Req, #mpegts{name = RawName, options = Options, method = <<"GET">>} = State) ->
+  Socket = cowboy_req:get(socket,Req),
+  Transport = cowboy_req:get(transport,Req),
   
   Name = media_handler:check_sessions(Req, RawName, Options),
 
@@ -85,9 +84,9 @@ handle0(Req, #mpegts{name = RawName, options = Options, method = 'GET'} = State)
   ?D({mpegts_play,Name,stop}),
   {ok, Req, State};
 
-handle0(Req, #mpegts{name = StreamName, options = Options, method = 'PUT'} = State) ->
-  Socket = Req#http_req.socket,
-  Transport = Req#http_req.transport,
+handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"PUT">>} = State) ->
+  Socket = cowboy_http:get(socket,Req),
+  Transport = cowboy_http:get(transport,Req),
   
   ?D({mpegts_input,StreamName}),
   

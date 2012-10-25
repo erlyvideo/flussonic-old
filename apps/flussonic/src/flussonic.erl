@@ -70,6 +70,8 @@ start(_Options) ->
   lager:start(),
   license_client:load(),
 	application:start(sasl),
+  start_app(crypto),
+  start_app(ranch),
 	start_app(mimetypes),
   start_app(cowboy),
 	start_app(rtmp),

@@ -160,7 +160,7 @@ parse_routes([{file, Prefix, Root,Options}|Env]) ->
 parse_routes([{root, Root}|Env]) ->
   Module = case is_escriptized(Root) of
     true -> static_http_escript;
-    false -> cowboy_http_static
+    false -> cowboy_static
   end,
   [
   {[], Module, [
@@ -192,8 +192,7 @@ parse_routes([_Else|Env]) ->
 
 
 tokens(String) ->
-  {Tokens, _, _} = cowboy_dispatcher:split_path(String, fun(Bin) -> cowboy_http:urldecode(Bin, crash) end),
-  Tokens.
+  [cowboy_http:urldecode(Bin, crash) || Bin <- binary:split(String, <<"/">>, [global])].
 
 
 
@@ -208,58 +207,6 @@ is_escriptized(Root) ->
       false
   end.
 
-
-
-expand_entry_test_() ->
-  [?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,false}]}]},
-      parse_config([{rewrite, "stream1", "fake://stream1"}], undefined)),
-  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{dvr,"root"},{static,false}]}]},
-      parse_config([{rewrite, "stream1", "fake://stream1", [{dvr,"root"}]}], undefined)),
-
-  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,true}]}]},
-      parse_config([{stream, "stream1", "fake://stream1"}], undefined)),
-  ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{dvr,"root"},{static,true}]}]},
-      parse_config([{stream, "stream1", "fake://stream1", [{dvr,"root"}]}], undefined)),
-
-  ?_assertEqual({ok, [{mpegts, <<"stream">>, []}]},
-      parse_config([{mpegts, "stream"}], undefined)),
-  ?_assertEqual({ok, [{mpegts, <<"stream">>, [{sessions, "http://host"}]}]},
-      parse_config([{mpegts, "stream", [{sessions, "http://host"}]}], undefined)),
-
-  ?_assertEqual({ok, [{live, <<"live">>, []}]},
-      parse_config([{live, "live"}], undefined)),
-  ?_assertEqual({ok, [{live, <<"live">>, [{sessions, "http://host"}]}]},
-      parse_config([{live, "live", [{sessions, "http://host"}]}], undefined)),
-
-  ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, []}]}, 
-      parse_config([{file, "vod", "/movies"}], undefined)),
-  ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, [{sessions, "http://ya.ru/"}]}]}, 
-      parse_config([{file, "vod", "/movies", [{sessions, "http://ya.ru/"}]}], undefined)),
-
-  ?_assertEqual({ok, [{api, []}]}, 
-    parse_config([api], undefined)),
-  ?_assertEqual({ok, [{api, [{pass,"admin","passw"}]}]}, 
-    parse_config([{api,[{pass,"admin","passw"}]}], undefined))
-
-  ].
-
-global_sessions_test_() ->
-  [?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{sessions,"http://ya.ru"},{static,true}]},{sessions,"http://ya.ru"}]},
-      parse_config([{stream, "stream1", "fake://stream1"},{sessions, "http://ya.ru"}], undefined)),
-  ?_assertEqual({ok, [{live, <<"live">>, [{sessions, "http://ya.ru"}]}, {sessions,"http://ya.ru"}]},
-      parse_config([{live, "live"}, {sessions, "http://ya.ru"}], undefined)),
-  ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, [{sessions, "http://ya.ru/"}]}, {sessions,"http://ya.ru/"}]}, 
-      parse_config([{file, "vod", "/movies"}, {sessions, "http://ya.ru/"}], undefined))
-  ].
-
-
-parse_route_test_() ->
-  [
-    ?_assertMatch([{[<<"live">>,<<"injest">>, '...'], media_handler, _}], 
-      parse_routes([{live, <<"live/injest">>, []}])),
-    ?_assertMatch([{[<<"vod">>,<<"mp4">>,'...'], media_handler, [{module,flu_file},{root,<<"/movies">>}]}],
-      parse_routes([{file, <<"vod/mp4">>, <<"/movies">>, []}]))
-  ].
 
 
 
