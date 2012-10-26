@@ -29,7 +29,7 @@
 -behaviour(supervisor).
 
 -export ([init/1,start_link/0]).
--export([start_rtsp_listener/3, start_rtsp_socket/1]).
+-export([start_rtsp_socket/1]).
 
 %%--------------------------------------------------------------------
 %% @spec () -> any()
@@ -46,21 +46,12 @@ start_rtsp_socket(Callback) ->
 
 %% {ok, Pid} = rtsp_sup:start_rtsp_media("rtsp://212.90.177.134:41554/axis-media/media.amp", rtsp, [{host,default},{name,<<"camera">>}]).
 
-start_rtsp_listener(Port, Name, Callback) ->
-  Listener = {Name,
-  {rtsp_listener, start_link ,[Port, Name, Callback]},
-  permanent,
-  10000,
-  worker,
-  [rtsp_listener]},
-  supervisor:start_child(?MODULE, Listener).
-
 init([rtsp_socket]) ->
   {ok,
     {{simple_one_for_one, 5, 60},
       [
         {undefined,                               % Id       = internal id
-          {rtsp_socket,start_link,[]},             % StartFun = {M, F, A}
+          {old_rtsp_socket,start_link,[]},             % StartFun = {M, F, A}
           temporary,                               % Restart  = permanent | transient | temporary
           2000,                                    % Shutdown = brutal_kill | int() >= 0 | infinity
           worker,                                  % Type     = worker | supervisor

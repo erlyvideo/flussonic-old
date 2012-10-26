@@ -13,6 +13,8 @@
 
 -export([to_hex/1, digest_auth/5]).
 
+-export([collect_headers/1, collect_body/2, collect_headers_and_body/1]).
+
 -define(RTCP_SR, 200).
 -define(RTCP_RR, 201).
 -define(RTCP_SD, 202).
@@ -139,7 +141,7 @@ handle_info({request, Ref, Request, RequestHeaders}, #rtsp{socket = Socket, cons
   {noreply, RTSP2};
 
 handle_info(keepalive, #rtsp{socket = Socket, dump = Dump} = RTSP) ->
-  {RTSP2, _, _, _} = call_with_authenticate(RTSP#rtsp{dump = true}, 'GET_PARAMETER', []),
+  {RTSP2, _, _, _} = call_with_authenticate(RTSP#rtsp{dump = false}, 'GET_PARAMETER', []),
   inet:setopts(Socket, [{active,once},{packet,raw}]),
   erlang:send_after(?KEEPALIVE, self(), keepalive),
   {noreply, RTSP2#rtsp{dump = Dump}};
@@ -286,30 +288,46 @@ read_response_code(#rtsp{socket = Socket, url = URL} = RTSP) ->
 
 recv(#rtsp{socket = Socket, dump = NeedToDump, url = URL} = RTSP) ->
   {Code, Dump1, RTSP1} = read_response_code(RTSP),
-  inet:setopts(Socket, [{packet, httph_bin}]),
-  {Headers, Dump2} = collect_headers(Socket, [], []),
-  inet:setopts(Socket, [{packet, raw}]),
+  {Headers, Dump2} = collect_headers(Socket),
   if NeedToDump ->
   io:format(">>>>>> RTSP IN (~p:~p) >>>>>~n~s~s~n", [?MODULE, ?LINE, Dump1, Dump2]);
   true -> ok end,
   is_list(Headers) orelse throw({stop, {error, {headers, Headers, URL}}, RTSP1}),
-  Body = case proplists:get_value('Content-Length', Headers) of
-    undefined -> undefined;
-    ContentLength_ ->
-      ContentLength = list_to_integer(binary_to_list(ContentLength_)),
-      case gen_tcp:recv(Socket, ContentLength, 10000) of
-        {ok, Bin} ->
-          if NeedToDump -> io:format("~s~n", [Bin]); true -> ok end,
-          Bin;
-        {error, Err} -> throw({stop, {error, {read_body, ContentLength, Err, URL}}, RTSP1})
-      end
+  Body = try collect_body(Socket, Headers)
+  catch
+    throw:{error, Error} -> throw({stop, {error, Error, URL}, RTSP1})
   end,
+  if NeedToDump andalso is_binary(Body) -> io:format("~s~n", [Body]); true -> ok end,
+
   RTSP2 = case proplists:get_value(<<"Session">>, Headers) of
     undefined -> RTSP1;
     SessToken -> RTSP1#rtsp{session = hd(binary:split(SessToken, <<";">>))}
   end,
   {RTSP2, Code, Headers, Body}.
 
+
+collect_headers_and_body(Socket) ->
+  {Headers, Dump} = collect_headers(Socket),
+  Body = collect_body(Socket, Headers),
+  {Headers, Body, Dump}.
+
+
+collect_body(Socket, Headers) ->
+  inet:setopts(Socket, [{packet, raw}]),
+  Body = case proplists:get_value('Content-Length', Headers) of
+    undefined -> undefined;
+    ContentLength_ ->
+      ContentLength = list_to_integer(binary_to_list(ContentLength_)),
+      case gen_tcp:recv(Socket, ContentLength, 10000) of
+        {ok, Bin} -> Bin;
+        {error, Err} -> throw({error, {read_body, ContentLength, Err}})
+      end
+  end,
+  Body.
+
+collect_headers(Socket) ->
+  inet:setopts(Socket, [{packet, httph_bin}]),
+  collect_headers(Socket, [], []).
 
 collect_headers(Socket, Acc, Dump) ->
   case gen_tcp:recv(Socket, 0, 10000) of

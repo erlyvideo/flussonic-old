@@ -223,7 +223,7 @@ to_fmtp(#aac_config{} = Config) ->
 
 to_fmtp(Config) when is_binary(Config) ->
   Encoded = [io_lib:format("~2.16.0B", [N]) || N <- binary_to_list(Config)],
-  lists:flatten(["profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3;config=", Encoded]).
+  lists:flatten(["profile-level-id=16;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3;constantDuration=1024;config=", Encoded]).
   
 
 -ifdef(TEST).

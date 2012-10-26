@@ -57,7 +57,8 @@ to_fmtp(h264, Config) -> h264:to_fmtp(Config);
 to_fmtp(aac, Config) -> aac:to_fmtp(Config);
 to_fmtp(_, _) -> undefined.
 
-encode(#stream_info{content = Content, codec = Codec, track_id = Id, options = Options, config = Config, timescale = Timescale, params = Params} = Stream) ->
+encode(#stream_info{content = Content, codec = Codec, track_id = Id, options = Options, config = Config, timescale = Timescale, params = Params} = Stream) 
+  when Content == video orelse Content == audio ->
   FMTP = case to_fmtp(Codec, Config) of
     undefined -> "";
     Else -> io_lib:format("a=fmtp:~p ~s\r\n", [payload_type(Codec), Else])
@@ -81,6 +82,8 @@ encode(#stream_info{content = Content, codec = Codec, track_id = Id, options = O
   ],
   iolist_to_binary(SDP);
 
+encode(#stream_info{}) -> <<>>;
+
 encode(#media_info{streams = Streams, options = Options} = MediaInfo) ->
   iolist_to_binary([
     encode_sdp_session(proplists:get_value(sdp_session, Options)),
@@ -91,6 +94,23 @@ encode(#media_info{streams = Streams, options = Options} = MediaInfo) ->
 
 net(inet6) -> "IN IP6";
 net(_) -> "IN IP4".
+
+encode_sdp_session(undefined) ->
+  {Mega, Sec, Micro} = os:timestamp(),
+  Now = integer_to_list((Mega*1000000+Sec)*1000000 + Micro),
+  encode_sdp_session(#sdp_session{
+    version = 0,
+    name = "Media Presentation",
+    connect = {inet4, "0.0.0.0"},
+    originator = #sdp_o{
+      username = "-",
+      sessionid = Now,
+      version = Now,
+      netaddrtype = inet4,
+      address = "127.0.0.1"
+    },
+    attrs = [{"control", "*"},{"range", "npt=0.000000-"}]
+  });
 
 encode_sdp_session(#sdp_session{
   name = SessName,

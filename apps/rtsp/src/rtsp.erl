@@ -78,7 +78,7 @@ behaviour_info(_Other) -> undefined.
 
 
 start_server(Port, Name, Callback) ->
-  rtsp_sup:start_rtsp_listener(Port, Name, Callback).
+  ranch:start_listener(Name, 10, ranch_tcp, [{port, Port}], rtsp_listener, [Callback, []]).
 
 
 

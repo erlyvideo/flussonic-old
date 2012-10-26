@@ -33,7 +33,7 @@
 
 read(Stream, URL, Options) ->
   {ok, Proxy} = flussonic_sup:start_stream_helper(Stream, publish_proxy, {flu_publish_proxy, start_link, [undefined, self()]}),
-  {ok, RTSP, #media_info{streams = Streams} = MediaInfo} = rtsp_socket:read(URL, [{consumer,Proxy}|Options]),
+  {ok, RTSP, #media_info{streams = Streams} = MediaInfo} = old_rtsp_socket:read(URL, [{consumer,Proxy}|Options]),
   Proxy ! {set_source, RTSP},
   Streams1 = [Info#stream_info{track_id = TrackId + 199} || #stream_info{track_id = TrackId} = Info <- Streams],
   {ok, RTSP, MediaInfo#media_info{streams = Streams1}}.
@@ -111,21 +111,46 @@ record(URL, _Headers, _Body) ->
   ?D({record, URL}),
   ok.
 
-describe(URL, Headers, _Body) ->
-  {Host, Path} = hostpath(URL),
-  {Module, Function} = ems:check_app(Host, auth, 3),
-  case Module:Function(Host, rtsp, proplists:get_value('Authorization', Headers)) of
+media_info(Stream) ->
+  media_info(Stream, 10).
+
+media_info(Stream, 0) ->
+  throw({empty_stream,Stream});
+
+media_info(Stream, Count) ->
+  case flu_stream:media_info(Stream) of
     undefined ->
-      {error, authentication};
-    _Session ->
-      {ok, Media} = media_provider:open(Host, Path),
-      {ok, Media}
+      timer:sleep(200),
+      media_info(Stream, Count - 1);
+    MediaInfo ->
+      MediaInfo
   end.
 
-play(URL, _Headers, _Body) ->
-  {Host, Path} = hostpath(URL),
+
+describe(URL, Headers, _Body) ->
+  {rtsp, _, _Host, _Port, "/"++Path, _} = http_uri2:parse(URL),
+  Stream = list_to_binary(Path),
+  MediaInfo = media_info(Stream),
+  {ok, MediaInfo}.
+  % {Host, Path} = hostpath(URL),
   % {Module, Function} = ems:check_app(Host, auth, 3),
-  ems_log:access(Host, "RTSP PLAY ~s ~s", [Host, Path]),
-  {ok, Media} = media_provider:play(Host, Path, [{stream_id,1}, {client_buffer,50}, {burst_size, 1}]),
-  ems_network_lag_monitor:watch(self()),
+  % case Module:Function(Host, rtsp, proplists:get_value('Authorization', Headers)) of
+  %   undefined ->
+  %     {error, authentication};
+  %   _Session ->
+  %     {ok, Media} = media_provider:open(Host, Path),
+  %     {ok, Media}
+  % end.
+
+play(URL, _Headers, _Body) ->
+  {rtsp, _, _Host, _Port, "/"++Path, _} = http_uri2:parse(URL),
+  % {Host, Path} = hostpath(URL),
+  % {Module, Function} = ems:check_app(Host, auth, 3),
+  % ems_log:access(Host, "RTSP PLAY ~s ~s", [Host, Path]),
+  % {ok, Media} = media_provider:play(Host, Path, [{stream_id,1}, {client_buffer,50}, {burst_size, 1}]),
+  % ems_network_lag_monitor:watch(self()),
+  Name = list_to_binary(Path),
+  ?DBG("subscribing to ~s", [Name]),
+  flu_stream:subscribe(Name),
+  {ok, Media} = flu_stream:autostart(Name),
   {ok, Media}.

@@ -124,6 +124,7 @@ define_media_info(#media_info{} = Media, #video_frame{codec = mp3, body = Body, 
   Info = Audio#stream_info{
     codec = mp3,
     config = Config,
+    timescale = SampleRate/1000,
     params = #audio_params{channels = Channels, sample_rate = SampleRate, config = Config, samples = Samples}
   },
   update_stream(Info, Media);
@@ -134,6 +135,7 @@ define_media_info(#media_info{} = Media, #video_frame{codec = aac, flavor = conf
   Info = Audio#stream_info{
     codec = aac,
     config = Body,
+    timescale = Rate/1000,
     params = #audio_params{channels = Channels, sample_rate = Rate, config = Config, samples = Samples}
   },
   update_stream(Info, Media);
@@ -148,6 +150,7 @@ define_media_info(#media_info{} = Media, #video_frame{codec = h264, flavor = con
   Info = Video#stream_info{
     codec = h264,
     config = Body,
+    timescale = 90.0,
     params = #video_params{
       length_size = LengthSize,
       nals = CfgNALS,

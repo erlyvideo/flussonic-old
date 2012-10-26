@@ -27,20 +27,18 @@
 -include("log.hrl").
 
 %% External API
--export([start_link/3, accept/2]).
-
-%%--------------------------------------------------------------------
-%% @spec (Port::any(), Name::atom(), Callback::atom()) -> {ok, Pid} | {error, Reason}
-%%
-%% @doc Called by a supervisor to start the listening process.
-%% @end
-%%----------------------------------------------------------------------
-start_link(Port, Name, Callback) ->
-  rtsp_gen_listener:start_link(Name, Port, ?MODULE, [Callback]).
+-export([start_link/4, init/4]).
 
 
-accept(CliSocket, [Callback]) ->
-  {ok, Pid} = rtsp_sup:start_rtsp_socket([{callback,Callback}]),
-  rtsp_socket:set_socket(Pid, CliSocket),
+start_link(ListenerPid, Socket, _Transport, [Callback, Args]) ->
+  RTSP = proc_lib:spawn_link(?MODULE, init, [ListenerPid, Socket, Callback, Args]),
+  {ok, RTSP}.
+
+init(ListenerPid, Socket, Callback, Args) ->
+  ranch:accept_ack(ListenerPid),
+  {ok, State, Timeout} = rtsp_socket:init([Socket, Callback, Args]),
+  gen_server:enter_loop(rtsp_socket, [], State, Timeout),
+  ?D({loop_not_entered,Socket, Callback}),
   ok.
+
 

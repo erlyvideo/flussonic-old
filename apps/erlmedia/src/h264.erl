@@ -438,7 +438,7 @@ exp_golomb_read(<<1:1, Data/bitstring>>, LeadingZeros) ->
 
 
 
-fua_split(NAL, Size) when size(NAL) =< Size -> NAL;
+fua_split(NAL, Size) when size(NAL) =< Size -> [NAL];
 
 fua_split(<<0:1, NRI:2, Type:5, _/binary>> = NAL, Size) -> fua_split(NAL, Size, NRI, Type, []).
 
