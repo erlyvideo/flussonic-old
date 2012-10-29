@@ -33,7 +33,6 @@
 -include("../include/media_info.hrl").
 -include("../include/h264.hrl").
 -include("log.hrl").
--define(DBG(X,A), ok).
 
 
 -define(LSEP, <<$\r,$\n>>).
@@ -100,7 +99,7 @@ encode_sdp_session(undefined) ->
   Now = integer_to_list((Mega*1000000+Sec)*1000000 + Micro),
   encode_sdp_session(#sdp_session{
     version = 0,
-    name = "Media Presentation",
+    name = "Erlyvideo",
     connect = {inet4, "0.0.0.0"},
     originator = #sdp_o{
       username = "-",
@@ -109,8 +108,13 @@ encode_sdp_session(undefined) ->
       netaddrtype = inet4,
       address = "127.0.0.1"
     },
-    attrs = [{"control", "*"},{"range", "npt=0.000000-"}]
+    attrs = [{"control", "*"},{"range", "npt=0.000000-"},{"tool", "Erlyvideo http://erlyvideo.org/"},
+    {"x-qt-text-nam", "Erlyvideo streaming"},{"x-qt-text-inf", "h264"},{"type","broadcast"}]
   });
+
+
+encode_sdp_session(#sdp_session{connect = undefined} = SdpSess) ->
+  encode_sdp_session(SdpSess#sdp_session{connect = {inet4, "0.0.0.0"}});
 
 encode_sdp_session(#sdp_session{
   name = SessName,
@@ -129,7 +133,11 @@ encode_sdp_session(#sdp_session{
     io_lib:format("c=~s ~s", [net(ConnectNet), ConnectAddr]), ?LSEP,
     "t=0 0", ?LSEP,
     encode_attrs(Attrs)
-  ].
+  ];
+
+encode_sdp_session(Else) ->
+  ?DBG("Strange opts: ~240p", [Else]),
+  throw(stop).
 
 
 encode_attrs(Attrs) ->

@@ -69,26 +69,34 @@ cache_adts(#aac_config{type = ObjectType, sample_rate = Frequency, channels = Ch
   {more, undefined} | {error, Body::binary()}.
 unpack_adts(<<16#FFF:12, _ID:1, _Layer:2, 1:1, _Profile:2, _SampleRate:4,
          _Private:1, _Channels:3, _Original:1, _Home:1, _Copyright:1, _CopyrightStart:1,
-         FrameLength:13, _ADTS:11, _Count:2, Data/binary>>) when size(Data) >= FrameLength - 7 ->
-  {Frame, Rest} = split_binary(Data, FrameLength - 7),
-  % ?D({noerr, _ID, _Layer, _Profile, frequency(SampleRate), _Private, channels(Channels), _Original, _Home, _Copyright, _CopyrightStart, FrameLength, _Count}),
-  {ok, Frame, Rest};
+         FrameLength:13, _ADTS:11, _Count:2, Data/binary>>) ->
+  DataSize = FrameLength - 7,
+  case Data of
+    <<Frame:DataSize/binary, Rest/binary>> ->
+      {ok, Frame, Rest};
+    _ ->
+      {more, DataSize - size(Data)}
+  end;
 
 unpack_adts(<<16#FFF:12, _ID:1, _Layer:2, 0:1, _Profile:2, _SampleRate:4,
            _Private:1, _Channels:3, _Original:1, _Home:1, _Copyright:1, _CopyrightStart:1,
-           FrameLength:13, _ADTS:11, _Count:2, _CRC32:16, Data/binary>>) when size(Data) >= FrameLength - 9 ->
-  {Frame, Rest} = split_binary(Data, FrameLength - 9),
-  % ?D({err, _ID, _Layer, _Profile, frequency(SampleRate), _Private, channels(Channels), _Original, _Home, _Copyright, _CopyrightStart, FrameLength, _Count}),
-  {ok, Frame, Rest};
+           FrameLength:13, _ADTS:11, _Count:2, _CRC32:16, Data/binary>>) ->
+  DataSize = FrameLength - 9,
+  case Data of
+    <<Frame:DataSize/binary, Rest/binary>> ->
+      {ok, Frame, Rest};
+    _ ->
+      {more, DataSize - size(Data)}
+  end;
 
-unpack_adts(<<16#FFF:12, _:4, _Rest/binary>>) ->
-  {more, undefined};
+unpack_adts(<<16#FFF:12, _:4, _Rest/binary>> = ADTS) when size(ADTS) < 9 ->
+  {more, 9 - size(ADTS)};
 
 unpack_adts(<<16#FF>>) ->
-  {more, undefined};
+  {more, 8};
   
 unpack_adts(<<>>) ->
-  {more, undefined};
+  {more, 9};
   
 unpack_adts(Body) ->
   {error, Body}.
@@ -223,7 +231,7 @@ to_fmtp(#aac_config{} = Config) ->
 
 to_fmtp(Config) when is_binary(Config) ->
   Encoded = [io_lib:format("~2.16.0B", [N]) || N <- binary_to_list(Config)],
-  lists:flatten(["profile-level-id=16;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3;constantDuration=1024;config=", Encoded]).
+  lists:flatten(["profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3;config=", Encoded]).
   
 
 -ifdef(TEST).

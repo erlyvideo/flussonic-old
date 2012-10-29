@@ -50,10 +50,6 @@ read2(Stream, URL, Options) ->
     exit:{normal,_} -> undefined
   end.
 
-hostpath(URL) ->
-  {HostPort, Path} = http_uri2:extract_path_with_query(URL),
-  {ems:host(HostPort), string:strip(Path,both,$/)}.
-
 
 announce(URL, Headers, MediaInfo) ->
   try announce0(URL, Headers, MediaInfo) of
@@ -127,7 +123,7 @@ media_info(Stream, Count) ->
   end.
 
 
-describe(URL, Headers, _Body) ->
+describe(URL, _Headers, _Body) ->
   {rtsp, _, _Host, _Port, "/"++Path, _} = http_uri2:parse(URL),
   Stream = list_to_binary(Path),
   MediaInfo = media_info(Stream),

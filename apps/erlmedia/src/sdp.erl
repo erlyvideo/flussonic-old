@@ -41,7 +41,6 @@
 -include("../include/h264.hrl").
 -include("../include/aac.hrl").
 -include("log.hrl").
--define(DBG(X,A), ok).
 
 %%----------------------------------------------------------------------
 %% @spec (Data::binary()) -> [media_desc()]

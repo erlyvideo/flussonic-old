@@ -4,42 +4,17 @@
 -include("../include/mpegts_psi.hrl").
 -include_lib("erlmedia/include/aac.hrl").
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 
--export([read_file/1, decode_file/1, decode_stream/2]).
+-export([read_file/1, decode_file/1]).
 
 
 
 % -define(DD(Fmt,X), io:format("ts_reader:~p "++Fmt++"~n", [?LINE|X])).
--define(DD(Fmt,X), ok).
+-define(DD(Fmt,X), ?debugFmt(Fmt, X)).
+% -define(DD(Fmt,X), ok).
 
-
--record(decoder, {
-  pmt_pid,
-  saved_frames = [],
-  stream_map = [],
-  stream1,
-  stream2,
-  stream3,
-  stream4,
-  stream5,
-  stream6,
-  stream7,
-  stream8
-}).
-
--define(STREAM_COUNT, 8).
-
--record(stream, {
-  pid,
-  dts,
-  pts,
-  codec,
-  specific,
-  length,
-  ts_buffer = [],
-  es_buffer = <<>>
-}).
 
 -define(PAT_PID, 0).
 
@@ -51,30 +26,35 @@ read_file(Path) ->
 
 -spec decode_file(binary()) -> {ok, [any()]}.
 
-decode_file(Bin) when is_binary(Bin) ->
-  {ok, Frames1, Decoder1, _} = decode(Bin, #decoder{}),
-  {ok, Frames2} = decode(eof, Decoder1),
-  Frames = case Frames2 of [] -> Frames1; _ -> Frames1 ++ Frames2 end,
-  {ok, video_frame:sort(Frames)}.
+
+
+decode_file(<<16#47,_:187/binary,16#47,_:187/binary,16#47,_/binary>> = Bin) ->
+  {pat, [{PMT,_}]} = find_pat(Bin),
+  {pmt, Streams} = find_pmt(Bin, PMT),
+
+  Frames1 = lists:foldl(fun({Pid,Codec}, Acc) when Codec == h264 orelse Codec == aac ->
+    TSPackets1 = select_pid(Bin, Pid),
+    TSPackets2 = rewind_to_begin(TSPackets1),
+    PESPackets = collect_pes_packets(TSPackets2),
+    case Codec of
+      h264 -> unpack_pes_h264(PESPackets, Pid);
+      aac  -> unpack_pes_aac(PESPackets, Pid)
+    end ++ Acc;
+  (_, Acc) ->
+    Acc
+  end, [], Streams),
+
+  Frames2 = video_frame:sort(Frames1),
+
+
+  % [?debugFmt("~4s ~8s ~B ~B", [Codec, Flavor, round(DTS), size(Body)]) || 
+  %   #video_frame{codec = Codec, flavor = Flavor, dts = DTS, body = Body} <-
+  %   video_frame:sort(Frames2)],
+
+  {ok, Frames2}.
 
 
 
--spec decode_stream(binary(), undefined | any()) -> {ok, [any()], any(), binary()}.
-decode_stream(Bin, undefined) ->
-  decode_stream(Bin, #decoder{});
-
-decode_stream(Bin, #decoder{saved_frames = Saved} = Decoder) ->
-  {ok, Frames, Decoder1, Rest} = decode(Bin, Decoder),
-  if length(Frames) + length(Saved) < 15 ->
-    {ok, [], Decoder, Bin};
-  true ->
-    {Send, Save} = video_frame:sort(Frames ++ Saved),
-    {ok, Send, Decoder1#decoder{saved_frames = Save}, Rest}
-  end.
-
-
-decode(Bin, #decoder{} = Decoder) ->
-  decode(Bin, Decoder, []).
 
 
 %% TS header
@@ -109,132 +89,63 @@ ts_payload(<<16#47, _:18, 0:1, 0:1, _:4, _:184/binary, _/binary>>)  ->
 
 
 
+find_pat(<<16#47, _:3, ?PAT_PID:13, _/binary>> = Packet) ->
+  {pat, _} = PAT = mpegts_psi:psi(ts_payload(Packet)),
+  PAT;
+find_pat(<<16#47, _:187/binary, Rest/binary>>) -> find_pat(Rest);
+find_pat(<<>>) -> error(no_pat_found_in_mpegts).
 
 
-decode(<<16#47, _:3, ?PAT_PID:13, _:185/binary, Rest/binary>> = Packet, #decoder{} = Decoder, Acc) ->
-  {pat, [{PMT,_}]} = mpegts_psi:psi(ts_payload(Packet)),
-  % io:format("pid 0: PAT with pmt on pid ~p~n", [PMT]),
-  decode(Rest, Decoder#decoder{pmt_pid = PMT}, Acc);
 
-decode(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>> = Packet, #decoder{pmt_pid = PMT} = Decoder, Acc) ->
+find_pmt(<<16#47, _:3, PMT:13, _/binary>> = Packet, PMT) ->
   {pmt, Descriptors} = mpegts_psi:psi(ts_payload(Packet)),
   % io:format("pid ~B: PMT with streams: ", [PMT]),
   % [io:format("~s on ~B; ", [Codec, Pid]) || #pmt_entry{codec = Codec, pid = Pid} <- Descriptors],
   % io:format("~n"),
-  Decoder1 = lists:foldl(fun(#pmt_entry{codec = Codec, pid = Pid}, #decoder{stream_map = Streams_} = Decoder_) ->
-    case proplists:get_value(Pid, Streams_) of
-      undefined when Streams_ == [] ->
-        Decoder_#decoder{stream_map = [{Pid,1}], stream1 = #stream{pid = Pid, codec = Codec}};
-      undefined ->
-        Num = lists:max([N || {_Pid,N} <- Streams_]) + 1,
-        setelement(#decoder.stream_map + Num, Decoder_#decoder{stream_map = [{Pid,Num}|Streams_]},#stream{pid = Pid, codec = Codec});
-      _ -> 
-        Decoder_
-    end
-  end, Decoder, Descriptors),
-  ?DD("Stream mapping: ~p", [Decoder1#decoder.stream_map]),
-  decode(Rest, Decoder1, Acc);
+  {pmt, [{Pid,Codec} || #pmt_entry{pid = Pid, codec = Codec} <- Descriptors]};
 
-decode(<<16#47, _:1, 1:1, _:1, Pid:13, _:185/binary, Rest/binary>> = Packet, #decoder{stream_map = Streams} = Decoder, Acc) ->
-  
-  case proplists:get_value(Pid, Streams) of
-    undefined ->
-      decode(Rest, Decoder, Acc);
-    Num ->
-      Stream = element(#decoder.stream_map + Num, Decoder),
-      {ok, Reply, Stream1} = flush(Stream),
-      {ok, [], Stream2} = decode_pes(ts_payload(Packet), Stream1),
-      Acc1 = case Reply of
-        [] -> Acc;
-        _ -> Acc ++ Reply
-      end,
-      decode(Rest, setelement(#decoder.stream_map+Num, Decoder, Stream2), Acc1)
-  end;
-
-decode(<<16#47, _:3, Pid:13, _:185/binary, Rest/binary>> = Packet, #decoder{stream_map = Streams} = Decoder, Acc) ->
-  case proplists:get_value(Pid, Streams) of
-    undefined ->
-      decode(Rest, Decoder, Acc);
-    Num ->
-      Stream = element(#decoder.stream_map + Num, Decoder),
-      {ok, Reply, Stream1} = decode_pes(ts_payload(Packet), Stream),
-      Acc1 = case Reply of
-        [] -> Acc;
-        _ -> Acc ++ Reply
-      end,
-      decode(Rest, setelement(#decoder.stream_map+Num,Decoder, Stream1), Acc1)
-  end;
-
-decode(eof, #decoder{stream_map = StreamNums} = Decoder, Acc) ->
-  Streams = [element(#decoder.stream_map + N, Decoder) || {_Pid,N} <- StreamNums],
-  Acc1 = lists:foldl(fun(Stream, Acc_) ->
-    {ok, Reply, _Stream1} = flush(Stream),
-    case Reply of [] -> Acc_; _ -> Acc_ ++ Reply end
-  end, Acc, Streams),
-  {ok, Acc1}; 
-
-decode(<<>>, #decoder{} = Decoder, Acc) ->
-  {ok, Acc, Decoder, <<>>};
-
-decode(<<16#47, _/binary>> = Packet, #decoder{} = Decoder, Acc) when size(Packet) < 188->
-  {ok, Acc, Decoder, Packet};
-
-decode(<<_, Rest/binary>>, Decoder, Acc) ->
-  ?D(lost_sync),
-  try_sync(Rest, Decoder, Acc, 1).
+find_pmt(<<16#47, _:187/binary, Rest/binary>>, PMT) -> find_pmt(Rest, PMT);
+find_pmt(<<>>, _) -> error(no_pmt_found_in_mpegts).
 
 
-try_sync(<<16#47, _:187/binary, 16#47, _:187/binary, 16#47, _/binary>> = Data, Decoder, Acc, _Count) ->
-  decode(Data, Decoder, Acc);
 
-try_sync(_, _, _, 1024) ->
-  erlang:error(cannot_sync_mpegts);
+select_pid(<<16#47, _:1, Start:1, _:1, Pid:13, _:185/binary, Rest/binary>> = Packet, Pid) ->
+  [{Start,ts_payload(Packet)}|select_pid(Rest, Pid)];
 
-try_sync(<<>>, Decoder, Acc, _) ->
-  {ok, Acc, Decoder, <<>>};
-
-try_sync(<<_, Rest/binary>>, Decoder, Acc, Count) ->
-  try_sync(Rest, Decoder, Acc, Count + 1).
+select_pid(<<16#47, _:187/binary, Rest/binary>>, Pid) -> select_pid(Rest, Pid);
+select_pid(<<>>, _) -> [].
 
 
 
 
-%% PES handling
+rewind_to_begin([{0,_}|Packets]) -> rewind_to_begin(Packets);
+rewind_to_begin([{1,_}|_] = Packets) -> Packets.
 
-% When PES starts on flushed stream
-decode_pes(<<1:24, _StreamId, PESLength1:16, _:8, PtsDts:2, _:6, HeaderLength, PESHeader:HeaderLength/binary, Data/binary>>, #stream{dts = undefined} = Stream) ->
-  PESLength = case PESLength1 of
-    0 -> 0;
-    _ -> PESLength1 - 3 - HeaderLength
+
+collect_pes_packets([{1,TS}|Packets]) ->
+  {TSList1, Rest} = choose_ts_till_start(Packets),
+  PES = iolist_to_binary([TS|TSList1]),
+  <<1:24, _StreamId, PESLength:16, _:8, PtsDts:2, _:6, HeaderLength, PESHeader:HeaderLength/binary, Data/binary>> = PES,
+  case PESLength of
+    0 -> ok;
+    _ -> PESLength = size(PES) - 6
   end,
   {DTS, PTS} = pes_timestamp(PtsDts, PESHeader),
-  ?DD("pid ~B: start PES ~4s(~.2f, ~.2f) length: ~B", [Pid, Stream#stream.codec, DTS, PTS, PESLength1]),
-  Stream2 = Stream#stream{dts = DTS, pts = PTS, length = PESLength, ts_buffer = [Data]},
-  {ok, [], Stream2};
+  [{DTS,PTS,Data}|collect_pes_packets(Rest)];
 
-% Data in TS packet is not enough for starting PES, so accumultate it and put as a binary
-decode_pes(<<1:24, _/binary>> = PES, #stream{dts = undefined} = Stream) ->
-  {ok, [], Stream#stream{ts_buffer = PES}};
+collect_pes_packets([]) ->
+  [].
 
-% Next PES comes when stream is empty, but previous PES fragment is cached.
-decode_pes(PES, #stream{dts = undefined, ts_buffer = Start} = Stream) when is_binary(Start) andalso is_binary(PES) ->
-  decode_pes(<<Start/binary, PES/binary>>, Stream#stream{ts_buffer = []});
 
-% Skip data, when stream is not configured
-decode_pes(_, #stream{dts = undefined} = Stream) ->
-  {ok, [], Stream};
+choose_ts_till_start([{0,TS}|Packets]) ->
+  {TSList, Rest} = choose_ts_till_start(Packets),
+  {[TS|TSList], Rest};
 
-% Normal pes adding data
-decode_pes(Data, #stream{ts_buffer = Buffer, length = Length} = Stream) ->
-  case iolist_size(Buffer) + size(Data) of
-    L when L == Length ->
-      ?DD("pid ~B: PES ready (~B)", [Pid, L]),
-      {ok, Reply, Stream1} = flush(Stream#stream{ts_buffer = [Data|Buffer]}),
-      {ok, Reply, Stream1};
-    L when L < Length orelse Length == 0 ->
-      ?DD("pid ~B: PES continue (~B/~B)", [Pid, L, Length]),
-      {ok, [], Stream#stream{ts_buffer = [Data|Buffer]}}
-  end.
+choose_ts_till_start([{1,_}|_] = Packets) ->  
+  {[], Packets};
+
+choose_ts_till_start([]) ->
+  {[], []}.
 
 
 
@@ -253,88 +164,116 @@ pes_timestamp(_, _) ->
   erlang:error(stream_without_pts_dts).
 
 
-flush(#stream{codec = Codec, ts_buffer = TSBuffer, es_buffer = ESBuffer} = Stream) when length(TSBuffer) > 0 ->
-  Body = iolist_to_binary([ESBuffer|lists:reverse(TSBuffer)]),
-  case Codec of
-    h264 ->
-      {ok, Frames, Stream1} = unpack_h264(Stream, Body),
-      % io:format("~20s h264 frame count ~B~n", ["", length(Frames)]),
-      {ok, Frames, Stream1};
-    aac ->
-      {ok, Frames, Stream1} = unpack_aac(Stream, Body),
-      % io:format("~20s  aac frame count ~B~n", ["", length(Frames)]),
-      {ok, Frames, Stream1}
+
+
+
+unpack_pes_h264(PESPackets, Pid) -> 
+  unpack_pes_h264(normalize_h264(PESPackets), Pid, false, []).
+
+normalize_h264([Packet]) ->
+  [Packet];
+
+normalize_h264([Packet|NextPackets = [{_,_,<<1:32,_/binary>>}|_]]) ->
+  [Packet|normalize_h264(NextPackets)];
+
+normalize_h264([Packet|NextPackets = [{_,_,<<1:24,_/binary>>}|_]]) ->
+  [Packet|normalize_h264(NextPackets)];
+
+normalize_h264([{DTS,PTS,Pes}, {DTS1,PTS1,NextPes}|NextPackets]) ->
+  case binary:split(NextPes, [<<1:32>>, <<1:24>>]) of
+    [Append,_] ->
+      Len = size(Append),
+      <<Append:Len/binary, Rest/binary>> = NextPes,
+      [{DTS,PTS,<<Pes/binary, Append/binary>>}|normalize_h264([{DTS1,PTS1,Rest}|NextPackets])];
+    [NextPes] ->
+      normalize_h264([{DTS,PTS,<<Pes/binary, NextPes/binary>>}|NextPackets])
   end;
+
+normalize_h264([]) -> [].
+
+
+
+unpack_pes_h264([{DTS,PTS,Pes}|Packets], Pid, SeenConfig, Acc) ->
+  NALs = [NAL || NAL <- binary:split(Pes, [<<1:32>>, <<1:24>>], [global]), NAL =/= <<>>, h264:type(NAL) =/= delim],
+
+  ConfigNals = [NAL || NAL <- NALs, lists:member(h264:type(NAL), [sps, pps])],
   
-
-flush(#stream{ts_buffer = []} = Stream) ->
-  {ok, [], Stream}.
-
-
-unpack_h264(#stream{dts = DTS, pts = PTS, specific = H264_0} = Stream, Bin) ->
-  H264_1 = case H264_0 of
-    undefined -> h264:init();
-    _ -> H264_0
+  Keyframe = length(ConfigNals) > 0 orelse length([NAL || NAL <- NALs, h264:type(NAL) == idr]) > 0, 
+  
+  ConfigFrame = case ConfigNals of
+    [] -> [];
+    _ when SeenConfig -> [];
+    _ ->
+      H264 = lists:foldl(fun(NAL, H264_) -> h264:parse_nal(NAL, H264_) end, h264:init(), ConfigNals),
+      [(h264:video_config(H264))#video_frame{dts = DTS, pts = DTS, track_id = Pid}]
   end,
-  
-  NALs1 = [NAL || NAL <- binary:split(Bin, [<<1:32>>, <<1:24>>], [global]), NAL =/= <<>>],
-  NALs2 = [NAL || NAL <- NALs1, h264:type(NAL) =/= delim],
-  ConfigNals = [NAL || NAL <- NALs1, lists:member(h264:type(NAL), [sps, pps])],
-  
-  Keyframe = length(ConfigNals) > 0 orelse length([NAL || NAL <- NALs2, h264:type(NAL) == idr]) > 0, 
-  H264_2 = lists:foldl(fun(NAL, H264) -> h264:parse_nal(NAL, H264) end, H264_1, ConfigNals),
-  
-  ConfigFrame = case {h264:has_config(H264_1), h264:has_config(H264_2)} of
-    {false, true} -> [(h264:video_config(H264_2))#video_frame{dts = DTS, pts = DTS}];
-    _ -> []
-  end,
-  
+
+  BodyNals = [NAL || NAL <- NALs, not lists:member(h264:type(NAL), [sps, pps])],
+  Body = [[<<(size(NAL)):32>>, NAL] || NAL <- BodyNals],
+
   Frame = #video_frame{
-   	content = video,
-		body    = iolist_to_binary([[<<(size(NAL)):32>>, NAL] || NAL <- NALs2]),
-		flavor  = if Keyframe -> keyframe; true -> frame end,
-		codec   = h264,
-		dts     = DTS,
-		pts     = PTS
+    content = video,
+    track_id= Pid,
+    body    = iolist_to_binary([[<<(size(NAL)):32>>, NAL] || NAL <- NALs, not lists:member(h264:type(NAL), [sps, pps])]),
+    flavor  = if Keyframe -> keyframe; true -> frame end,
+    codec   = h264,
+    dts     = DTS,
+    pts     = PTS
   },
   
-  {ok, ConfigFrame ++ [Frame], Stream#stream{specific = H264_2, dts = undefined, pts = undefined, length = undefined}}.
-  
-unpack_aac(#stream{dts = DTS, specific = undefined} = Stream, Bin) ->
-  Config = aac:adts_to_config(Bin),
+  unpack_pes_h264(Packets, Pid, SeenConfig orelse length(ConfigFrame) > 0, ConfigFrame ++ [Frame|Acc]);
+
+unpack_pes_h264([], _, _, Acc) ->
+  Acc.
+
+
+
+unpack_pes_aac([{DTS,PTS,Pes}|_] = Packets, Pid) -> 
+  Config = aac:adts_to_config(Pes),
   #aac_config{sample_rate = SampleRate} = aac:decode_config(Config),
   AudioConfig = #video_frame{
-   	content = audio,
-   	flavor  = config,
-		dts     = DTS,
-		pts     = DTS,
-		body    = Config,
-	  codec	  = aac,
-	  sound	  = {stereo, bit16, rate44}
-	},
-  {ok, Frames, Stream1} = unpack_aac(Stream#stream{specific = SampleRate}, Bin),
-  {ok, [AudioConfig|Frames], Stream1};
+    content = audio,
+    flavor  = config,
+    track_id= Pid,
+    dts     = DTS,
+    pts     = PTS,
+    body    = Config,
+    codec   = aac,
+    sound   = {stereo, bit16, rate44}
+  },
 
-unpack_aac(#stream{} = Stream, <<>>) ->
-  {ok, [], Stream#stream{ts_buffer = []}};
+  [AudioConfig|unpack_pes_adts(Packets, 1024*1000 / SampleRate, Pid)].
 
-unpack_aac(#stream{dts = DTS, specific = SampleRate} = Stream, Bin) ->
-  case aac:unpack_adts(Bin) of
+unpack_pes_adts([{DTS,PTS,Pes}|Packets], Shift, Pid) ->
+  case aac:unpack_adts(Pes) of
     {ok, AAC, Rest} ->
       Frame = #video_frame{     
         content = audio,
         flavor  = frame,
+        track_id= Pid,
         dts     = DTS,
         pts     = DTS,
         body    = AAC,
-    	  codec	  = aac,
-    	  sound	  = {stereo, bit16, rate44}
+        codec   = aac,
+        sound   = {stereo, bit16, rate44}
       },
-      {ok, Frames, Stream1} = unpack_aac(Stream#stream{dts = DTS + 1024*1000 / SampleRate}, Rest),
-      {ok, [Frame|Frames], Stream1#stream{dts = undefined, pts = undefined, length = undefined}};
-    {more, _Rest} ->
-      {ok, [], Stream#stream{es_buffer = Bin, length = undefined}};
+      [Frame|unpack_pes_adts([{DTS+Shift,PTS+Shift,Rest}|Packets], Shift, Pid)];
+    {more, _NeedBytes} when length(Packets) > 0 ->
+      [{DTS1,PTS1,NextPes}|NextPackets] = Packets,
+      % ?debugFmt("ADTS lag: ~B, ~B, ~B, ~B ~p", [round(DTS),size(Pes), round(DTS1), NeedBytes, element(1,split_binary(Rest, 9) )]),
+      unpack_pes_adts([{DTS1,PTS1,<<Pes/binary,NextPes/binary>>}|NextPackets], Shift, Pid);
+    {more, _} ->
+      [];
     {error, Bin} ->
       error({desync_adts,Bin})
-  end.
+  end;
+
+unpack_pes_adts([], _, _) ->
+  [].
+
+
+
+
+
+
 

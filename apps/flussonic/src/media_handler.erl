@@ -222,8 +222,7 @@ update_cookie(Req) ->
   case erlang:erase(<<"session_cookie">>) of
     undefined -> Req;
     V ->
-      {ok, Req1} = cowboy_req:set_resp_cookie(<<"session">>, V, [{max_age, 10 * 60}], Req),
-      Req1
+      cowboy_req:set_resp_cookie(<<"session">>, V, [{max_age, 10 * 60}], Req)
   end.
 
 retrieve_token(Req0) ->

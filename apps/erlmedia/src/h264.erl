@@ -29,13 +29,14 @@
 % -include("../../include/ems.hrl").
 -include("../include/h264.hrl").
 -include("../include/video_frame.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([decode_nal/2, video_config/1, decoder_config/1, has_config/1, unpack_config/1, metadata_frame/1, metadata/1]).
 -export([profile_name/1, exp_golomb_read_list/2, exp_golomb_read_list/3, exp_golomb_read_s/1]).
 -export([parse_sps/1, to_fmtp/1, init/0, init/1]).
 -export([type/1, fua_split/2]).
 -export([unpack_rtp_list/2, nal_list_flavor/1]).
--export([parse_nal/2]).
+-export([parse_nal/2, depacketize/1]).
 
 
 video_config(H264) ->
@@ -260,9 +261,9 @@ parse_sps(<<0:1, _NalRefIdc:2, ?NAL_SPS:5, Profile, _:8, Level, Data/binary>>) -
   
 parse_extended_sps1(Rest) ->
   {ChromaFormat, Rest1} = exp_golomb_read(Rest),
-  case ChromaFormat of
-    3 -> <<_SeparateColourPlane:1, Rest2/bitstring>> = Rest1;
-    1 -> Rest2 = Rest1
+  Rest2 = case ChromaFormat of
+    3 -> <<_SeparateColourPlane:1, Rest2_/bitstring>> = Rest1, Rest2_;
+    1 -> Rest1
   end,
   {_BitDepthLuma, Rest3} = exp_golomb_read(Rest2),
   {_BitDepthChroma, Rest4} = exp_golomb_read(Rest3),
@@ -407,7 +408,8 @@ nal_unit_type(?NAL_STAP_B) -> stap_b;
 nal_unit_type(?NAL_MTAP16) -> mtap_16;
 nal_unit_type(?NAL_MTAP24) -> mtap_24;
 nal_unit_type(?NAL_FUA) -> fua;
-nal_unit_type(?NAL_FUB) -> fub.
+nal_unit_type(?NAL_FUB) -> fub;
+nal_unit_type(Type) -> Type.
 
 
 exp_golomb_read_list(Bin, List) ->
@@ -544,73 +546,3 @@ to_fmtp(Body) ->
 %%
 %% Tests
 %%
--include_lib("eunit/include/eunit.hrl").
-
-depacketize_test() ->
-  ?assertEqual([<<0:3, ?NAL_SPS:5>>, <<0:3, ?NAL_IDR:5, 1,2,3,4,5,6>>, <<0:3, ?NAL_SINGLE:5, 1,2,3,4,5,6>>], depacketize(rtp_test_fua())).
-
-%  <<0:1, _NRI:2, ?NAL_FUA:5, Start:1, End:1, R:1, Type:1,  _Rest/binary>>
-
-rtp_test_fua() ->
-  [<<0:3, ?NAL_STAP_A:5, 1:16, 0:3, ?NAL_SPS:5>>, 
-    <<0:3, ?NAL_FUA:5, 1:1, 0:1, 0:1, ?NAL_IDR:5, 1,2>>,<<0:3, ?NAL_FUA:5, 0:1, 0:1, 0:1, ?NAL_IDR:5, 3,4>>, <<0:3, ?NAL_FUA:5, 0:1, 1:1, 0:1, ?NAL_IDR:5, 5,6>>,
-    <<0:3, ?NAL_FUA:5, 1:1, 0:1, 0:1, ?NAL_SINGLE:5, 1,2>>,<<0:3, ?NAL_FUA:5, 0:1, 0:1, 0:1, ?NAL_SINGLE:5, 3,4>>, <<0:3, ?NAL_FUA:5, 0:1, 1:1, 0:1, ?NAL_SINGLE:5, 5,6>>
-    ].
-
-
-parse_sps_for_high_profile_test() ->
-  ?assertMatch(#h264_sps{profile = 100, level = 50, width = 1280, height = 720}, parse_sps(<<103,100,0,50,172,52,226,192,80,5,187,1,16,0,0,62,144,0,11,184,8,241,131,24,184>>)).
-
-parse_sps_for_low_profile_test() ->
-  ?assertMatch(#h264_sps{profile = 77, level = 51, width = 512, height = 384}, parse_sps(<<103,77,64,51,150,99,1,0,99,96,34,0,0,3,0,2,0,0,3,0,101,30,48,100,208>>)).
-
-parse_sps_for_rtsp_test() ->
-  ?assertMatch(#h264_sps{profile = 66, level = 20, width = 352, height = 288}, parse_sps(<<103,66,224,20,218,5,130,81>>)).
-
-parse_sps_40_level_test() ->
-  ?assertMatch(#h264_sps{profile = 100, level = 40, width = 640, height = 480}, parse_sps(<<103,100,0,40,173,0,206,80,40,15,108,4,64,
-                                       0,3,132,0,0,175,200,56,0,0,48,0,0,3,0,11,
-                                       235,194,98,247,227,0,0,6,0,0,3,0,1,125,
-                                       120,76,94,252,27,65,16,137,75>>)).
-
-parse_sps_with_crop_test() ->
- ?assertMatch(#h264_sps{profile = 66, level = 40, width = 1920, height = 1080}, parse_sps( <<103,66,240,40,145,176,30,0,137,249,112,22,224,32,32,40,
-    0,0,31,72,0,6,26,132,32,0,0,0,0>>)).
-
-sps_100_level() ->
-  <<39,100,0,31,173,136,14,67,152,32,225,12,41,10,68,7,33,204,16,112,134,20,133,
-    34,3,144,230,8,56,67,10,66,144,192,66,24,194,28,102,50,16,134,2,16,198,16,
-    227,49,144,132,48,16,134,48,135,25,140,132,34,2,17,152,206,35,194,159,17,248,
-    143,226,63,17,241,30,51,136,196,68,66,129,8,140,71,17,226,62,79,196,127,39,
-    228,248,143,17,196,100,136,180,7,128,183,96,42,144,0,0,3,0,16,0,0,3,3,198,4,
-    0,4,196,176,0,19,18,203,222,248,94,17,8,212>>.
-    
-parse_sps_100_level_test() ->
-  ?assertMatch(#h264_sps{profile = 100, level = 31, sps_id = 0, width = 960, height = 720}, parse_sps(sps_100_level())).
-
-unpack_config_1_test() ->
-  Config = <<1,66,192,21,253,225,0,23,103,66,192,21,146,68,15,4,127,88,8,128,0,1,244,0,0,97,161,71,139,23,80,1,0,4,104,206,50,200>>,
-  Result = [<<103,66,192,21,146,68,15,4,127,88,8,128,0,1,244,0,0,97,161,71,139,23,80>>, <<104,206,50,200>>],
-  LengthSize = 2,
-  ?assertEqual({LengthSize, Result}, unpack_config(Config)).
-
-unpack_config_2_test() ->
-  Config = <<1,77,64,30,255,224,0>>,
-  ?assertEqual({4, []}, unpack_config(Config)).
-
-unpack_config_3_test() ->
-  Config = <<1,66,224,11,255,225,0,19,39,66,224,11,169,24,96,157,128,53,6,1,6,182,194,181,239,124,4,1,0,4,40,222,9,136>>,
-  ?assertEqual({4,[<<39,66,224,11,169,24,96,157,128,53,6,1,6,182,194,181,239,124,4>>, <<40,222,9,136>>]}, unpack_config(Config)).
-
-unpack_config_4_test() ->
-  Config = <<1,77,0,21,3,1,0,35,103,77,64,21,150,82,130,131,246,2,161,0,0,3,3,232,0,0,156,64,224,96,3,13,64,
-             0,73,62,127,24,224,237,10,20,139,1,0,5,104,233,9,53,32>>,
-  ?assertEqual({4,[<<103,77,64,21,150,82,130,131,246,2,161,0,0,3,3,232,0,0,156,64,224,96,3,13,64,
-                0,73,62,127,24,224,237,10,20,139>>,<<104,233,9,53,32>>]},unpack_config(Config)).
-
-
-
-
-
-
-
