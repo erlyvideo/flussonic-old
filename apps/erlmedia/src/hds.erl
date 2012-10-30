@@ -8,7 +8,9 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 -include("../include/video_frame.hrl").
 -include("../include/media_info.hrl").
+-include("../include/mp4.hrl").
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([manifest/2,manifest/3, segment/3, segment/4]).
 -export([stream_bootstrap/2, file_bootstrap/3, file_bootstrap/2]).
@@ -173,7 +175,15 @@ segment(Format, Reader, Id, Options) ->
   Hardstop = proplists:get_value(hardstop, Options, false),
   {Frames, #info{first_dts = DTS}} = collect_frames(fun(Key) -> Format:read_frame(Reader, Key) end, Id, ShiftDts, StopDts, Hardstop),
   Duration = proplists:get_value(duration, Options, FileDuration),
-  segment(Frames, MediaInfo#media_info{duration = Duration}, DTS).
+
+  Streams = case Id of
+    #frame_id{tracks = Tracks} ->
+      StreamIds = [SId + 255 || SId <- Tracks],
+      [Stream || #stream_info{track_id = TId} = Stream <- MediaInfo#media_info.streams, lists:member(TId, StreamIds)];
+    _ ->
+      MediaInfo#media_info.streams
+  end,
+  segment(Frames, MediaInfo#media_info{duration = Duration, streams = Streams}, DTS).
   
 segment(Frames0, #media_info{} = MediaInfo, DTS) ->
   
@@ -185,9 +195,9 @@ segment(Frames0, #media_info{} = MediaInfo, DTS) ->
   
   
   Configs = [flv_video_frame:to_tag(Frame#video_frame{dts = DTS, pts = DTS}) || Frame <- video_frame:config_frames(MediaInfo)],
-  MetaFrame = (video_frame:meta_frame(MediaInfo))#video_frame{dts = DTS, pts = DTS},
-  Metadata = flv_video_frame:to_tag(MetaFrame),
-  Blocks = [Metadata, Configs, Frames],
+  % MetaFrame = (video_frame:meta_frame(MediaInfo))#video_frame{dts = DTS, pts = DTS},
+  % Metadata = flv_video_frame:to_tag(MetaFrame),
+  Blocks = [Configs, Frames],
   Segment = [<<(iolist_size(Blocks) + 8):32, "mdat">>, Blocks],
   {ok, iolist_to_binary(Segment)}.
   

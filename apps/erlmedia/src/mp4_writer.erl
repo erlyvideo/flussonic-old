@@ -625,13 +625,13 @@ pack_audio_config(#convertor{audio_config = Config, audio_frames = [#video_frame
   SoundVersion = 0,
   Unknown = <<0,0,0,0,0,0>>,
 
-  {ObjectType, ChannelsCount} = case Codec of
+  {ObjectType, ChannelsCount, SampleRate} = case Codec of
     aac ->
-      #aac_config{channel_count = AACChannels, sample_rate = SampleRate} = aac:decode_config(Config),
-      {64, AACChannels};
+      #aac_config{channel_count = AACChannels, sample_rate = SR} = aac:decode_config(Config),
+      {64, AACChannels, SR};
     mp3 ->
-      #mp3_frame{channels = Channels, sample_rate = SampleRate} = Config,
-      {107, Channels}
+      #mp3_frame{channels = Channels, sample_rate = SR} = Config,
+      {107, Channels, SR}
   end,
 
   

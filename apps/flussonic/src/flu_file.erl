@@ -44,6 +44,7 @@
   reader,
   bootstrap,
   file,
+  requested_path,
   path,
   disk_path,
   options,
@@ -173,7 +174,7 @@ init([Path, Options]) ->
     nomatch -> flu:default_file_access();
     _ -> http_file
   end,
-  ?D({open_file,Path,Options,URL,Access}),
+  ?DBG("open ~s file \"~s\", fullpath: \"~s\", options: ~p",[Access, Path, URL, Options]),
   Format = case re:run(URL, "\\.flv$") of
     nomatch -> mp4_reader;
     _ -> flv_reader
@@ -188,14 +189,22 @@ init([Path, Options]) ->
     path = proplists:get_value(path, Options, URL),
     timeout = Timeout,
     options = Options,
-    bitrates = [0]
+    bitrates = [0],
+    requested_path = Path
   },
-  case open(State) of
-    {ok,State1} ->
-      {ok, State1, Timeout};
-    _Error ->
-      {stop,normal}
-  end.
+  {ok, State, Timeout}.
+
+
+handle_info(timeout, State) ->
+  {stop, normal, State};
+
+handle_info(Info, State) ->
+  {stop, {unknown_info,Info}, State}.
+
+
+
+handle_call(Call, From, #state{file = undefined} = State) ->
+  handle_call(Call, From, open(State));
 
 handle_call(media_info, _From, #state{format = Format, reader = Reader, timeout = Timeout} = State) ->
   {reply, Format:media_info(Reader), State, Timeout};
@@ -252,16 +261,11 @@ handle_call(hls_playlist, _From, #state{hls_playlist = Playlist, timeout = Timeo
 handle_call(Call, _From, State) ->
   {stop, {unknown_call,Call}, State}.
 
-handle_info(timeout, State) ->
-  {stop, normal, State};
-
-handle_info(Info, State) ->
-  {stop, {unknown_info,Info}, State}.
 
 terminate(_,_) ->
   ok.
 
-open(#state{disk_path = Path, access = Access, format = Format} = State) ->
+open(#state{disk_path = Path, requested_path = Path1, access = Access, format = Format, file = undefined} = State) ->
   Options = case Access of
     file -> [read,binary];
     mmap -> [];
@@ -276,10 +280,17 @@ open(#state{disk_path = Path, access = Access, format = Format} = State) ->
       MPEGTS = mpegts:init([{interleave,3}]),
       MPEGTS1 = mpegts:encode(MPEGTS, MediaInfo),
       % MPEGTS2 = lists:foldl(fun(Mpeg, Frame) -> {Mpeg1,_} = mpegts:encode(Frame, Mpeg), Mpeg1 end, MPEGTS1, video_frame:config_frames(MediaInfo)),
-      {ok,State#state{file = File, media_info = MediaInfo, keyframes = Keyframes, reader = Reader, mpegts = MPEGTS1}};
-    Error ->
-      Error
-  end.
+      State#state{file = File, media_info = MediaInfo, keyframes = Keyframes, reader = Reader, mpegts = MPEGTS1};
+    {error, enoent} ->
+      throw({stop, normal, {return, 404, lists:flatten(io_lib:format("No such file ~s", [Path1]))}, State});
+    {error, eaccess} ->
+      throw({stop, normal, {return, 403, lists:flatten(io_lib:format("Forbidden to open file ~s", [Path1]))}, State});
+    {error, Error} ->
+      throw({stop, normal, {return, 500, lists:flatten(io_lib:format("Error ~p opening file ~s", [Error, Path1]))}, State})
+  end;
+
+open(State) ->
+  State.
 
 -define(MIN_DTS_STEP, 3000).
 

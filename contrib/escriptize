@@ -1,12 +1,23 @@
 #!/usr/bin/env escript
 
 
-main(_Options) ->
-  Root = filename:join(filename:dirname(escript:script_name()), ".."),
-  Files1 = lists:map(fun(Path) ->
+main(Options) ->
+  % Root = filename:join(filename:dirname(escript:script_name()), ".."),
+  Root = "",
+  ForceVersion = case Options of
+    [Version|_] -> Version;
+    [] -> undefined
+  end,
+  Files1 = lists:map(fun
+  ("apps/flussonic/ebin/flussonic.app" = Path) when ForceVersion =/= undefined ->
+    {ok, [{application,flussonic,Env}]} = file:consult(Path),
+    Env1 = lists:keyreplace(vsn, 1, Env, {vsn,ForceVersion}),
+    Bin = iolist_to_binary(io_lib:format("~p.", [{application,flussonic,Env1}])),
+    {"flussonic.app", Bin};
+  (Path) ->
     {ok, Bin} = file:read_file(Path),
     {filename:basename(Path), Bin}
-  end, [Path || Path <- filelib:wildcard(Root ++ "/apps/*/ebin/*") ++ filelib:wildcard(Root ++ "/deps/*/ebin/*"), Path =/= ".gitignore"]),
+  end, [Path || Path <- filelib:wildcard(Root ++ "apps/*/ebin/*") ++ filelib:wildcard(Root ++ "deps/*/ebin/*"), Path =/= ".gitignore"]),
   
   Files2 = filelib:fold_files("wwwroot", ".*", true, fun(Path, Acc) -> 
     {ok, Bin} = file:read_file(Path),
@@ -24,7 +35,7 @@ main(_Options) ->
   % os:cmd("chmod u+x flussonic"),
   
   Commercial = ["hls", "playlist", "http_file", "dvr"],
-  Beams = case lists:member("full", _Options) of
+  Beams = case lists:member("full", Options) of
     true -> Files1;
     false ->
       Removing = [filename:basename(Path) || Path <- 

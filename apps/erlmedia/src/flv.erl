@@ -27,6 +27,7 @@
 -include("../include/flv.hrl").
 -include("log.hrl").
 -include("flv_constants.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 
 
@@ -42,7 +43,7 @@
 
 -export([rtmp_tag_generator/1]).
 
--export([read_frame/1, read_frame/2, duration/1]).
+-export([read_frame/1, read_frame/2, read_all_frames/1, duration/1]).
 
 -export([content_offset/1, append_dts/2]).
 -export([frame_sorter/2, decode_list/1]).
@@ -64,6 +65,19 @@ read_frame(Reader, Offset) ->
 		  flv_video_frame:tag_to_video_frame(Tag);
     eof -> eof;
     {error, Reason} -> {error, Reason}
+  end.
+
+
+read_all_frames(Binary) ->
+  try read_frame(Binary) of
+    {ok, Frame, <<_PrevSize:32, Rest/binary>>} ->
+      [Frame|read_all_frames(Rest)];
+    _ ->
+      []
+  catch
+    Class:Error ->
+      ?debugFmt("failed_flv ~p:~p~n~p~n~240p", [Class,Error,erlang:get_stacktrace(),Binary]),
+      []
   end.
 
 

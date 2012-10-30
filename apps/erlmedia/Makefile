@@ -1,13 +1,13 @@
 
 all:
-	@./rebar compile
+	@ERL_LIBS=..:../../deps ./rebar compile
 
 clean:
 	@./rebar clean
 	@rm -f erl_crash.dump
 
 test:
-	@./rebar compile eunit
+	@ERL_LIBS=..:../../deps ./rebar eunit -v
 
 
 .PHONY: test

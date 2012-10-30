@@ -775,7 +775,7 @@ avcC(DecoderConfig, #mp4_track{} = Mp4Track) ->
   Mp4Track#mp4_track{decoder_config = DecoderConfig}.
 
 btrt(<<_BufferSize:32, MaxBitRate:32, AvgBitRate:32>>, #mp4_track{} = Mp4Track) ->
-  ?D({btrt,MaxBitRate, AvgBitRate}),
+  % ?D({btrt,MaxBitRate, AvgBitRate}),
   Mp4Track#mp4_track{max_bitrate = MaxBitRate, bitrate = AvgBitRate}.
 
 
