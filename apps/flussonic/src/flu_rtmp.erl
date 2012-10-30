@@ -222,20 +222,25 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
 
 play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media) ->
   erlang:monitor(process, Media),
-  MediaInfo = flu_file:media_info(Media),
-  Configs = video_frame:config_frames(MediaInfo) ++ [video_frame:meta_frame(MediaInfo)],
+  case flu_file:media_info(Media) of
+    #media_info{} = MediaInfo ->
+      Configs = video_frame:config_frames(MediaInfo) ++ [video_frame:meta_frame(MediaInfo)],
 
-  Session1 = rtmp_session:set_stream(rtmp_stream:construct([{pid, Media}, {stream_id, StreamId}, {base_dts,0}, {name, StreamName}, {started, true}]), Session),
-  RTMP = rtmp_session:get(Session1, socket),
-  rtmp_lib:play_start(RTMP, StreamId, 0, file),
-  
-  Session2 = lists:foldl(fun(F, Sess) ->
-    rtmp_session:send_frame(F#video_frame{stream_id = StreamId}, Sess)
-  end, Session1, Configs),
-  
-  self() ! {read_burst, round(StreamId), 1},
-  
-  Session2.
+      Session1 = rtmp_session:set_stream(rtmp_stream:construct([{pid, Media}, {stream_id, StreamId}, {base_dts,0}, {name, StreamName}, {started, true}]), Session),
+      RTMP = rtmp_session:get(Session1, socket),
+      rtmp_lib:play_start(RTMP, StreamId, 0, file),
+      
+      Session2 = lists:foldl(fun(F, Sess) ->
+        rtmp_session:send_frame(F#video_frame{stream_id = StreamId}, Sess)
+      end, Session1, Configs),
+      
+      self() ! {read_burst, round(StreamId), 1},
+      
+      Session2;
+    {return, _Code, Msg} ->
+      ?DBG("failed to play file: ~s", [Msg]),
+      throw(reject)
+  end.
 
 
 play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _StreamName) ->

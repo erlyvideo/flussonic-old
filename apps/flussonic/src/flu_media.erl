@@ -24,6 +24,8 @@
 -module(flu_media).
 -author('Max Lapshin <max@maxidoors.ru>').
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -export([find/1, find_or_open/1, lookup_path/1]).
 
 
@@ -66,19 +68,18 @@ lookup_path(Path) ->
   lookup_path(Path, flu_config:get_config()).
   
 
-lookup_path(Path, [{live, Prefix1}|Config]) ->
-  Prefix = list_to_binary(Prefix1),
+lookup_path(Path, [{live, Prefix, _Options}|Config]) ->
   PrefixLen = size(Prefix),
   case Path of
     <<Prefix:PrefixLen/binary, "/", Stream/binary>> -> {ok, {stream, Stream}};
     _ -> lookup_path(Path, Config)
   end;
 
-lookup_path(Path, [{file, Prefix1, Root}|Config]) ->
-  Prefix = list_to_binary(Prefix1),
+lookup_path(Path, [{file, Prefix, Root, _}|Config]) ->
   PrefixLen = size(Prefix),
   case Path of
-    <<Prefix:PrefixLen/binary, "/", File/binary>> -> open_file(iolist_to_binary([Root, "/", File]), File, []);
+    <<Prefix:PrefixLen/binary, "/", File/binary>> ->
+     open_file(Root, File, []);
     _ -> lookup_path(Path, Config)
   end;
   
@@ -93,38 +94,12 @@ lookup_path(_Path, []) ->
   {error, enoent}.
 
 
-open_file(FullPath, Path, Env) ->   
-  Multibitrate = case proplists:get_value(multibitrate, Env) of
-    <<"on">> -> true;
-    _ -> false
-  end,
-  
-  CanOpen = case FullPath of
-    <<"http:/", _/binary>> -> true;
-    _ -> case filelib:is_regular(FullPath) of
-      true -> true;
-      false ->
-        case Multibitrate of
-          false -> false;
-          true -> case flu_file:mbr_files(FullPath) of
-            [] -> false;
-            _ -> mbr
-          end 
-        end  
-    end
-  end,
-  case CanOpen of
-    true ->
-      case gen_tracker:find_or_open(flu_files, Path, fun() -> flussonic_sup:start_flu_file(FullPath, [{path,Path}]) end) of
-      	{ok, File} ->
-      	  {ok, {file,File}};
-      	Error ->
-      	  Error
-            end;
-    mbr ->
-      {ok, {mbr, FullPath, Path}};
-    false -> 
-      {error, enoent}
+open_file(Root, Path, _Env) ->
+  case gen_tracker:find_or_open(flu_files, Path, fun() -> flussonic_sup:start_flu_file(Path, [{root,Root}]) end) of
+  	{ok, File} ->
+  	  {ok, {file,File}};
+  	Error ->
+  	  Error
   end.
 
 
