@@ -183,9 +183,14 @@ segment(Format, Reader, Id, Options) ->
     _ ->
       MediaInfo#media_info.streams
   end,
-  segment(Frames, MediaInfo#media_info{duration = Duration, streams = Streams}, DTS).
-  
+  segment0(Frames, MediaInfo#media_info{duration = Duration, streams = Streams}, DTS, Options).
+
 segment(Frames0, #media_info{} = MediaInfo, DTS) ->
+  segment0(Frames0, MediaInfo, DTS, []).
+
+  
+segment0(Frames0, #media_info{} = MediaInfo, DTS, Options) -> 
+  SkipMetadata = proplists:get_value(no_metadata, Options, false),
   
   Frames = lists:map(fun
     (#video_frame{} = F) -> flv_video_frame:to_tag(F);
@@ -194,7 +199,11 @@ segment(Frames0, #media_info{} = MediaInfo, DTS) ->
   MediaInfo,
   
   
-  Configs = [flv_video_frame:to_tag(Frame#video_frame{dts = DTS, pts = DTS}) || Frame <- video_frame:config_frames(MediaInfo)],
+  Configs1 = [flv_video_frame:to_tag(Frame#video_frame{dts = DTS, pts = DTS}) || Frame <- video_frame:config_frames(MediaInfo)],
+  Configs = case SkipMetadata of
+    true -> [Config || #video_frame{content = Content} = Config <- Configs1, Content =/= metadata];
+    false -> Configs1
+  end,
   % MetaFrame = (video_frame:meta_frame(MediaInfo))#video_frame{dts = DTS, pts = DTS},
   % Metadata = flv_video_frame:to_tag(MetaFrame),
   Blocks = [Configs, Frames],

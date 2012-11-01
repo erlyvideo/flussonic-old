@@ -27,14 +27,22 @@
 
 -behaviour(cowboy_http_handler).
 -export([init/3, handle/2, terminate/2]).
+-export([websocket_init/3, websocket_handle/3,
+    websocket_info/3, websocket_terminate/3]).
 -include_lib("eunit/include/eunit.hrl").
 
 
 %% Cowboy API
 
 init({_Any,http}, Req, Opts) ->
-  Mode = proplists:get_value(mode, Opts),
-  {ok, Req, {Mode,Opts}}.
+  {Upgrade, Req1} = cowboy_req:header(<<"upgrade">>, Req),
+  case Upgrade of
+    <<"websocket">> ->
+      {upgrade, protocol, cowboy_websocket};
+    undefined ->
+      Mode = proplists:get_value(mode, Opts),
+      {ok, Req1, {Mode,Opts}}
+  end.
 
 handle(Req, {reload, Opts}) ->
   check_auth(Req, Opts, admin, fun() -> 
@@ -67,6 +75,28 @@ handle(Req, {health, Opts}) ->
   end).
 
 terminate(_,_) -> ok.
+
+
+
+websocket_init(_TransportName, Req, Opts) ->
+  Mode = proplists:get_value(mode, Opts),
+  {ok, Req, {Mode,Opts}}.
+
+websocket_handle({text, <<"streams">>}, Req, State) ->
+  JSON = iolist_to_binary(mochijson2:encode(flu_stream:json_list())),
+  {reply, {text,JSON}, Req, State};
+
+websocket_handle(_Data, Req, State) ->
+  {ok, Req, State}.
+
+websocket_info(_Info, Req, State) ->
+  ?DBG("api_websocket msg: ~p~n", [_Info]),
+  {ok, Req, State}.
+
+
+websocket_terminate(_Reason, _Req, _State) -> ok.
+
+
 
 check_auth(Req, Opts, Class, Fun) ->
   check_auth(Req, Opts, Class, handle, Fun).

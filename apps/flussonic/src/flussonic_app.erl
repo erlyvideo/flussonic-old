@@ -135,6 +135,14 @@ load_config() ->
     undefined -> ok;
     SessionLog -> flu_event:add_handler(flu_session_log, SessionLog)
   end,
+
+  [begin
+    (catch Plugin:module_info()),
+    case erlang:function_exported(Plugin, start, 1) of
+      true -> Plugin:start(Options);
+      false -> ok
+    end
+  end || {plugin, Plugin, Options} <- flu_config:get_config()],
   ok.
 
 

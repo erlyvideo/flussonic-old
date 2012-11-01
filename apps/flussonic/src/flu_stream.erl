@@ -307,7 +307,10 @@ shutdown_packetizer({Module,State}) ->
   
 
 configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, options = Options, media_info = MediaInfo} = Stream) ->
-  HLS = init_if_required(HLS1, hls_dvr_packetizer, Options),
+  HLS = case proplists:get_value(hls, Options) of
+    false -> shutdown_packetizer(HLS1), {blank_packetizer, undefined};
+    _ -> init_if_required(HLS1, hls_dvr_packetizer, Options)
+  end,
   HDS = init_if_required(HDS1, hds_packetizer, Options),
   % ?D({configuring,Options, proplists:get_value(dvr,Options)}),
   UDP = case proplists:get_value(udp, Options) of

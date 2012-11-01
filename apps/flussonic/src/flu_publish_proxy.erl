@@ -134,6 +134,9 @@ handle_frame1(#video_frame{content = metadata, body = [<<"@setDataFrame">>,<<"on
             #proxy{media_info = undefined} = Proxy) ->
   handle_frame1({metadata, Meta, Frame}, Proxy);
 
+handle_frame1(#video_frame{content = metadata, body = [<<"@setDataFrame">>,<<"onMetaData">>, {object, _, Meta}]} = Frame, 
+            #proxy{media_info = undefined} = Proxy) ->
+  handle_frame1({metadata, Meta, Frame}, Proxy);
 
 handle_frame1(#video_frame{content = metadata, body = [<<"@setDataFrame">>,<<"onMetaData">>, Meta]} = Frame, 
             #proxy{media_info = undefined} = Proxy) ->

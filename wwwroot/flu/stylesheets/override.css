@@ -59,7 +59,7 @@
 }
 
 #player-embed a {
-  style: display: block;
+  display: block;
   width: 800px;
   height: 650px;
 }

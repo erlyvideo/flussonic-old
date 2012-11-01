@@ -137,7 +137,8 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {{dvr_session, hds_manifest, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], Stream};
     [<<"archive">>, From, Duration, <<"index.m3u8">>] ->
-      throw({return, 302, [{<<"Location">>, <<"/", (name_or_pi(Opts,Acc))/binary, "/index-", From/binary, "-", Duration/binary, ".m3u8">>}], <<"Redirect\n">>});
+      {Query, _} = cowboy_req:qs(Req),
+      throw({return, 302, [{<<"Location">>, <<"/", (name_or_pi(Opts,Acc))/binary, "/index-", From/binary, "-", Duration/binary, ".m3u8?", Query/binary>>}], <<"Redirect\n">>});
     [<<"index-", IndexSpec/binary>>] ->
       {match, [From, Duration]} = re:run(IndexSpec, "(\\d+)-(\\w+)\\.m3u8", [{capture, all_but_first, list}]),
       Root = proplists:get_value(dvr, Opts),

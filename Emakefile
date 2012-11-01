@@ -2,6 +2,7 @@
 {"deps/cowboy/src/*",      [debug_info, {outdir, "deps/cowboy/ebin"},{i,"deps/cowboy/include"}]}.
 {"deps/mimetypes/src/*",   [debug_info, {outdir, "deps/mimetypes/ebin"}]}.
 {"apps/flussonic/src/*",   [debug_info, {outdir, "apps/flussonic/ebin"},{pa, "deps"},{parse_transform, lager_transform}]}.
+{"apps/iptv/src/*",        [debug_info, {outdir, "apps/iptv/ebin"}, {parse_transform, lager_transform}]}.
 {"apps/erlmedia/src/*",    [debug_info, {outdir, "apps/erlmedia/ebin"}, {parse_transform, lager_transform}]}.
 {"apps/rtmp/src/*",        [debug_info, {outdir, "apps/rtmp/ebin"}, {parse_transform, lager_transform}]}.
 {"apps/rtsp/src/*",        [debug_info, {outdir, "apps/rtsp/ebin"}, {parse_transform, lager_transform}]}.

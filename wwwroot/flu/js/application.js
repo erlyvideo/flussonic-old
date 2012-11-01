@@ -44,10 +44,32 @@ Erlyvideo = {
   
   load_stream_info: function() {
     // console.log("loading");
-    $.get("/erlyvideo/api/streams", {}, function(streams) {
-      Erlyvideo.draw_stream_info(streams);
-    });
-    // if(Erlyvideo.comet.ready()) Erlyvideo.comet.send("streams");
+    if(!Erlyvideo.stream_ws && window.WebSocket && !Erlyvideo.disabled_ws) {
+      Erlyvideo.stream_ws = new WebSocket("ws://"+window.location.host+"/erlyvideo/api/streams");
+      Erlyvideo.stream_ws.onerror = function() {
+        Erlyvideo.disabled_ws = true;
+      }
+      Erlyvideo.stream_ws.onmessage = function(reply) {
+        Erlyvideo.draw_stream_info(JSON.parse(reply.data));
+      }
+      Erlyvideo.stream_ws.onclose = function() {
+        Erlyvideo.stream_ws = null;
+        delete Erlyvideo["stream_ws"];
+      }
+    }
+    if(Erlyvideo.stream_ws) {
+      if(Erlyvideo.stream_ws.readyState == WebSocket.OPEN) {
+        Erlyvideo.stream_ws.send("streams");      
+      } else {
+        Erlyvideo.stream_ws.onopen = function() {          
+          Erlyvideo.stream_ws.send("streams");      
+        }
+      }
+    } else {
+      $.get("/erlyvideo/api/streams", {}, function(streams) {
+        Erlyvideo.draw_stream_info(streams);
+      });      
+    }
     Erlyvideo.stream_load_timer = setTimeout(Erlyvideo.load_stream_info, 3000);
   },
   

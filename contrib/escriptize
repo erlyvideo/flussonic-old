@@ -22,6 +22,10 @@ main(Options) ->
   Files2 = filelib:fold_files("wwwroot", ".*", true, fun(Path, Acc) -> 
     {ok, Bin} = file:read_file(Path),
     [{Path, Bin}|Acc] 
+  end, []) ++
+  filelib:fold_files("apps/iptv/priv", ".*", true, fun(Path, Acc) -> 
+    {ok, Bin} = file:read_file(Path),
+    [{Path, Bin}|Acc] 
   end, []),
 
   {ok, ConfigBin} = file:read_file("priv/sample/flussonic.conf"),
@@ -34,7 +38,7 @@ main(Options) ->
   % ok = file:write_file("flussonic", Script),
   % os:cmd("chmod u+x flussonic"),
   
-  Commercial = ["hls", "playlist", "http_file", "dvr"],
+  Commercial = ["hls", "playlist", "http_file", "dvr", "iptv"],
   Beams = case lists:member("full", Options) of
     true -> Files1;
     false ->

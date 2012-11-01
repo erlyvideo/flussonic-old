@@ -128,6 +128,7 @@ expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merg
 expand_entry({file, Prefix, Root},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), GlobalOptions};
 expand_entry({file, Prefix, Root, Options},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), merge(Options,GlobalOptions)};
 expand_entry(api, _GlobalOptions) -> {api, []};
+expand_entry({plugin, Plugin},_GlobalOptions) -> {plugin, Plugin, []};
 expand_entry(Entry,_GlobalOptions) -> Entry.
 
 merge(Opts1, Opts2) ->
@@ -186,6 +187,16 @@ parse_routes([{api,Options}|Env]) ->
     {[<<"erlyvideo">>,<<"api">>,<<"dvr_status">>, year, month, day, '...'], dvr_handler, [{mode,status}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"dvr_previews">>, year, month, day, hour, minute, '...'], dvr_handler, [{mode,previews}|Options]}
   |parse_routes(Env)];
+
+parse_routes([{plugin,Plugin,Options}|Env]) ->
+  case erlang:module_loaded(Plugin) of
+    true -> ok;
+    false -> (catch Plugin:module_info())
+  end,
+  case erlang:function_exported(Plugin, routes, 1) of
+    true -> Plugin:routes(Options);
+    false -> []
+  end ++ parse_routes(Env);
 
 parse_routes([_Else|Env]) ->
   parse_routes(Env).

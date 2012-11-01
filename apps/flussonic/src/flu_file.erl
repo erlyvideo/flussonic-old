@@ -133,7 +133,7 @@ hds_lang_segment(File, Lang_, Fragment) ->
   case get(File, {hds_segment, Fragment}) of
     {ok, {Format = mp4_reader, Reader, #frame_id{} = Id, StopDTS}} ->
       Lang = list_to_integer(binary_to_list(Lang_)),
-      Reply = hds:segment(Format, Reader, Id#frame_id{tracks = [Lang]}, [{stop_dts, StopDTS},{hardstop,true}]),
+      Reply = hds:segment(Format, Reader, Id#frame_id{tracks = [Lang]}, [{no_metadata,true},{stop_dts, StopDTS},{hardstop,true}]),
       Reply;
     {error, Error} ->
       {error, Error}
