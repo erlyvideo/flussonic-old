@@ -68,6 +68,12 @@ read_frame(Reader, Offset) ->
   end.
 
 
+read_all_frames(<<Size:32, "mdat", FLV/binary>> = Bin) when Size == size(Bin) ->
+  read_all_frames(FLV);
+
+read_all_frames(<<Size:32, "mdat", _/binary>> = Bin) ->
+  error({invalid_hds, Size, size(Bin)});
+
 read_all_frames(Binary) ->
   try read_frame(Binary) of
     {ok, Frame, <<_PrevSize:32, Rest/binary>>} ->
@@ -116,7 +122,8 @@ audio_codec(?FLV_AUDIO_FORMAT_NELLYMOSER) -> nellymoser;
 audio_codec(?FLV_AUDIO_FORMAT_A_G711) -> pcma;
 audio_codec(?FLV_AUDIO_FORMAT_MU_G711) -> pcmu;
 audio_codec(?FLV_AUDIO_FORMAT_SPEEX) -> speex;
-audio_codec(?FLV_AUDIO_FORMAT_AAC) -> aac.
+audio_codec(?FLV_AUDIO_FORMAT_AAC) -> aac;
+audio_codec(Else) -> Else.
 
 
 audio_type(mono) -> ?FLV_AUDIO_TYPE_MONO;
@@ -153,7 +160,8 @@ video_codec(screen) -> ?FLV_VIDEO_CODEC_SCREENVIDEO;
 video_codec(vp6) -> ?FLV_VIDEO_CODEC_ON2VP6;
 video_codec(vp6_alpha) -> ?FLV_VIDEO_CODEC_ON2VP6_ALPHA;
 video_codec(screen2) -> ?FLV_VIDEO_CODEC_SCREENVIDEO2;
-video_codec(h264) -> ?FLV_VIDEO_CODEC_AVC.
+video_codec(h264) -> ?FLV_VIDEO_CODEC_AVC;
+video_codec(Else) -> Else.
 
 frame_type(frame) -> ?FLV_VIDEO_FRAME_TYPEINTER_FRAME;
 frame_type(keyframe) -> ?FLV_VIDEO_FRAME_TYPE_KEYFRAME;

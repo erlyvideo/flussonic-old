@@ -27,6 +27,7 @@
 -include("../include/media_info.hrl").
 -include("../include/aac.hrl").
 -include("../include/mp3.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 
 -export([config_frame/1, config_frames/1, define_media_info/2, has_media_info/1, frame_sound/1]).
@@ -200,11 +201,21 @@ sort(Frames) ->
 
 meta_frame(#media_info{} = MediaInfo) -> meta_frame(MediaInfo, []).
 
-meta_frame(#media_info{streams = Streams, duration = Duration}, Additional) ->
-  Opts1 = case [StreamInfo || #stream_info{content = video} = StreamInfo <- Streams] of
-    [] -> [];
-    [#stream_info{params = #video_params{width = Width, height = Height}}|_] -> [{height, Height}, {width, Width}]
-  end,
+meta_frame(MediaInfo, Additional) ->
+  try meta_frame0(MediaInfo, Additional)
+  catch
+    Class:Error -> erlang:raise(Class, {MediaInfo,Error}, erlang:get_stacktrace())
+  end.
+
+meta_frame0(#media_info{streams = Streams, duration = Duration}, Additional) ->
+  Opts1 = lists:flatmap(fun
+    (#stream_info{params = #video_params{width = Width, height = Height}, content = video, codec = Codec}) ->
+      [{height, Height}, {width, Width}, {videocodecid, flv:video_codec(Codec)}];
+    (#stream_info{params = #audio_params{sample_rate = SampleRate, channels = Channels}, content = audio, codec = Codec}) ->
+      [{audiocodecid, flv:audio_codec(Codec)}, {audiosamplerate, SampleRate}, {audiochannels, Channels}];
+    (_) ->
+      []
+  end, Streams),
 
   DurationMeta = case Duration of
     undefined -> [];

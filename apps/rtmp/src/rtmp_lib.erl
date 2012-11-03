@@ -71,7 +71,7 @@ default_connect_options(URL) ->
     {audioCodecs,3191.0},
     {videoCodecs,252.0},
     {videoFunction,1.0},
-    {pageUrl,<<"http://localhost:8082/">>},
+    % {pageUrl,<<"http://localhost:8082/">>},
     {objectEncoding,0.0}
   ]).
 
@@ -142,7 +142,9 @@ connect(URL) when is_list(URL) orelse is_binary(URL) ->
 %% @doc Send connect request to server
 connect(RTMP, Options) ->
   {url, URL} = rtmp_socket:getopts(RTMP, url),
-  ConnectArgs = lists:ukeymerge(1, lists:ukeysort(1, Options), default_connect_options(URL)),
+  ConnectArgs = 
+   lists:ukeymerge(1, lists:ukeysort(1, Options), default_connect_options(URL)),
+  ?D({rtmp, URL, ConnectArgs}),
   AMF = #rtmp_funcall{
     command = connect,
     type = invoke,
@@ -178,7 +180,7 @@ play(URL, Options) when is_list(URL) orelse is_binary(URL) ->
   case rtmp_socket:connect(URL, Options) of
     {ok, RTMP} ->
       receive
-        {rtmp, RTMP, connected} -> invoke_rtmp_play(RTMP, URL);
+        {rtmp, RTMP, connected} -> invoke_rtmp_play(RTMP, URL, Options);
         {rtmp, RTMP, disconnect, _} -> {error, disconnect}
       after
         Timeout -> {error, timeout}
@@ -199,9 +201,9 @@ app_path(URL) ->
   end.
   
 
-invoke_rtmp_play(RTMP, URL) ->
+invoke_rtmp_play(RTMP, URL, Options) ->
   rtmp_socket:setopts(RTMP, [{active, true}]),
-  connect(RTMP),
+  connect(RTMP, Options),
   {_App, Path} = app_path(URL),
   ?D({"Connected to RTMP source", URL, _App, Path}),
   Stream = rtmp_lib:createStream(RTMP),

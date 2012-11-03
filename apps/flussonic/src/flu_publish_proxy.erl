@@ -6,12 +6,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("log.hrl").
 
--export([start_link/2]).
+-export([start_link/2, start_link/3]).
 -export([init/1, handle_info/2, terminate/2]).
 
 
 start_link(RTMP, Stream) ->
-  gen_server:start_link(?MODULE, [RTMP, Stream], []).
+  gen_server:start_link(?MODULE, [RTMP, Stream, []], []).
+
+start_link(RTMP, Stream, Options) ->
+  gen_server:start_link(?MODULE, [RTMP, Stream, Options], []).
 
 -record(proxy, {
   rtmp,
@@ -19,6 +22,7 @@ start_link(RTMP, Stream) ->
   media_info,
   start_spec,
   delaying = true,
+  options = [],
   delayed = []
 }).
 
@@ -30,13 +34,13 @@ start_link(RTMP, Stream) ->
 
 -define(START_FRAMES, 5).
 
-init([StartSpec, Stream]) ->
+init([StartSpec, Stream, Options]) ->
   put(flu_name, publish_proxy),
   self() ! init,
   erlang:monitor(process, Stream),
-  {ok, #proxy{start_spec = StartSpec, stream = Stream}}.
+  {ok, #proxy{start_spec = StartSpec, stream = Stream, options = Options}}.
 
-handle_info(init, #proxy{start_spec = StartSpec} = Proxy) ->
+handle_info(init, #proxy{start_spec = StartSpec, options = Options} = Proxy) ->
   RTMP = if
     is_pid(StartSpec) ->
       erlang:monitor(process, StartSpec),
@@ -51,7 +55,7 @@ handle_info(init, #proxy{start_spec = StartSpec} = Proxy) ->
           throw({stop, normal, Proxy})
       end;
     is_list(StartSpec) orelse is_binary(StartSpec) ->
-      case rtmp_lib:play(StartSpec) of
+      case rtmp_lib:play(StartSpec, Options) of
         {ok, Pid} ->
           erlang:monitor(process, Pid),
           Pid;

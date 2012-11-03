@@ -28,7 +28,6 @@
 -export([start_link/2, autostart/2, media_info/1]).
 -export([hds_manifest/1, hds_segment/2, bootstrap/1,hls_playlist/1,hls_segment/2, hds_lang_segment/3]).
 -export([hls_segment/3]).
--export([mbr_files/1, mbr_bitrates/1, mbr_hds_manifest/1]).
 -export([get/2]).
 -export([read_frame/2]).
 -include("log.hrl").
@@ -58,33 +57,6 @@
   mpegts
 }).
 
-mbr_files(VPath) when is_binary(VPath) ->
-  mbr_files(binary_to_list(VPath));
-  
-mbr_files(VPath) when is_list(VPath) ->
-  Ext = filename:extension(VPath),
-  WildCard1 = filename:dirname(VPath) ++ "/" ++ filename:basename(VPath, Ext) ++ "_*" ++ Ext,
-  % WildCard = re:replace(WildCard1, "/./", "/", [{return,list},global]),
-  filelib:wildcard(WildCard1).
-
-path_bitrate(Path) ->
-  {match, [Bitrate]} = re:run(filename:basename(Path, filename:extension(Path)), "_(\\d+)$", [{capture, all_but_first,list}]),
-  list_to_integer(Bitrate).
-  
-mbr_bitrates(VPath) ->
-  [{path_bitrate(Path), Path} || Path <- mbr_files(VPath)].
-
-mbr_hds_manifest(Path) ->
-  Files = [filename:basename(FilePath) || FilePath <- mbr_files(Path)],
-  Manifest = [
-  "<?xml version=\"1.0\" encoding=\"utf-8\"?> \n",
-  "<manifest xmlns=\"http://ns.adobe.com/f4m/2.0\"> \n",
-  "  <id>", filename:basename(Path), "</id>\n",
-  "  <streamType>recorded</streamType>\n",
-  [ ["  <media href=\"../", FilePath, "/manifest.f4m\" bitrate=\"", integer_to_list(path_bitrate(FilePath)),"\" />\n"] || FilePath <- Files ],
-  "</manifest>"
-  ],
-  {ok, iolist_to_binary(Manifest)}.
   
 
 autostart(Name, Options) ->

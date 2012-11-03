@@ -105,8 +105,13 @@ get_license_key() ->
       case re:run(Data, "^([a-f0-9\\-]+)", [{capture,all_but_first,list}]) of
         nomatch ->
           % Файл лицензии в старом erlang-формате
-          {ok, Env, _} = file:path_consult(["."], ConfigPath),
-          proplists:get_value(license, Env);
+          case file:consult(ConfigPath) of
+            {ok, Env} ->
+              proplists:get_value(license, Env);
+            {error, Error} ->
+              error_logger:error_msg("Failed to load license key because of broken file ~s: ~p", [ConfigPath, Error]),
+              undefined
+          end;
         {match, [Key]} ->
           % Лицензия лежит в виде ключа в файле
           Key
@@ -200,11 +205,16 @@ construct_url(LicenseKey) when is_list(LicenseKey) ->
   end,
   LicenseURL = "http://erlyvideo.org/temp_key/flussonic/"++LicenseKey ++ Version,
 
-  case http_stream:request_body(LicenseURL,[{noredirect, true}]) of
-	  {ok,{Socket,_Code,_Headers,URL}} ->
-	    (catch gen_tcp:close(Socket)),
+  case http_stream:request_body(LicenseURL,[{noredirect, true},{keepalive,false}]) of
+	  {ok,{_Socket,200,_Headers,URL}} ->
 	    save_temp_url(URL),
 	    URL;
+    {ok,{_Socket,403,_Headers,_Body}} ->
+      error_logger:error_msg("License server rejected your key ~s: ~p",[LicenseKey, _Body]),
+      undefined;
+    {ok,{_Socket,Code,_Headers,_Body}} ->
+      error_logger:error_msg("License server don't know about key ~s: ~p ~p",[LicenseKey, Code, _Body]),
+      undefined;
 	  _Error ->
 	    find_cached_temp_url()
 	end.

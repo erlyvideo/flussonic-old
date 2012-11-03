@@ -50,11 +50,14 @@ init(Options) ->
 
 
 update_options(Options, #udp{socket = undefined, name = Name, media_info = MI} = UDP) ->
-  Mpegts0 = mpegts:init(),
+  Mpegts0 = mpegts:init([{resync_on_keyframe,true}]),
   URL = proplists:get_value(udp, Options),
+  MulticastLoop = proplists:get_value(multicast_loop, Options, true),
+  MulticastTtl = proplists:get_value(multicast_ttl, Options, 4),
   {udp, _, Host1, Port, _, _} = http_uri2:parse(URL),
   {ok, Host} = inet_parse:address(Host1),
-  {ok, Socket} = gen_udp:open(0, [{broadcast,true},{reuseaddr,true},{sndbuf,1024*1024}]),
+  {ok, Socket} = gen_udp:open(0, [{broadcast,true},{reuseaddr,true},{sndbuf,1024*1024},
+    {multicast_loop,MulticastLoop},{multicast_ttl,MulticastTtl}]),
   ?DBG("UDP packetizer for stream \"~s\" to url \"~s\"", [Name, URL]),
   Mpegts = case MI of
     undefined -> Mpegts0;

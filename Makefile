@@ -19,11 +19,14 @@ install:
 test:
 	./rebar eunit skip_deps=true
 
-app: deps/cowboy
+app: deps/cowboy deps/lager/ebin/lager_transform.beam
 	./rebar compile skip_deps=true
 
 deps/cowboy:
 	./rebar get-deps compile
+
+deps/lager/ebin/lager_transform.beam:
+	./rebar compile
 
 clean:
 	./rebar clean
