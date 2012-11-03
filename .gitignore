@@ -2,4 +2,6 @@ deps
 .DS_Store
 priv/flussonic.conf
 
+.vagrant
 .eunit
+.vagrant_aptcache
