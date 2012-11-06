@@ -71,7 +71,7 @@ reload_mod(Module) when is_atom(Module) ->
 
 default_file_access() ->
   MmapReady = mmap:ready(),
-  case proplists:get_value(file_access, flu_config:get_config(), file) of
+  case proplists:get_value(file_access, flu_config:get_config(), mmap) of
     file -> file;
     mmap when MmapReady -> mmap;
     mmap when not MmapReady -> file

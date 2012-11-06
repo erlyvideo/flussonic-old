@@ -22,15 +22,9 @@
 
 
 init_nif() ->
-  case code:lib_dir(flussonic,priv) of
-    Dir when is_list(Dir) ->
-      Path = Dir ++ "/mmap",
-      case erlang:load_nif(Path, 0) of
-        ok -> ok;
-        {error, Error} -> ?DBG("Loading mmap failed: ~p. Acceleration disabled", [Error]), ok
-      end;
-    _ ->
-      ok
+  case erlang:load_nif("apps/flussonic/priv/mmap", 0) of
+    ok -> ?DBG("mmap loaded, acceleration enabled.", []), ok;
+    {error, Error} -> ?DBG("Loading mmap failed: ~p. Acceleration disabled", [Error]), ok
   end.
 
 

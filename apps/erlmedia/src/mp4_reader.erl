@@ -30,7 +30,6 @@
 -include("../include/aac.hrl").
 -include("../include/media_info.hrl").
 -include("log.hrl").
--define(TRACK_OFFSET, 255).
 
 
 -export([init/2, media_info/1, read_frame/2, properties/1, seek/3, can_open_file/1, write_frame/2]).
@@ -116,7 +115,7 @@ media_info(#mp4_media{additional = Additional, duration = Duration, tracks = Tra
     end,
     #stream_info{
       content   = Track#mp4_track.content,
-      track_id  = Track#mp4_track.track_id + ?TRACK_OFFSET,
+      track_id  = Track#mp4_track.track_id,
       codec     = Track#mp4_track.codec,
       config    = Track#mp4_track.decoder_config,
       bitrate   = Track#mp4_track.bitrate,
@@ -221,7 +220,7 @@ read_frame(MediaInfo, undefined) ->
 
 read_frame(#mp4_media{} = Media, {config, Content, TrackId, DTS, Pos}) ->
   Frame = codec_config({Content,TrackId}, Media),
-  Frame#video_frame{next_id = Pos, dts = DTS, pts = DTS, track_id = TrackId + ?TRACK_OFFSET};
+  Frame#video_frame{next_id = Pos, dts = DTS, pts = DTS, track_id = TrackId};
 
 read_frame(_, eof) ->
   eof;
@@ -232,13 +231,13 @@ read_frame(#mp4_media{} = Media, Id) ->
       eof;
     #mp4_frame{content = text, next_id = Next, body = Data, track_id = TrackId} = Frame ->
 		  VideoFrame = video_frame(text, Frame, Data),
-		  VideoFrame#video_frame{next_id = Next, track_id = TrackId + ?TRACK_OFFSET};
+		  VideoFrame#video_frame{next_id = Next, track_id = TrackId};
     #mp4_frame{offset = Offset, size = Size, content = Content, next_id = Next, track_id = TrackId} = Frame ->
       % ?D({"read frame", Id, Offset, Size,Content}),
     	case read_data(Media, Offset, Size) of
     		{ok, Data, _} ->
     		  VideoFrame = video_frame(Content, Frame, Data),
-    		  VideoFrame#video_frame{next_id = Next, track_id = TrackId + ?TRACK_OFFSET};
+    		  VideoFrame#video_frame{next_id = Next, track_id = TrackId};
         eof -> eof;
         {error, Reason} -> {error, Reason}
       end

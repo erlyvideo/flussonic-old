@@ -52,8 +52,8 @@ handle(Req, Opts) ->
     throw:{return,Code,Headers,Msg} ->
       {ok, R1} = cowboy_req:reply(Code, Headers, [Msg, "\n"], Req),
       {ok, R1, undefined};
-    exit:Reason ->
-      {ok, R1} = cowboy_req:reply(500, [], ["Internal server error\n", io_lib:format("~p~n~p~n", [Reason, erlang:get_stacktrace()])], Req),
+    Class:Reason ->
+      {ok, R1} = cowboy_req:reply(500, [], ["Internal server error\n", io_lib:format("~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()])], Req),
       {ok, R1, undefined}
   end.
 
@@ -191,6 +191,9 @@ call_mfa({M,F,A}, ReplyHeaders, Name, Req) ->
       {ok, R1, undefined};
     undefined ->
       {ok, R1} = cowboy_req:reply(404, [], "No playlist found\n", Req),
+      {ok, R1, undefined};
+    {error, no_segment} ->
+      {ok, R1} = cowboy_req:reply(404, [], "No segment found\n", Req),
       {ok, R1, undefined};
     {error, Error} ->
       {ok, R1} = cowboy_req:reply(500, [], iolist_to_binary(["Error: ", io_lib:format("~p~n", [Error]), "\n"]), Req),

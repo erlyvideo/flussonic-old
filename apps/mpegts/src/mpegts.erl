@@ -52,7 +52,7 @@
 
 -define(TS_PACKET, 184). % 188 - 4 bytes of header
 -define(PMT_PID, 4095).
-
+-define(PID_OFFSET, 200). % add this to track_id for PID
 
   
 read(URL, Options) ->
@@ -161,7 +161,7 @@ rewrite_track_ids(MediaInfo) -> MediaInfo.
 
 save_media_info(#streamer{} = Streamer, #media_info{streams = Streams} = MediaInfo) ->
   PcrPid = erlang:hd([TrackId || #stream_info{track_id = TrackId} <- Streams]),
-  Streamer#streamer{media_info = MediaInfo, pcr_pid = PcrPid}.
+  Streamer#streamer{media_info = MediaInfo, pcr_pid = PcrPid + ?PID_OFFSET}.
 
 encode_frame(#streamer{media_info = #media_info{streams = Infos}} = Streamer, 
              #video_frame{track_id = TrackId, next_id = NextId, content = Content} = Frame) when Content == audio orelse Content == video ->
@@ -282,7 +282,7 @@ pack_audio_pes([#video_frame{codec = Codec, dts = DTS}|_] = Audio, #stream_info{
   end || #video_frame{body = Body} <- Audio],
   PES = [<<1:24, (pes_code(Codec)), (size(PesHeader) + iolist_size(Packed)):16>>, PesHeader, Packed],
   % ?D({send_aac, length(Audio), Codec, iolist_size(PES)}),
-  #pes{pid = TrackId, dts = DTS, body = PES, keyframe = false}.
+  #pes{pid = TrackId + ?PID_OFFSET, dts = DTS, body = PES, keyframe = false}.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -310,7 +310,7 @@ pack_video_pes([#video_frame{codec = Codec, dts = DTS, pts = PTS, flavor = Flavo
   
   % Add proper NAL packing
   
-  #pes{pid = TrackId, body = [<<1:24, (pes_code(Codec)), 0:16>>, PesHeader, Body], dts = DTS, keyframe = Flavor == keyframe}.
+  #pes{pid = TrackId + ?PID_OFFSET, body = [<<1:24, (pes_code(Codec)), 0:16>>, PesHeader, Body], dts = DTS, keyframe = Flavor == keyframe}.
 
 
 unpack_nals(Bin, 4) ->
@@ -387,7 +387,7 @@ send_pat(Streamer) ->
   mux(#ts_psi{pid = ?PAT_PID, body = PAT}, Streamer).
 
 send_pmt(#streamer{media_info = #media_info{streams = Streams}, pcr_pid = PcrPid} = Streamer) ->
-  Programs = [{Codec, TrackId, [{lang,Language},{config,Config}]} || #stream_info{codec = Codec, track_id = TrackId, language = Language, config = Config} <- Streams],
+  Programs = [{Codec, TrackId + ?PID_OFFSET, [{lang,Language},{config,Config}]} || #stream_info{codec = Codec, track_id = TrackId, language = Language, config = Config} <- Streams],
   PMT = mpegts_psi:encode(pmt, [{program,1},{pcr_pid,PcrPid},{streams, Programs}]),
   mux(#ts_psi{pid = ?PMT_PID, body = PMT}, Streamer).
 

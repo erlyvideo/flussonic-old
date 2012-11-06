@@ -89,6 +89,7 @@ tgz:
 	rm -rf flussonic-$(VERSION)/deps/*/.git
 	rm -rf flussonic-$(VERSION)/apps/rtsp/priv
 	rm -rf flussonic-$(VERSION)/deps/lager/rebar
+	rm -rf flussonic-$(VERSION)/apps/flussonic/c_src
 	rm -f flussonic-$(VERSION)/apps/mpegts/contrib/build_table.rb
 	rm -f flussonic-$(VERSION)/apps/flussonic/mibs-unused/ERLYVIDEO-MIB.mib
 	tar zcf flussonic-$(VERSION).tgz flussonic-$(VERSION)
@@ -101,6 +102,8 @@ package:
 	mkdir -p tmproot/opt/flussonic/deps
 	[ -d deps ] && for d in deps/* ; do git clone $$d tmproot/opt/flussonic/deps/`basename $$d`; done || true
 	(cd tmproot/opt/flussonic/ && ./rebar get-deps && ./rebar compile)
+	mkdir -p tmproot/opt/flussonic/apps/flussonic/priv/
+	cp -f priv/mmap-squeeze64.so tmproot/opt/flussonic/apps/flussonic/priv/mmap.so
 	rm -rf tmproot/opt/flussonic/deps/proper*
 	rm -rf tmproot/opt/flussonic/apps/mpegts/contrib/build_table.rb tmproot/opt/flussonic/apps/rtsp/priv/* tmproot/opt/flussonic/deps/*/test
 	rm -rf tmproot/opt/flussonic/deps/*/.git tmproot/opt/flussonic/.git

@@ -14,14 +14,14 @@ Vagrant::Config.run do |config|
     conf.vm.forward_port 8080, 9080
     conf.vm.forward_port 6081, 9081
     conf.vm.forward_port 6082, 9082
-    conf.vm.share_folder "v-apt", "/var/cache/apt", ".vagrant_aptcache"
+    conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
 
   config.vm.define :precise64 do |conf|
     conf.vm.box = "precise64"
     conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
     conf.vm.provision :shell, :path => "manifests/precise64.sh"
-    conf.vm.share_folder "v-apt", "/var/cache/apt", ".vagrant_aptcache"
+    conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
 
   config.vm.define :squeeze64 do |conf|
@@ -29,7 +29,7 @@ Vagrant::Config.run do |config|
     conf.vm.box_url = "http://puppetlabs.s3.amazonaws.com/pub/squeeze64.box"
     conf.vm.provision :shell, :path => "manifests/squeeze64.sh"
     conf.vm.forward_port 8080, 9180
-    conf.vm.share_folder "v-apt", "/var/cache/apt", ".vagrant_aptcache"
+    conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
 
 
@@ -38,7 +38,7 @@ Vagrant::Config.run do |config|
     conf.vm.box_url = "http://puppetlabs.s3.amazonaws.com/pub/squeeze64.box"
     conf.vm.provision :shell, :path => "manifests/compile_public.sh"
     conf.vm.forward_port 8080, 9190
-    conf.vm.share_folder "v-apt", "/var/cache/apt", ".vagrant_aptcache"
+    conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
 
   config.vm.define :centos6 do |conf|

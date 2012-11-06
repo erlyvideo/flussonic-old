@@ -9,7 +9,7 @@ compile:
 	$(REBAR) compile
 
 install:
-	mkdir -p $(DESTROOT)/usr/share/flussonic/deps $(DESTROOT)/etc/init.d/ $(DESTROOT)/etc/default
+	mkdir -p $(DESTROOT)/usr/share/flussonic $(DESTROOT)/usr/lib/flussonic/deps $(DESTROOT)/etc/init.d/ $(DESTROOT)/etc/default
 	cp -r apps deps wwwroot $(DESTROOT)/usr/share/flussonic
 	cp priv/flussonic $(DESTROOT)/etc/init.d/
 	echo "FLUDIR=/usr/share/flussonic" >> $(DESTROOT)/etc/default/flussonic
@@ -23,3 +23,5 @@ install:
 escriptize:
 	./contrib/escriptize
 
+clean:
+	$(REBAR) clean
