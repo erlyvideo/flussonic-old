@@ -43,7 +43,11 @@
 
 init({_Any,http}, Req, Opts) ->
   {PathInfo, Req1} = cowboy_req:path_info(Req),
-  Name = flu:join(PathInfo, "/"),
+  Name = case proplists:get_value(name, Opts) of
+    undefined when PathInfo =/= undefined -> flu:join(PathInfo, "/");
+    Name_ -> Name_
+  end,
+  flu_stream:autostart(Name, Opts),
   {Method, Req2} = cowboy_req:method(Req1),
   {ok, Req2, #mpegts{name = Name, method = Method, options = Opts}}.
 

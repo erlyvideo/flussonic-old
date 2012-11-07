@@ -28,6 +28,7 @@
 
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -include("log.hrl").
 
 -record(udp, {
@@ -59,18 +60,25 @@ update_options(Options, #udp{socket = undefined, name = Name, media_info = MI} =
   {ok, Socket} = gen_udp:open(0, [{broadcast,true},{reuseaddr,true},{sndbuf,1024*1024},
     {multicast_loop,MulticastLoop},{multicast_ttl,MulticastTtl}]),
   ?DBG("UDP packetizer for stream \"~s\" to url \"~s\"", [Name, URL]),
-  Mpegts = case MI of
-    undefined -> Mpegts0;
-    _ -> 
-      {Mpegts0_, Data} = mpegts:encode(Mpegts0, MI),
-      gen_udp:send(Socket, Host, Port, Data),
-      Mpegts0_
-  end,
-  {ok, UDP#udp{options = Options, mpegts = Mpegts, host = Host, port = Port, socket = Socket}};
+  UDP1 = set_media_info(MI, UDP#udp{mpegts = Mpegts0, options = Options, host = Host, port = Port, socket = Socket}),
+  {ok, UDP1};
 
 update_options(Options, #udp{socket = Socket} = UDP) ->
   gen_udp:close(Socket),
   update_options(Options, UDP#udp{socket = undefined}).
+
+
+set_media_info(#media_info{} = MI, #udp{host = Host, port = Port, socket = Socket, mpegts = Mpegts} = UDP) ->
+  {Mpegts0_, Data} = mpegts:encode(Mpegts, MI),
+  gen_udp:send(Socket, Host, Port, Data),
+  UDP#udp{mpegts = Mpegts0_, media_info = MI};
+
+set_media_info(undefined, #udp{} = UDP) ->
+  UDP.
+
+
+handle_info(#video_frame{}, #udp{media_info = undefined} = State) ->
+  {noreply, State};
 
 handle_info(#video_frame{} = Frame, #udp{mpegts = Mpegts, socket = Socket, host = Host, port = Port} = State) ->
   {Mpegts1, Data1} = mpegts:encode(Mpegts, Frame),
@@ -85,7 +93,7 @@ handle_info(#video_frame{} = Frame, #udp{mpegts = Mpegts, socket = Socket, host 
   end;
 
 handle_info(#media_info{} = MI, #udp{} = UDP) ->
-  {noreply, UDP#udp{media_info = MI}};
+  {noreply, set_media_info(MI, UDP)};
 
 handle_info(_Frame, State) ->
   {noreply, State}.

@@ -538,7 +538,15 @@ handle_info(Message, #stream{} = Stream) ->
   {noreply, Stream1}.
 
 
-pass_message(Message, #stream{hls = {HLSMod, HLS}, hds = {HDSMod, HDS}, udp = {UDPMod, UDP}} = Stream) ->
+pass_message(Message, Stream) ->
+  try pass_message0(Message, Stream)
+  catch
+    Class:Error ->
+      ?DBG("Failed to pass message ~p: ~p:~p~n~p", [Message, Class, Error, erlang:get_stacktrace()]),
+      erlang:raise(Class, Error, erlang:get_stacktrace())
+  end.
+
+pass_message0(Message, #stream{hls = {HLSMod, HLS}, hds = {HDSMod, HDS}, udp = {UDPMod, UDP}} = Stream) ->
   {noreply, HLS1} = HLSMod:handle_info(Message, HLS),
   {noreply, HDS1} = HDSMod:handle_info(Message, HDS),
   {noreply, UDP1} = UDPMod:handle_info(Message, UDP),

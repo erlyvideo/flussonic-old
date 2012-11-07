@@ -1,0 +1,12 @@
+{application, ffmpeg,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { ffmpeg_app, []}},
+  {env, []}
+ ]}.

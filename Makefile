@@ -32,6 +32,10 @@ clean:
 	./rebar clean
 	rm -f erl_crash.dump
 
+compile_public:
+	vagrant destroy -f compile_public
+	vagrant up compile_public
+
 run:
 	ERL_LIBS=apps:deps erl +K true +A 16 +a 2048 -name $(NODENAME)@127.0.0.1 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error
 
