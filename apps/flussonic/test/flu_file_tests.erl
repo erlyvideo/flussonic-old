@@ -61,6 +61,8 @@ test_hds_segment({_,File}) ->
   ?assertMatch(Audio when length(Audio) > 10, Audio),
   ?assertMatch(Video when length(Video) > 10, Video),
 
+  ?assertMatch([#video_frame{flavor = config}, #video_frame{flavor = keyframe}|_], Video),
+
   ?assertEqual(11883, hd(Ats)),
   ?assertEqual(15744, lists:last(Ats)),
   ?assertEqual(11875, hd(Vts)),
