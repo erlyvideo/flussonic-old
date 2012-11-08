@@ -6,14 +6,14 @@
 
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
--export([find_session/1, new_session/2, update_session/1, url/1, ref/1]).
+-export([find_session/1, new_or_update/2, update_session/1, url/1, ref/1]).
 -export([info/1]).
 -export([table/0]).
 -export([stats/0]).
 -export([list/0, clients/0]).
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("eunit/include/eunit.hrl").
-
+-include("flu_session.hrl").
 
 -export([verify/3]).
 
@@ -29,34 +29,19 @@
 % }).
 
 
--record(session, {
-  session_id,
-  token,
-  ip,
-  name,
-  user_id,
-  flag,
-  type, %  :: <<"hds">>|<<"hls">>|<<"http">>
-  created_at,
-  expire_time,
-  last_access_time,
-  bytes_sent,
-  pid,
-  ref,
-  options = []
-}).
 
 
 merge(List1, List2) ->
   lists:ukeymerge(1, lists:ukeysort(1,List1), lists:ukeysort(1, List2) ).
 
 verify(URL, Identity, Options) ->
+  Now = flu:now_ms(),
 
   {Session, ErrorMessage} = case find_session(Identity) of
-    undefined ->
+    Sess when Sess == undefined orelse Sess#session.last_access_time + Sess#session.expire_time < Now ->
       case backend_request(URL, Identity, Options) of
-        {error,  {_Code,ErrMsg}, Opts1} -> {new_session(Identity, Opts1 ++ Options), ErrMsg};
-        {ok, Name1, Opts1} -> {new_session(Identity, merge([{name,Name1}], Opts1 ++ Options)), "cached_positive"}
+        {error,  {_Code,ErrMsg}, Opts1} -> {new_or_update(Identity, Opts1 ++ Options), ErrMsg};
+        {ok, Name1, Opts1} -> {new_or_update(Identity, merge([{name,Name1}], Opts1 ++ Options)), "cached_positive"}
       end;
     R -> {R, "cached_negative"}
   end,
@@ -76,10 +61,11 @@ backend_request(URL, Identity, Options) ->
     [], auth) of
     {ok, {{_,Code,_}, Headers, _Body}} ->
       ?DBG("Backend auth request \"~s\": ~B code", [RequestURL, Code]),
-      Opts0_ = [{expire,to_i(proplists:get_value("x-authduration", Headers))},
+      Opts0_ = [{expire,to_i(proplists:get_value("x-authduration", Headers, 30))*1000},
         {user_id,to_i(proplists:get_value("x-userid", Headers))}],
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
-      Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),
+      % Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),
+      Name = proplists:get_value(name, Identity),
       case Code of
         200 -> {ok,    Name, merge([{access, granted}],Opts0)};
         302 -> {ok,    Name, merge([{access, granted}],Opts0)};
@@ -94,11 +80,13 @@ backend_request(URL, Identity, Options) ->
 
 to_i(undefined) -> undefined;
 to_i(List) when is_list(List) -> list_to_integer(List);
-to_i(Bin) when is_binary(Bin) -> list_to_integer(binary_to_list(Bin)).
+to_i(Bin) when is_binary(Bin) -> list_to_integer(binary_to_list(Bin));
+to_i(Int) when is_integer(Int) -> Int.
 
-to_b(undefined) -> undefined;
-to_b(List) when is_list(List) -> list_to_binary(List);
-to_b(Bin) when is_binary(Bin) -> Bin.
+
+% to_b(undefined) -> undefined;
+% to_b(List) when is_list(List) -> list_to_binary(List);
+% to_b(Bin) when is_binary(Bin) -> Bin.
 
 clients() ->
   Now = flu:now_ms(),
@@ -142,7 +130,7 @@ find_session(Identity) ->
     [#session{} = Session] -> Session
   end.
 
-new_session(Identity, Opts) ->
+new_or_update(Identity, Opts) ->
   Flag    = proplists:get_value(access, Opts, denied),
   Expire  = proplists:get_value(expire, Opts, ?TIMEOUT),
   Pid     = proplists:get_value(pid, Opts),
@@ -157,12 +145,21 @@ new_session(Identity, Opts) ->
   {ok, Ref} = if is_pid(Pid) -> gen_server:call(?MODULE, {register, Pid});
     Pid == undefined -> {ok, undefined}
   end,
-  Session = #session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
-                     expire_time = Expire, last_access_time = Now, type = proplists:get_value(type, Opts, <<"http">>),
-                     flag = Flag, bytes_sent = 0, pid = Pid, ref = Ref, user_id = UserId},
+  {OldSession, New} = case ets:lookup(flu_session:table(), SessionId) of
+    [#session{} = Old_] -> 
+      {Old_, false};
+    [] -> 
+      {#session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
+      bytes_sent = 0, pid = Pid, ref = Ref, user_id = UserId, type = proplists:get_value(type, Opts, <<"http">>)}, true}
+  end,
+  Session = OldSession#session{expire_time = Expire, last_access_time = Now, flag = Flag},
   ets:insert(flu_session:table(), Session),
   erlang:put(<<"session_cookie">>, Token),
-  flu_event:user_connected(Name, info(Session)),
+
+  case New of
+    true -> flu_event:user_connected(Name, info(Session));
+    false -> ok
+  end,
   Session.
 
 update_session(#session{session_id = SessionId, flag = Flag}) ->
@@ -216,3 +213,6 @@ handle_info(_Info, State) ->
 
 
 terminate(_,_) -> ok.
+
+
+
