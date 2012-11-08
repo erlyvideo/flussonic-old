@@ -11,16 +11,20 @@
 
 
 flu_file_test_() ->
+  CommonTests =   [
+    {with, [fun test_hls_segment/1]}
+    ,{with, [fun test_hds_manifest/1]}
+    ,{with, [fun test_hds_land_segment/1]}
+    ,{with, [fun test_hds_segment/1]}
+  ],
+  Tests = case file:read_file_info("../../hls") of
+    {ok, _} -> [{with, [fun test_hls_playlist/1]}] ++ CommonTests;
+    {error, _} -> CommonTests
+  end,
   {foreach,
   fun setup_flu_file/0,
   fun teardown_flu_file/1,
-  [{with, [
-    fun test_hls_playlist/1,
-    fun test_hls_segment/1,
-    fun test_hds_manifest/1,
-    fun test_hds_land_segment/1,
-    fun test_hds_segment/1
-  ]}]}.
+  Tests}.
 
 setup_flu_file() ->
   application:start(gen_tracker),

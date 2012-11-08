@@ -50,7 +50,7 @@ read_frames(R, Key) ->
 listen_multicast(Port) ->
   {ok,Addr} = inet_parse:address("239.0.0.1"),
   {ok,Sock} = gen_udp:open(Port, [binary,{add_membership,{Addr,{0,0,0,0}}},
-    {reuseaddr,true},{multicast_ttl,4},{multicast_loop,true},{active,true}]),
+    {reuseaddr,true},{multicast_ttl,4},{multicast_loop,true},{active,true},{recbuf,10*1024*1024}]),
   {ok, Sock}.  
 
 test_packetizer() ->
@@ -63,7 +63,7 @@ test_packetizer() ->
 
   Frames1 = read_from_udp(Sock),
   Length = length(Frames1),
-  ?assertMatch(_ when Length > 500, Length),
+  ?assertMatch(_ when Length > 200, Length),
 
   ok.
 

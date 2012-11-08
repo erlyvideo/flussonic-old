@@ -59,9 +59,19 @@ check_frames(VideoStart,VideoEnd,VideoTrackId,VideoCount,AudioStart,AudioEnd,Aud
 %   ?assertMatch(_ when AudioId >= 1 andalso AudioId =< 3, AudioId),
 %   ok.
 
+mpegts_test_() ->
+  Tests = case file:read_file_info("../test/fixtures") of
+    {ok, _} ->
+      TestFunctions = [F || {F,0} <- ?MODULE:module_info(exports),
+      lists:prefix("readtest_", atom_to_list(F))],
+      [{atom_to_list(F), fun ?MODULE:F/0} || F <- TestFunctions];
+    {error, _} ->
+      []
+  end,
+  Tests.
 
 
-cupertino_test() ->
+readtest_cupertino() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/fileSequence0.ts"),
   % {ok, MP4} = mp4_writer:write_frame_list(Frames, []),
   % file:write_file("a.mp4",MP4),
@@ -69,29 +79,29 @@ cupertino_test() ->
   check_frames(10000, 19958.33, 257, 241, 10000, 19856, 258, 469, Frames),
   ok.
 
-cupertino1_test() ->
+readtest_cupertino1() ->
   {ok, Frames} = mpegts_reader:read_file("../test/fixtures/fileSequence0.ts"),
   % mpegts_reader is known to loose last audio frames
   check_frames(10000, 19958.33, 257, 241, 10000, 19856, 258, undefined, Frames),
   ok.
 
-flu_test() ->
+readtest_flu() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/41-08000.ts"),
   check_frames(67589358.4, 67597318.4, 101, 201, 67589448.0, 67597426.7, 100, 376, Frames),
   ok.
 
-flu1_test() ->
+readtest_flu1() ->
   {ok, Frames} = mpegts_reader:read_file("../test/fixtures/41-08000.ts"),
   check_frames(67589358.4, 67597318.4, 101, undefined, 67589448.0, 67597426.7, 100, undefined, Frames),
   ok.
 
-more_test() ->
+readtest_more() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/media_7946.ts"),
   check_frames(79501707.0, 79509907.0, 256, 209, 79501624.0, 79509880.0, 257, 391, Frames),
   ok.
 
 
-more1_test() ->
+readtest_more1() ->
   {ok, Frames} = mpegts_reader:read_file("../test/fixtures/media_7946.ts"),
   check_frames(79501707.0, 79509907.0, 256, undefined, 79501624.0, 79509880.0, 257, undefined, Frames),
   ok.
