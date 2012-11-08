@@ -32,6 +32,7 @@ mp3_frame(DTS) ->
 
 
 init_all() ->
+  error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(ranch),
   application:stop(gen_tracker),
   application:stop(flussonic),
