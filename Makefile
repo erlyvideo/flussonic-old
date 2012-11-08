@@ -109,6 +109,7 @@ package:
 	mkdir -p tmproot/opt/flussonic/apps/flussonic/priv/
 	cp -f priv/mmap-squeeze64.so tmproot/opt/flussonic/apps/flussonic/priv/mmap.so
 	rm -rf tmproot/opt/flussonic/deps/proper*
+	rm -rf tmproot/opt/flussonic/apps/ffmpeg
 	rm -rf tmproot/opt/flussonic/apps/mpegts/contrib/build_table.rb tmproot/opt/flussonic/apps/rtsp/priv/* tmproot/opt/flussonic/deps/*/test
 	rm -rf tmproot/opt/flussonic/deps/*/.git tmproot/opt/flussonic/.git
 	mkdir -p tmproot/usr/share/doc/flussonic
