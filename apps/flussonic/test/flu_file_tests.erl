@@ -12,13 +12,12 @@
 
 flu_file_test_() ->
   CommonTests =   [
-    {with, [fun test_hls_segment/1]}
-    ,{with, [fun test_hds_manifest/1]}
-    ,{with, [fun test_hds_land_segment/1]}
+    {with, [fun test_hds_manifest/1]}
+    ,{with, [fun test_hds_lang_segment/1]}
     ,{with, [fun test_hds_segment/1]}
   ],
   Tests = case file:read_file_info("../../hls") of
-    {ok, _} -> [{with, [fun test_hls_playlist/1]}] ++ CommonTests;
+    {ok, _} -> [{with, [fun test_hls_playlist/1]},{with, [fun test_hls_segment/1]}] ++ CommonTests;
     {error, _} -> CommonTests
   end,
   {foreach,
@@ -69,7 +68,7 @@ test_hds_segment({_,File}) ->
   ok.
 
 
-test_hds_land_segment({_,File}) ->
+test_hds_lang_segment({_,File}) ->
   ?assertMatch({ok, <<_Size:32, "mdat", _FLV/binary>>}, flu_file:hds_lang_segment(File, <<"2">>, 4)),
   {ok, <<_Size:32, "mdat", FLV/binary>>} = flu_file:hds_lang_segment(File, <<"2">>, 4),
   Frames = flv:read_all_frames(FLV),
@@ -114,7 +113,7 @@ test_hds_manifest({_,File}) ->
 
 
 http_file_test_() ->
-  {foreach,
+  Spec = {foreach,
     fun setup/0,
     fun teardown/1,
     % [{with, [fun ?MODULE:F/1]} || F <- TestFunctions]
@@ -123,7 +122,12 @@ http_file_test_() ->
       {"test_local_http_file_segment", fun test_local_http_file_segment/0},
       {"test_access_http_file", fun test_access_http_file/0}
     ]
-  }.
+  },
+
+  case file:read_file_info("../../http_file") of
+    {ok, _} -> Spec;
+    {error, _} -> []
+  end.
 
 
 
