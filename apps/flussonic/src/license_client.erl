@@ -165,7 +165,7 @@ load_code_from_server(LicenseKey) ->
 load_by_url(URL) ->
   error_logger:info_msg("License request: ~p~n", [URL]),
   case http_stream:request_body(URL,[{timeout,30000}]) of
-    {ok, {Socket, 200, _Headers, Bin}} ->
+    {ok, {Socket, Code, _Headers, Bin}} when Code == 200 orelse Code == 302 ->
       error_logger:info_msg("Loading licensed code~n"),
       gen_tcp:close(Socket),
       unpack_server_response(Bin);
@@ -206,7 +206,7 @@ construct_url(LicenseKey) when is_list(LicenseKey) ->
   LicenseURL = "http://erlyvideo.org/temp_key/flussonic/"++LicenseKey ++ Version,
 
   case http_stream:request_body(LicenseURL,[{noredirect, true},{keepalive,false}]) of
-	  {ok,{_Socket,200,_Headers,URL}} ->
+	  {ok,{_Socket,Code,_Headers,URL}} when Code == 200 orelse Code == 302 ->
 	    save_temp_url(URL),
 	    URL;
     {ok,{_Socket,403,_Headers,_Body}} ->
