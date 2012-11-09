@@ -13,6 +13,7 @@ start_link() ->
 
 init([]) ->
   self() ! check,
+  put(name, flu_health),
   % gen_event:add_sup_handler(alarm_handler, ?MODULE, [event]),  
   {ok, #health{}};
 
@@ -45,9 +46,25 @@ handle_info(check, #health{ref = OldRef} = State) ->
     undefined -> ok;
     _ -> erlang:cancel_timer(OldRef)
   end,
-  Enabled = enabled(),
+  Enabled = enabled() andalso whereis(memsup) =/= undefined,
+  case Enabled of
+    true -> check_memory();
+    _ -> ok
+  end,
+  Ref = erlang:send_after(2000, self(), check),
+  {noreply, State#health{ref = Ref}, hibernate}.
+
+terminate(_Arg, _State) ->
+  ok.
+
+
+enabled() ->
+  not proplists:get_value(disable_health, flu_config:get_config(), false).
+
+
+check_memory() ->
   case memsup:get_memory_data() of
-    {Total, _, _} when Total > 0 andalso Enabled ->
+    {Total, _, _} when Total > 0 ->
       case ems_debug:top(full_memory) of
         [{Pid,Worst}|_] when Worst > 0 andalso Worst / Total > 0.6 ->
           error_logger:info_msg("Warning! Process ~p is consuming too much memory: ~B out of ~B. Killing~n", [Pid, Worst, Total]),
@@ -75,15 +92,4 @@ handle_info(check, #health{ref = OldRef} = State) ->
       end;
     _ ->
       ok
-  end,
-  Ref = erlang:send_after(2000, self(), check),
-  {noreply, State#health{ref = Ref}, hibernate}.
-
-terminate(_Arg, _State) ->
-  ok.
-
-
-enabled() ->
-  not proplists:get_value(disable_health, flu_config:get_config(), false).
-
-  
+  end.

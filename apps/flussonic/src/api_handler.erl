@@ -114,7 +114,7 @@ check_auth(Req, Opts, Class, Caller, Fun) ->
   end.
       
 check_password(Req, Login, Password, Caller, Fun) ->
-  {Auth, Req1} = cowboy_req:header('Authorization', Req),
+  {Auth, Req1} = cowboy_req:header(<<"authorization">>, Req),
   GoodAuth = iolist_to_binary(["Basic ", base64:encode_to_string(Login++":"++Password)]),
   if Auth == GoodAuth -> Fun();
   true -> 

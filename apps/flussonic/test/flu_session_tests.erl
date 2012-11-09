@@ -11,17 +11,19 @@ setup_flu_session() ->
   Apps = [ranch, gen_tracker, cowboy, flussonic],
   [application:stop(App) || App <- lists:reverse(Apps)],
   [ok = application:start(App) || App <- Apps],
-  cowboy:stop_listener(fake_http),
+  % cowboy:stop_listener(fake_http),
+  gen_tracker_sup:start_tracker(flu_files),
+  gen_tracker_sup:start_tracker(flu_streams),
 
 
-  meck:new([flu_config,flu_session,http_stream], [{passthrough,true}]),
+  Modules = [flu_session, fake_auth],
+  meck:new(Modules, [{passthrough,true}]),
   Table = ets:new(test_sessions, [{keypos,2},public]),
   meck:expect(flu_session,table, fun() -> Table end),
   meck:expect(flu_session, timeout, fun() -> 100 end),
-  meck:new(fake_auth),
   meck:expect(fake_auth, init, fun(_, Req, _) -> {ok, Req, state} end),
-  meck:expect(fake_auth, handle, fun(Req, _) -> 
-    {Code, Headers, Body} = fake_auth:reply(),
+  meck:expect(fake_auth, handle, fun(Req, _) ->
+    {Code, Headers, Body} = fake_auth:reply(Req),
     {ok, R1} = cowboy_req:reply(Code, Headers, Body, Req),
     {ok, R1, undefined}
   end),
@@ -29,7 +31,13 @@ setup_flu_session() ->
   Dispatch = [{'_', [{['...'], fake_auth, []}]}],
   {ok, _} = cowboy:start_http(fake_http, 1, [{port, 6070}],
     [{dispatch, Dispatch}]),
-  {[flu_config,flu_session,http_stream, fake_auth]}.
+  
+  ServerConf = [{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6070/"}]}],
+  {ok, ServerConfig} = flu_config:parse_config(ServerConf, undefined),
+  {ok, _} = cowboy:start_http(our_http, 1, [{port, 5555}],
+    [{dispatch, [{'_', flu_config:parse_routes(ServerConfig)}]}]
+  ),
+  {Modules}.
 
 teardown_flu_session({Modules}) ->
   ets:delete(flu_session:table()),
@@ -54,12 +62,12 @@ flu_session_test_() ->
 http_mock_url() -> "http://127.0.0.1:6070/auth".
 
 test_backend_request1() ->
-  meck:expect(fake_auth, reply, fun() -> {200,[], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {200,[], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>, [{access,granted},{expire,30000},{referer,<<"http://ya.ru/">>}]},
     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 test_backend_request2() ->
-  meck:expect(fake_auth, reply, fun() -> {200,[{<<"X-AuthDuration">>, <<"600">>}], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-AuthDuration">>, <<"600">>}], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>, [{access,granted},{expire,600000},{referer,<<"http://ya.ru/">>}]},
     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
@@ -69,7 +77,7 @@ test_backend_request2() ->
 %     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_backend_request4() ->
-  meck:expect(fake_auth, reply, fun() -> {403,[], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {403,[], <<"">>} end),
   ?assertEqual({error, {403, "backend_denied"}, [{access,denied},{expire,30000}]},
     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
@@ -79,12 +87,12 @@ test_backend_request5() ->
     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_backend_request6() ->
-  meck:expect(fake_auth, reply, fun() -> {200,[{<<"X-AuthDuration">>, <<"600">>},{<<"X-UserId">>,<<"15">>}], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-AuthDuration">>, <<"600">>},{<<"X-UserId">>,<<"15">>}], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>, [{access,granted},{expire,600000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 test_backend_request7() ->
-  meck:expect(fake_auth, reply, fun() -> {200,[{<<"X-UserId">>,<<"15">>}], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-UserId">>,<<"15">>}], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>, [{access,granted},{expire,30000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
@@ -104,11 +112,11 @@ test_new_session2() ->
 
 
 test_remember_positive_with_changing_reply() ->
-  meck:expect(fake_auth, reply, fun() -> {200,[], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {200,[], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])),
 
-  meck:expect(fake_auth, reply, fun() -> {403,[], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {403,[], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])).
 
@@ -116,7 +124,7 @@ test_remember_positive_with_changing_reply() ->
 
 test_cached_positive() ->
   Self = self(),
-  meck:expect(fake_auth, reply, fun() ->
+  meck:expect(fake_auth, reply, fun(_) ->
     Self ! backend_request,
     {200,[{<<"X-UserId">>,<<"15">>},{<<"X-AuthDuration">>, <<"10">>}], <<"">>} 
   end),
@@ -139,18 +147,18 @@ test_cached_positive() ->
 
 
 test_remember_negative() ->
-  meck:expect(fake_auth, reply, fun() -> {403,[], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {403,[], <<"">>} end),
   ?assertMatch({error, 403, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])),
 
-  meck:expect(fake_auth, reply, fun() -> {200,[], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {200,[], <<"">>} end),
   ?assertMatch({error, 403, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])),
   ok.
 
 
 test_monitor_session() ->
-  meck:expect(fake_auth, reply, fun() -> {200,[], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {200,[], <<"">>} end),
   Identity = [{ip,<<"127.0.0.5">>},{token,<<"123">>},{name,<<"cam0">>}],
 
   ?assertEqual({ok, <<"cam0">>},
@@ -169,7 +177,7 @@ test_backend_down() ->
   ?assertMatch({error,403,_}, flu_session:verify("http://127.0.0.5/", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])).
 
 test_session_info() ->
-  meck:expect(fake_auth, reply, fun() -> {200,[{<<"X-UserId">>,<<"15">>}], <<"">>} end),
+  meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-UserId">>,<<"15">>}], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])),
   Info = flu_session:info([{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}]),
@@ -196,9 +204,35 @@ assertBackendRequested(Msg) ->
   end.
 
 
+
+test_backend_arguments() ->
+  Self = self(),
+  meck:expect(fake_auth, reply, fun(Req) ->
+    {QsVals, _} = cowboy_req:qs_vals(Req),
+    % ?debugFmt("qs_vals: ~p", [QsVals]),
+    Self ! {backend_request, QsVals},
+    {200,[{<<"X-UserId">>,<<"15">>},{<<"X-AuthDuration">>, <<"5">>}], <<"">>} 
+  end),
+  {ok, Reply} = httpc:request(get, 
+    {"http://127.0.0.1:5555/vod/bunny.mp4/manifest.f4m?session=123", [
+    {"Referer", "http://ya.ru/"}, {"X-Forwarded-For", "94.95.96.97"}]},[],[]),
+  ?assertMatch({{_,200,_}, _, _}, Reply),
+
+  Qs = receive
+    {backend_request, QsVals} -> QsVals
+  after
+    10 -> error(backend_wasnt_requested)
+  end,
+  ?assertEqual(<<"123">>, proplists:get_value(<<"token">>, Qs)),
+  ?assertEqual(<<"bunny.mp4">>, proplists:get_value(<<"name">>, Qs)),
+  ?assertEqual(<<"94.95.96.97">>, proplists:get_value(<<"ip">>, Qs)),
+  ?assertEqual(<<"http://ya.ru/">>, proplists:get_value(<<"referer">>, Qs)),
+  ok.
+
+
 test_expire_and_delete_session() ->
   Self = self(),
-  meck:expect(fake_auth, reply, fun() ->
+  meck:expect(fake_auth, reply, fun(_) ->
     Self ! backend_request,
     {200,[{<<"X-UserId">>,<<"15">>},{<<"X-AuthDuration">>, <<"5">>}], <<"">>} 
   end),
@@ -219,7 +253,7 @@ test_expire_and_delete_session() ->
 
 test_rerequest_expiring_session() ->
   Self = self(),
-  meck:expect(fake_auth, reply, fun() ->
+  meck:expect(fake_auth, reply, fun(_) ->
     Self ! backend_request,
     {200,[{<<"X-UserId">>,<<"15">>},{<<"X-AuthDuration">>, <<"5">>}], <<"">>} 
   end),
@@ -241,7 +275,7 @@ test_rerequest_expiring_session() ->
 
 test_session_is_not_destroyed_after_rerequest() ->
   Self = self(),
-  meck:expect(fake_auth, reply, fun() ->
+  meck:expect(fake_auth, reply, fun(_) ->
     Self ! backend_request,
     {200,[{<<"X-UserId">>,<<"15">>},{<<"X-AuthDuration">>, <<"5">>}], <<"">>} 
   end),

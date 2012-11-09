@@ -169,6 +169,10 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
 
 
 autostart({Module,_F,_A}, Name, Opts) ->
+  case code:is_loaded(Module) of
+    false -> code:load_file(Module);
+    _ -> ok
+  end,
   case erlang:function_exported(Module, autostart, 2) of
     true ->
       Reply = Module:autostart(Name, Opts),
@@ -256,8 +260,9 @@ check_sessions0(URL, Name0, Req0, Type) ->
   case retrieve_token(Req0) of
     {undefined, _} -> throw({return, 403, "no_token_passed"}); % no token specified
     {Token, Req1} ->
-      Ip = peer_addr(Req1),
-      {Referer, _} = cowboy_req:header('Referer', Req1),
+      {PeerAddr, _} = cowboy_req:peer_addr(Req1),
+      Ip = list_to_binary(inet_parse:ntoa(PeerAddr)),
+      {Referer, _} = cowboy_req:header(<<"referer">>, Req1),
       Identity = [{token,Token},{name,Name0},{ip,Ip}],
       Options = [{type,Type},{referer,Referer}],
       case flu_session:verify(URL, Identity, Options) of
@@ -266,27 +271,6 @@ check_sessions0(URL, Name0, Req0, Type) ->
         {error, Code, Reply} ->
           throw({return,Code, Reply})
       end
-  end.
-
-%% Temporary workaround for cowboy bug in 0.6
-peer_addr(Req1) ->
-  {ForwardedForRaw, _Req2} = cowboy_req:header('X-Forwarded-For', Req1),
-  ForwardedFor = case ForwardedForRaw of
-    undefined ->
-      undefined;
-    ForwardedForRaw ->
-      case re:run(ForwardedForRaw, "^(?<first_ip>[^\\,]+)",
-          [{capture, [first_ip], binary}]) of
-        {match, [FirstIp]} -> FirstIp;
-        _Any -> undefined
-      end
-  end,
-  case ForwardedFor of
-    undefined ->
-      {PeerAddr, _} = cowboy_req:peer_addr(Req1),
-      list_to_binary(inet_parse:ntoa(PeerAddr));
-    _ ->
-      ForwardedFor
   end.
 
 

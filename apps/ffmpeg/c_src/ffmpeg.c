@@ -112,8 +112,8 @@ void reply_atom(char *a) {
 }
 
 
-void reply_avframe(AVFrame *frame) {
-
+void reply_avframe(AVPacket *pkt) {
+  reply_atom("frame");
 }
 
 void error(const char *fmt, ...) {
@@ -157,7 +157,7 @@ void loop() {
   AVCodec *vdecoder, *adecoder;
   AVCodecContext *v_dec_ctx, *a_dec_ctx;
   AVCodec *vencoder, *aencoder;
-  AVCodecContext *v_env_ctx, *a_enc_ctx;
+  AVCodecContext *v_enc_ctx = NULL, *a_enc_ctx = NULL;
 
   uint32_t buf_size = 10240;
   char *buf = (char *)malloc(buf_size);
@@ -228,6 +228,11 @@ void loop() {
         a_dec_ctx->extradata = decoder_config;
         if(!adecoder || !a_dec_ctx) error("Unknown audio decoder '%s'", codec);
         if(avcodec_open2(a_dec_ctx, adecoder, NULL) < 0) error("failed to allocate audio decoder");
+        
+        // aencoder = avcodec_find_encoder_by_name("libfaac");
+        // a_enc_ctx = avcodec_alloc_context3(aencoder);
+        // if(!aencoder || !a_enc_ctx) error("Unknown encoder 'libfaac'");
+        // if(avcodec_open2(a_enc_ctx, aencoder, NULL) < 0) 1;// error("failed to allocate audio encoder");
       }
 
       if(!strcmp(content, "video")) {
@@ -241,17 +246,14 @@ void loop() {
 
         if(!vdecoder || !v_dec_ctx) error("Unknown video decoder '%s'", codec);
         if(avcodec_open2(v_dec_ctx, vdecoder, NULL) < 0) error("failed to allocate video decoder");
+
+        vencoder = avcodec_find_encoder_by_name("libx264");
+        if(!vencoder) error("Unknown encoder 'libx264'");
       }
       if(!dec_ctx) error("content must be video or audio");
 
 
 
-      vencoder = avcodec_find_encoder_by_name("libx264");
-      v_env_ctx = avcodec_alloc_context3(vencoder);
-      if(!vencoder || !v_env_ctx) error("Unknown encoder 'libx264'");
-      aencoder = avcodec_find_encoder_by_name("aac");
-      a_enc_ctx = avcodec_alloc_context3(aencoder);
-      if(!aencoder || !a_enc_ctx) error("Unknown encoder 'aac'");
       reply_atom("ready");
       continue;
     }
@@ -294,7 +296,6 @@ void loop() {
 
       if(packet_size != pkt_size) error("internal error in reading frame body");
 
-      fprintf(stderr, "Going to decode %d bytes\r\n", packet.size);
       if(!strcmp(content, "audio")) {
         AVFrame *decoded_frame = avcodec_alloc_frame();
         int got_output = 0;
@@ -314,8 +315,33 @@ void loop() {
         int ret = avcodec_decode_video2(v_dec_ctx, decoded_frame, &got_output, &packet);
         if(ret >= 0) {
           if(got_output) {
-            // reply_avframe(decoded_frame);
-            reply_atom("ok");
+            if(!v_enc_ctx) {
+              v_enc_ctx = avcodec_alloc_context3(vencoder);
+
+              v_enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+              v_enc_ctx->width = decoded_frame->width;
+              v_enc_ctx->height = decoded_frame->height;
+              if(avcodec_open2(v_enc_ctx, vencoder, NULL) < 0) error("failed to allocate video encoder");
+            }
+
+            fprintf(stderr, "Videoinput pts: %d\r\n", (int)pts);
+
+
+            AVPacket pkt;
+            av_init_packet(&pkt);
+            pkt.data = NULL;
+            pkt.size = 0;
+
+            if(avcodec_encode_video2(v_enc_ctx, &pkt, decoded_frame, &got_output) != 0) error("Failed to encode h264");
+
+            if(got_output) {
+              fprintf(stderr, "Transcoded frame %dx%d\r\n", decoded_frame->width, decoded_frame->height);
+              reply_avframe(&pkt);
+            } else {
+              fprintf(stderr, "Only decoded frame %dx%d\r\n", decoded_frame->width, decoded_frame->height);              
+              reply_atom("ok");
+            }
+
           } else {
             reply_atom("ok");
           }

@@ -64,11 +64,9 @@ transcode_audio_test() ->
 transcode_video_test() ->
   Port = launch(),
   ffmpeg:init_decoder(Port, media_info()),
-  Frames = frames(),
-  FirstFrames = lists:sublist(
-    [F || #video_frame{flavor = Flavor, codec = h264} = F <- Frames, Flavor == keyframe orelse Flavor == frame], 1, 5),
-  [ffmpeg:send(Port, Frame) || Frame <- FirstFrames],
-  ?assertEqual(ok, ffmpeg:fetch(Port)),
+  Frames = [F || #video_frame{flavor = Flavor, codec = h264} = F <- frames(), Flavor == keyframe orelse Flavor == frame],
+  [ffmpeg:send(Port, Frame) || Frame <- Frames],
+  [?assertEqual(ok, ffmpeg:fetch(Port)) || _ <- Frames],
   % ?assertMatch(#video_frame{}, ffmpeg:fetch(Port)),
   ffmpeg:close(Port),
   ok.
