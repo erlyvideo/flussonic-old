@@ -247,6 +247,10 @@ open(#state{disk_path = Path, requested_path = Path1, access = Access, format = 
     {ok, File} ->
       {ok, Reader} = Format:init({Access, File}, []),
       MediaInfo = Format:media_info(Reader),
+      case MediaInfo of
+        #media_info{streams = Streams} when length(Streams) > 0 -> ok;
+        _ -> throw({stop, {invalid_media_info, MediaInfo}, {return, 500, "Invalid media_info in file"}, State})
+      end,
       Keyframes = reduce_keyframes(Format:keyframes(Reader)),
       
       MPEGTS = mpegts:init([{interleave,3}]),
