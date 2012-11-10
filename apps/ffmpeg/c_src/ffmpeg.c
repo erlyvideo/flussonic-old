@@ -39,7 +39,7 @@ int listen_sock() {
 
 int main(int argc, char *argv[]) {
   avcodec_register_all();
-  av_log_set_level(AV_LOG_DEBUG);
+  av_log_set_level(AV_LOG_ERROR);
 
   argc--;
   argv++;
@@ -47,6 +47,9 @@ int main(int argc, char *argv[]) {
     listen_port = atoi(argv[1]);
     argc-=2;
     argv++; argv++;
+    int listen_fd = listen_sock();
+    struct sockaddr_in cli_addr;
+    socklen_t cli_addr_len;
 
 
     if(argc >= 1 && !strcmp(argv[0], "-f")) {
@@ -57,9 +60,6 @@ int main(int argc, char *argv[]) {
       while(1) {
         pid_t child;
         if((child = fork()) == 0) {
-          int listen_fd = listen_sock();    
-          struct sockaddr_in cli_addr;
-          socklen_t cli_addr_len;
 
           int cli_sock = accept(listen_fd, (struct sockaddr *)&cli_addr, &cli_addr_len);
           in_fd = out_fd = cli_sock;
@@ -83,10 +83,6 @@ int main(int argc, char *argv[]) {
         }
       }      
     } else {
-      int listen_fd = listen_sock();    
-      struct sockaddr_in cli_addr;
-      socklen_t cli_addr_len;
-
       int cli_sock = accept(listen_fd, (struct sockaddr *)&cli_addr, &cli_addr_len);
       in_fd = out_fd = cli_sock;
       loop();
@@ -112,8 +108,44 @@ void reply_atom(char *a) {
 }
 
 
-void reply_avframe(AVPacket *pkt) {
-  reply_atom("frame");
+void reply_avframe(AVPacket *pkt, enum AVCodecID codec) {
+  ei_x_buff x;
+  ei_x_new_with_version(&x);
+  ei_x_encode_tuple_header(&x, 11);
+  ei_x_encode_atom(&x, "video_frame");
+  if(codec == AV_CODEC_ID_H264) {
+    ei_x_encode_atom(&x, "video");
+  } else {
+    ei_x_encode_atom(&x, "audio");
+  }
+  double dts = codec == AV_CODEC_ID_H264 ? pkt->dts / 90.0 : pkt->dts;
+  double pts = codec == AV_CODEC_ID_H264 ? pkt->pts / 90.0 : pkt->pts;
+  ei_x_encode_double(&x, dts);
+  ei_x_encode_double(&x, pts);
+  fprintf(stderr, "Encoded PTS: %f\r\n", pts);
+  ei_x_encode_long(&x, 0);
+  if(codec == AV_CODEC_ID_H264) {
+    ei_x_encode_atom(&x, "h264");
+  } else {
+    ei_x_encode_atom(&x, "aac");
+  }
+  if(pkt->flags & CODEC_FLAG_GLOBAL_HEADER) {
+    ei_x_encode_atom(&x, "config");    
+  } else if(pkt->flags & AV_PKT_FLAG_KEY) {
+    ei_x_encode_atom(&x, "keyframe");
+  } else {
+    ei_x_encode_atom(&x, "frame");
+  }
+  ei_x_encode_atom(&x, "undefined");
+  if(codec == AV_CODEC_ID_H264) {
+    ei_x_encode_long(&x, 1);
+  } else {
+    ei_x_encode_long(&x, 2);
+  }
+  ei_x_encode_binary(&x, pkt->data, pkt->size);
+  ei_x_encode_atom(&x, "undefined");
+  write_x(&x);
+  ei_x_free(&x);
 }
 
 void error(const char *fmt, ...) {
@@ -243,6 +275,7 @@ void loop() {
         v_dec_ctx->debug |= FF_DEBUG_STARTCODE;
         v_dec_ctx->extradata_size = decoder_config_len;
         v_dec_ctx->extradata = decoder_config;
+        v_dec_ctx->time_base = (AVRational){1, 90};
 
         if(!vdecoder || !v_dec_ctx) error("Unknown video decoder '%s'", codec);
         if(avcodec_open2(v_dec_ctx, vdecoder, NULL) < 0) error("failed to allocate video decoder");
@@ -290,8 +323,9 @@ void loop() {
       long packet_size = 0;
       ei_decode_binary(buf, &idx, packet.data, &packet_size);
       packet.size = packet_size;
-      packet.dts = dts;
-      packet.pts = pts;
+      packet.dts = dts*90;
+      packet.pts = pts*90;
+      // fprintf(stderr, "Input   PTS: %d\r\n", (int)packet.pts);
       packet.stream_index = track_id;
 
       if(packet_size != pkt_size) error("internal error in reading frame body");
@@ -315,17 +349,33 @@ void loop() {
         int ret = avcodec_decode_video2(v_dec_ctx, decoded_frame, &got_output, &packet);
         if(ret >= 0) {
           if(got_output) {
+            decoded_frame->pts = packet.pts;
+            // fprintf(stderr, "Decoded PTS: %d\r\n", (int)decoded_frame->pts);
+            int sent_config = 0;
             if(!v_enc_ctx) {
               v_enc_ctx = avcodec_alloc_context3(vencoder);
 
               v_enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
               v_enc_ctx->width = decoded_frame->width;
               v_enc_ctx->height = decoded_frame->height;
-              if(avcodec_open2(v_enc_ctx, vencoder, NULL) < 0) error("failed to allocate video encoder");
+              v_enc_ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+              v_enc_ctx->time_base = (AVRational){1,90};
+              // v_enc_ctx->time_base = {1, 1};
+              AVDictionary *opts = NULL;
+              av_dict_set(&opts, "preset", "fast", 0);
+              av_dict_set(&opts, "qpmin", "23", 0);
+              av_dict_set(&opts, "qpmax", "50", 0);
+
+              if(avcodec_open2(v_enc_ctx, vencoder, &opts) < 0) error("failed to allocate video encoder");
+
+              AVPacket config;
+              config.dts = config.pts = 0;
+              config.flags = CODEC_FLAG_GLOBAL_HEADER;
+              config.data = v_enc_ctx->extradata;
+              config.size = v_enc_ctx->extradata_size;
+              sent_config = 1;
+              reply_avframe(&config, AV_CODEC_ID_H264);
             }
-
-            fprintf(stderr, "Videoinput pts: %d\r\n", (int)pts);
-
 
             AVPacket pkt;
             av_init_packet(&pkt);
@@ -335,10 +385,10 @@ void loop() {
             if(avcodec_encode_video2(v_enc_ctx, &pkt, decoded_frame, &got_output) != 0) error("Failed to encode h264");
 
             if(got_output) {
-              fprintf(stderr, "Transcoded frame %dx%d\r\n", decoded_frame->width, decoded_frame->height);
-              reply_avframe(&pkt);
-            } else {
-              fprintf(stderr, "Only decoded frame %dx%d\r\n", decoded_frame->width, decoded_frame->height);              
+              // fprintf(stderr, "Transcoded frame %dx%d\r\n", decoded_frame->width, decoded_frame->height);
+              reply_avframe(&pkt, AV_CODEC_ID_H264);
+            } else if(!sent_config) {
+              // fprintf(stderr, "Only decoded frame %dx%d\r\n", decoded_frame->width, decoded_frame->height);              
               reply_atom("ok");
             }
 

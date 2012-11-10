@@ -53,7 +53,14 @@ send_frame(Worker, #video_frame{} = Frame) ->
   send(Worker, Frame),
   case fetch(Worker) of
     ok -> ok;
-    #video_frame{} = Reply -> Reply;
+    #video_frame{codec = h264, body = Body, flavor = config} = Reply ->
+      NALs = [NAL || NAL <- binary:split(Body, [<<1:32>>, <<1:24>>], [global]), size(NAL) > 0],
+      H264 = lists:foldl(fun(NAL, H_) -> {H1_,_} = h264:decode_nal(NAL, H_), H1_ end, h264:init(), NALs),
+      Reply#video_frame{body = h264:decoder_config(H264)};
+    #video_frame{codec = h264, body = Annexb} = Reply ->
+      NALs = [NAL || NAL <- binary:split(Annexb, [<<1:32>>, <<1:24>>], [global]), size(NAL) > 0],
+      Body = iolist_to_binary([[<<(size(NAL)):32>>, NAL] || NAL <- NALs]),
+      Reply#video_frame{body = Body};
     Else -> Else
   end.
 

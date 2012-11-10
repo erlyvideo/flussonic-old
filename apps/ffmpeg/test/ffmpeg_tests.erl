@@ -60,15 +60,36 @@ transcode_audio_test() ->
   ok.
 
 
+valid_h264_config_test() ->
+  Port = launch(),
+  ffmpeg:init_decoder(Port, media_info()),
+  Frames = 
+    lists:sublist(
+    [F || #video_frame{flavor = Flavor, codec = h264} = F <- frames(), Flavor == keyframe orelse Flavor == frame],
+    1,70),
+  Replies = [R || #video_frame{} = R <- [ffmpeg:send_frame(Port, Frame) || Frame <- Frames]],
+  ffmpeg:close(Port),
+  ?assertMatch([#video_frame{codec = h264, flavor = config}, #video_frame{codec = h264, flavor = keyframe}|_], Replies),
+  #video_frame{body = Config, flavor = config} = hd(Replies),
+  ?assertMatch({4, ConfigNals} when is_list(ConfigNals), h264:unpack_config(Config)),
+
+  ok.
+
+
 
 transcode_video_test() ->
   Port = launch(),
   ffmpeg:init_decoder(Port, media_info()),
-  Frames = [F || #video_frame{flavor = Flavor, codec = h264} = F <- frames(), Flavor == keyframe orelse Flavor == frame],
-  [ffmpeg:send(Port, Frame) || Frame <- Frames],
-  [?assertEqual(ok, ffmpeg:fetch(Port)) || _ <- Frames],
+  Frames = 
+    lists:sublist(
+    [F || #video_frame{flavor = Flavor, codec = h264} = F <- frames(), Flavor == keyframe orelse Flavor == frame],
+    1,70),
+  Replies = [ffmpeg:send_frame(Port, Frame) || Frame <- Frames],
+  [?assertMatch(R when R == ok orelse is_record(R,video_frame), R) || R <- Replies],
   % ?assertMatch(#video_frame{}, ffmpeg:fetch(Port)),
+  % [?debugFmt("frame: ~.2f", [PTS*1.0]) || #video_frame{pts = PTS} <- Replies],
   ffmpeg:close(Port),
+
   ok.
 
 
