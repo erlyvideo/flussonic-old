@@ -20,7 +20,8 @@ media_handler_test_() ->
     ,{"test_archive_fragment", fun test_archive_fragment/0}
     ,{"test_archive_mpeg_stream", fun test_archive_mpeg_stream/0}
     ,{"test_archive_mpeg_file", fun test_archive_mpeg_file/0}
-    ,{"test_archive_timeshift", fun test_archive_timeshift/0}
+    ,{"test_archive_timeshift_abs", fun test_archive_timeshift_abs/0}
+    ,{"test_archive_timeshift_rel", fun test_archive_timeshift_rel/0}
   ]}.
 
 
@@ -117,11 +118,15 @@ test_archive_mpeg_file() ->
   ?assertMatch({{dvr_handler, mpeg_file, [<<"test/files">>,1234567,3600, _]}, _, <<"livestream">>},
     test_lookup_by_path("/livestream/archive-1234567-3600.ts")).  
 
-test_archive_timeshift() ->
+test_archive_timeshift_abs() ->
   set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
-  ?assertMatch({{dvr_handler, timeshift, [<<"test/files">>,1234567, _]}, _, <<"livestream">>},
-    test_lookup_by_path("/livestream/timeshift/1234567")).  
+  ?assertMatch({{dvr_handler, timeshift_abs, [<<"test/files">>,1234567, _]}, _, <<"livestream">>},
+    test_lookup_by_path("/livestream/timeshift_abs/1234567")).  
 
+test_archive_timeshift_rel() ->
+  set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
+  ?assertMatch({{dvr_handler, timeshift_rel, [<<"test/files">>,1234567, _]}, _, <<"livestream">>},
+    test_lookup_by_path("/livestream/timeshift_rel/1234567")).  
 
 
 

@@ -2,8 +2,6 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 -include("log.hrl").
 
--define(TIMEOUT, 120000).
-
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([find_session/1, new_or_update/2, update_session/1, url/1, ref/1]).
@@ -38,8 +36,17 @@ verify(URL, Identity, Options) ->
   Now = flu:now_ms(),
 
   {Session, ErrorMessage} = case find_session(Identity) of
-    Sess when Sess == undefined orelse Sess#session.last_access_time + Sess#session.expire_time < Now ->
-      case backend_request(URL, Identity, Options) of
+    Sess when Sess == undefined orelse Now > Sess#session.last_access_time + Sess#session.auth_time ->
+      RequestType = case Sess of
+        undefined -> [{request_type,new_session}];
+        _ -> [{request_type,update_session}]
+      end,
+      Stats = stats(),
+      StreamClients = proplists:get_value(proplists:get_value(name,Identity), Stats, 0),
+      TotalClients = lists:sum([Count || {_,Count} <- Stats]),
+      ClientsInfo = [{stream_clients,StreamClients},{total_clients,TotalClients}],
+
+      case backend_request(URL, Identity, ClientsInfo ++ RequestType ++ Options) of
         {error,  {_Code,ErrMsg}, Opts1} -> {new_or_update(Identity, Opts1 ++ Options), ErrMsg};
         {ok, Name1, Opts1} -> {new_or_update(Identity, merge([{name,Name1}], Opts1 ++ Options)), "cached_positive"}
       end;
@@ -54,14 +61,23 @@ verify(URL, Identity, Options) ->
 timeout() ->
   3000.
 
+to_s(Bin) when is_binary(Bin) -> binary_to_list(Bin);
+to_s(List) when is_list(List) -> List;
+to_s(Int) when is_integer(Int) -> integer_to_list(Int);
+to_s(undefined) -> undefined;
+to_s(Atom) when is_atom(Atom) -> atom_to_list(Atom).
+
+
 backend_request(URL, Identity, Options) ->
-  Query = [io_lib:format("~s=~s&", [K,V]) || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V)],
+  Query = [ [to_s(K), "=", to_s(V), "&"] || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V) orelse is_atom(V) orelse is_integer(V)],
   RequestURL = lists:flatten([URL, "?", Query]),
   case httpc:request(get, {RequestURL, []}, [{connect_timeout, flu_session:timeout()},{timeout, flu_session:timeout()},{autoredirect,false}],
     [], auth) of
     {ok, {{_,Code,_}, Headers, _Body}} ->
       ?DBG("Backend auth request \"~s\": ~B code", [RequestURL, Code]),
-      Opts0_ = [{expire,to_i(proplists:get_value("x-authduration", Headers, 30))*1000},
+      AuthDuration = to_i(proplists:get_value("x-authduration", Headers, 30))*1000,
+      DeleteTime = lists:max([AuthDuration, 10000]),
+      Opts0_ = [{auth_time,AuthDuration},{delete_time,DeleteTime},
         {user_id,to_i(proplists:get_value("x-userid", Headers))}],
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
       % Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),
@@ -132,7 +148,8 @@ find_session(Identity) ->
 
 new_or_update(Identity, Opts) ->
   Flag    = proplists:get_value(access, Opts, denied),
-  Expire  = proplists:get_value(expire, Opts, ?TIMEOUT),
+  AuthTime  = proplists:get_value(auth_time, Opts, 30000),
+  DeleteTime  = proplists:get_value(delete_time, Opts, 30000),
   Pid     = proplists:get_value(pid, Opts),
 
   Now = flu:now_ms(),
@@ -152,7 +169,7 @@ new_or_update(Identity, Opts) ->
       {#session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
       bytes_sent = 0, pid = Pid, ref = Ref, user_id = UserId, type = proplists:get_value(type, Opts, <<"http">>)}, true}
   end,
-  Session = OldSession#session{expire_time = Expire, last_access_time = Now, flag = Flag},
+  Session = OldSession#session{auth_time = AuthTime, delete_time = DeleteTime, last_access_time = Now, flag = Flag},
   ets:insert(flu_session:table(), Session),
   erlang:put(<<"session_cookie">>, Token),
 
@@ -167,8 +184,8 @@ update_session(#session{session_id = SessionId, flag = Flag}) ->
   Flag.
 
 delete_session(Session) ->
-    ets:delete_object(flu_session:table(), Session),
-    flu_event:user_disconnected(Session#session.name, info(Session)).
+  ets:delete_object(flu_session:table(), Session),
+  flu_event:user_disconnected(Session#session.name, info(Session)).
 
 
 table() ->
@@ -195,10 +212,13 @@ handle_call(Call, _From, State) ->
 
 handle_info(clean, State) ->
   Now = flu:now_ms(),
-  [delete_session(Session) ||
-      Session <- ets:select(flu_session:table(),
-                            ets:fun2ms(fun(#session{expire_time = T, last_access_time = Last} = S)
-                                             when T + Last < Now -> S end))],
+  ToDelete = ets:select(flu_session:table(),
+    ets:fun2ms(fun(#session{auth_time = A, delete_time = D, last_access_time = Last} = S)
+                                             when Now > Last + A + D -> S end)),
+  % if length(ToDelete) > 0 -> 
+  % ?D({deleting, [{Tok, Now - (Last+A+D)} || #session{token = Tok, last_access_time = Last, auth_time = A, delete_time = D} <- ToDelete]});
+  % true -> ok end,
+  [delete_session(Session) || Session <- ToDelete],
   {noreply, State};
 
 handle_info({'DOWN', Ref, _, _Pid, _}, State) ->

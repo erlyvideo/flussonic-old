@@ -43,6 +43,7 @@ terminate(_,_) ->
   ok.
 
 handle(Req, Opts) ->
+  {Path, _} = cowboy_req:path(Req),
   try handle1(Req, Opts) of
     Reply -> Reply
   catch
@@ -53,6 +54,7 @@ handle(Req, Opts) ->
       {ok, R1} = cowboy_req:reply(Code, Headers, [Msg, "\n"], Req),
       {ok, R1, undefined};
     Class:Reason ->
+      ?ERR("Error handling ~s: ~p:~p~n~s", [Path, Class, Reason, [io_lib:format("    ~240p~n", [T]) || T <- erlang:get_stacktrace()]]),
       {ok, R1} = cowboy_req:reply(500, [], ["Internal server error\n", io_lib:format("~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()])], Req),
       {ok, R1, undefined}
   end.
@@ -131,11 +133,16 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
     [<<_Year:4/binary,"/", _Month:2/binary, "/", _Day:2/binary, "/", _Hour:2/binary, "/", _Minute:2/binary, "/", _Second:2/binary, "-", _Duration:5/binary, ".ts">> = Seg] ->
       Root = proplists:get_value(dvr, Opts), % here Root may be undefined, because live is served here also
       {{hls_dvr_packetizer, segment, [to_b(Root), Seg]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
-    [<<"timeshift">>, From] ->
-      Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
+    [<<"timeshift_abs">>, From] ->
+      Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
-      {{dvr_handler, timeshift, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], Stream};
+      {{dvr_handler, timeshift_abs, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], Stream};
+    [<<"timeshift_rel">>, From] ->
+      Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>} | Opts]),
+      Root = proplists:get_value(dvr, Opts),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
+      {{dvr_handler, timeshift_rel, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], Stream};
     [<<"archive">>, From, Duration, <<"mpegts">>] ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
@@ -239,8 +246,7 @@ to_duration(B) ->
 update_cookie(Req) ->
   case erlang:erase(<<"session_cookie">>) of
     undefined -> Req;
-    V ->
-      cowboy_req:set_resp_cookie(<<"session">>, V, [{max_age, 10 * 60}], Req)
+    Token -> cowboy_req:set_resp_cookie(<<"session">>, Token, [{max_age, 5*3600}], Req)
   end.
 
 retrieve_token(Req0) ->

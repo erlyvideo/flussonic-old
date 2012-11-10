@@ -7,7 +7,8 @@
   flag,
   type, %  :: <<"hds">>|<<"hls">>|<<"http">>
   created_at,
-  expire_time,
+  auth_time,
+  delete_time,
   last_access_time,
   bytes_sent,
   pid,
