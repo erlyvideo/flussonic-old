@@ -416,8 +416,9 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
   Result = case Proto of
     tshttp -> mpegts:read(URL, []);
     udp -> mpegts:read(URL, []);
-    rtsp -> flu_rtsp:read(Name, URL, Options);
+    rtsp -> flu_rtsp:read2(Name, URL, Options);
     rtsp2 -> flu_rtsp:read2(Name, URL, Options);
+    rtsp1 -> flu_rtsp:read(Name, URL, Options);
     hls -> hls:read(URL, Options);
     file -> file_source:read(URL, Options);
     rtmp -> flu_rtmp:play_url(Name, URL, Options);
