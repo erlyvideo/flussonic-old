@@ -47,17 +47,26 @@ init_decoder_test() ->
   ffmpeg:close(Port),
   ok.
 
-
-transcode_audio_test() ->
+init_encoder_test5() ->
   Port = launch(),
-  ffmpeg:init_decoder(Port, media_info()),
-  Frames = frames(),
-  FirstFrames = lists:sublist([F || #video_frame{flavor = frame, codec = aac} = F <- Frames], 1, 5),
-  [ffmpeg:send(Port, Frame) || Frame <- FirstFrames],
-  ?assertEqual(ok, ffmpeg:fetch(Port)),
-  % ?assertMatch(#video_frame{}, Reply),
+  MediaInfo = #media_info{streams = [
+    #stream_info{track_id = 1, content = video, codec = h264, bitrate = 900000, params = #video_params{width = 240, height = 160}, options = []}
+    ,#stream_info{track_id = 2, content = audio, codec = aac, options = []}
+  ]},
+  ?assertEqual(ok, ffmpeg:init_encoder(Port, MediaInfo)),
   ffmpeg:close(Port),
   ok.
+
+% transcode_audio_test() ->
+%   Port = launch(),
+%   ffmpeg:init_decoder(Port, media_info()),
+%   Frames = frames(),
+%   FirstFrames = lists:sublist([F || #video_frame{flavor = frame, codec = aac} = F <- Frames], 1, 5),
+%   [ffmpeg:send(Port, Frame) || Frame <- FirstFrames],
+%   ?assertEqual(ok, ffmpeg:fetch(Port)),
+%   % ?assertMatch(#video_frame{}, Reply),
+%   ffmpeg:close(Port),
+%   ok.
 
 
 valid_h264_config_test() ->
@@ -90,6 +99,7 @@ transcode_video_test() ->
   % [?debugFmt("frame: ~.2f", [PTS*1.0]) || #video_frame{pts = PTS} <- Replies],
   ffmpeg:close(Port),
 
+  % file:write_file("../a.flv", [flv:header(), [flv_video_frame:to_tag(F) || #video_frame{} = F <- Replies]]),
   ok.
 
 

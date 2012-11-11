@@ -1,14 +1,38 @@
+%%% @author     Max Lapshin <max@maxidoors.ru> [http://erlyvideo.org]
+%%% @copyright  2010-2012 Max Lapshin
+%%% @doc        multibitrate packetizer
+%%% @reference  See <a href="http://erlyvideo.org" target="_top">http://erlyvideo.org</a> for more information
+%%% @end
+%%%
+%%%
+%%% This file is part of erlyvideo.
+%%% 
+%%% erlyvideo is free software: you can redistribute it and/or modify
+%%% it under the terms of the GNU General Public License as published by
+%%% the Free Software Foundation, either version 3 of the License, or
+%%% (at your option) any later version.
+%%%
+%%% erlyvideo is distributed in the hope that it will be useful,
+%%% but WITHOUT ANY WARRANTY; without even the implied warranty of
+%%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%%% GNU General Public License for more details.
+%%%
+%%% You should have received a copy of the GNU General Public License
+%%% along with erlmedia.  If not, see <http://www.gnu.org/licenses/>.
+%%%
+%%%---------------------------------------------------------------------------------------
 -module(ffmpeg).
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
-
+-include("log.hrl").
 
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 
 -export([start_worker/0, start_worker/1, send/2, fetch/1, fetch/2, close/1]).
 -export([init_decoder/2, send_frame/2]).
+-export([init_encoder/2]).
 
 start_link() ->
   gen_server:start_link(?MODULE, [], []).
@@ -56,10 +80,13 @@ send_frame(Worker, #video_frame{} = Frame) ->
     #video_frame{codec = h264, body = Body, flavor = config} = Reply ->
       NALs = [NAL || NAL <- binary:split(Body, [<<1:32>>, <<1:24>>], [global]), size(NAL) > 0],
       H264 = lists:foldl(fun(NAL, H_) -> {H1_,_} = h264:decode_nal(NAL, H_), H1_ end, h264:init(), NALs),
+      % ?debugFmt("<  config ~p", [Reply#video_frame.dts]),
       Reply#video_frame{body = h264:decoder_config(H264)};
     #video_frame{codec = h264, body = Annexb} = Reply ->
       NALs = [NAL || NAL <- binary:split(Annexb, [<<1:32>>, <<1:24>>], [global]), size(NAL) > 0],
       Body = iolist_to_binary([[<<(size(NAL)):32>>, NAL] || NAL <- NALs]),
+      % ?debugFmt("<~8s ~p ~p ~p", [Reply#video_frame.flavor, Reply#video_frame.dts, Reply#video_frame.pts,
+      %   [{h264:type(NAL), size(NAL)} || NAL <- NALs]       ]),
       Reply#video_frame{body = Body};
     Else -> Else
   end.
@@ -75,6 +102,24 @@ init_decoder(Port, #media_info{streams = Streams}) ->
     end
   end || #stream_info{content = Content, codec = Codec, config = Config, track_id = TrackId} <- Streams],
   ok.
+
+
+init_encoder(Port, #media_info{streams = Streams}) ->
+  Streams1 = lists:map(fun
+    (#stream_info{content = video, params = #video_params{width = W, height = H}, bitrate = B, options = O} = S) ->
+      S#stream_info{options = [{width,W},{height,H},{bitrate,B}|O]};
+    (#stream_info{content = audio} = S) ->
+      S
+  end, Streams),
+  lists:foreach(fun(#stream_info{content = Content, codec = Codec, options = Options, track_id = TrackId}) ->
+    send(Port, {init_output, Content, Codec, Options, TrackId}),
+    case fetch(Port) of
+      ready -> ok;
+      Else -> error({init_output,Codec,TrackId,Else})
+    end
+  end, Streams1),
+  ok.
+
 
 fetch(Port) ->
   fetch(Port, 2000).

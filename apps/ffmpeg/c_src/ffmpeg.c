@@ -1,41 +1,62 @@
+// @author     Max Lapshin <max@maxidoors.ru> [http://erlyvideo.org]
+// @copyright  2010-2012 Max Lapshin
+// @doc        multibitrate packetizer
+// @reference  See <a href="http://erlyvideo.org" target="_top">http://erlyvideo.org</a> for more information
+// @end
+//
+//
+// This file is part of erlyvideo.
+// 
+// erlyvideo is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// erlyvideo is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with erlmedia.  If not, see <http://www.gnu.org/licenses/>.
+//
+//---------------------------------------------------------------------------------------
+
 #include <ei.h>
 #include <stdio.h>
-#include <arpa/inet.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdarg.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <sys/wait.h>
 
 #include <libavcodec/avcodec.h>
 
+
+
+typedef struct Track {
+  AVCodec *codec;
+  AVCodecContext *ctx;
+  int track_id;
+  enum AVMediaType content;
+  enum AVCodecID codec_id;
+  int width;
+  int height;
+} Track;
+
+#define MAX_INPUT_TRACKS 2
+#define MAX_OUTPUT_TRACKS MAX_INPUT_TRACKS*4
+
+Track input_tracks[MAX_INPUT_TRACKS];
+Track output_tracks[MAX_OUTPUT_TRACKS];
 
 int in_fd = 0;
 int out_fd = 1;
 
 void loop();
 void pong(void);
+void debug_loop(int argc, char *argv[], void (*loop)(void));
 
-uint16_t listen_port = 0;
-int listen_sock() {
-  int listen_fd = socket(PF_INET, SOCK_STREAM, 0);
-  int true_ = 1;
-  setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &true_, sizeof(true_));
-  struct sockaddr_in bind_addr;
-  bzero(&bind_addr, sizeof(bind_addr));
-  bind_addr.sin_family = AF_INET;
-  bind_addr.sin_addr.s_addr = INADDR_ANY;
-  bind_addr.sin_port = htons(listen_port);
-  if(bind(listen_fd, (const struct sockaddr *)&bind_addr, sizeof(bind_addr)) == -1) {
-    fprintf(stderr, "Can't bind to listen socket\r\n");
-    exit(14);
-  }
-  listen(listen_fd, 10);
-  return listen_fd;
-}
+
 
 int main(int argc, char *argv[]) {
   avcodec_register_all();
@@ -44,50 +65,7 @@ int main(int argc, char *argv[]) {
   argc--;
   argv++;
   if(argc >= 2  && !strcmp(argv[0], "-d")) {
-    listen_port = atoi(argv[1]);
-    argc-=2;
-    argv++; argv++;
-    int listen_fd = listen_sock();
-    struct sockaddr_in cli_addr;
-    socklen_t cli_addr_len;
-
-
-    if(argc >= 1 && !strcmp(argv[0], "-f")) {
-      argc--;
-      argv++;
-      fprintf(stderr, "Start fork-pool\r\n");
-
-      while(1) {
-        pid_t child;
-        if((child = fork()) == 0) {
-
-          int cli_sock = accept(listen_fd, (struct sockaddr *)&cli_addr, &cli_addr_len);
-          in_fd = out_fd = cli_sock;
-          // setsockopt(in_fd, SOL_SOCKET, SO_LINGER, &true_, sizeof(true_));
-          loop();
-          shutdown(cli_sock, SHUT_RDWR);
-          _exit(0);
-        } else {
-          int stat_loc;
-          struct rusage rusage;
-          wait4(child, &stat_loc, 0, &rusage);
-          if(WIFSIGNALED(stat_loc)) {
-            fprintf(stderr, "Child process was signalled by %d\r\n", WTERMSIG(stat_loc));
-          } else if(WIFEXITED(stat_loc)) {
-            if(WEXITSTATUS(stat_loc) != 0)
-              fprintf(stderr, "Child process exited with code %d\r\n", WEXITSTATUS(stat_loc));
-          } else {
-            fprintf(stderr, "Child process exited due to unknown reason\r\n");
-          }
-          fprintf(stderr, "\r\n");
-        }
-      }      
-    } else {
-      int cli_sock = accept(listen_fd, (struct sockaddr *)&cli_addr, &cli_addr_len);
-      in_fd = out_fd = cli_sock;
-      loop();
-      _exit(0);
-    }
+    debug_loop(argc, argv, loop);
   } else {
     loop();
   }
@@ -122,7 +100,6 @@ void reply_avframe(AVPacket *pkt, enum AVCodecID codec) {
   double pts = codec == AV_CODEC_ID_H264 ? pkt->pts / 90.0 : pkt->pts;
   ei_x_encode_double(&x, dts);
   ei_x_encode_double(&x, pts);
-  fprintf(stderr, "Encoded PTS: %f\r\n", pts);
   ei_x_encode_long(&x, 0);
   if(codec == AV_CODEC_ID_H264) {
     ei_x_encode_atom(&x, "h264");
@@ -186,10 +163,11 @@ ssize_t read1(int fd, void *buf, ssize_t len) {
 }
 
 void loop() {
-  AVCodec *vdecoder, *adecoder;
-  AVCodecContext *v_dec_ctx, *a_dec_ctx;
-  AVCodec *vencoder, *aencoder;
-  AVCodecContext *v_enc_ctx = NULL, *a_enc_ctx = NULL;
+  AVCodec *vencoder;
+  AVCodecContext *v_enc_ctx = NULL;
+  AVCodec *aencoder;
+  AVCodecContext *a_enc_ctx = NULL;
+  int64_t dts_shift = AV_NOPTS_VALUE;
 
   uint32_t buf_size = 10240;
   char *buf = (char *)malloc(buf_size);
@@ -239,7 +217,7 @@ void loop() {
       return;
     }
     if(!strcmp(command, "init_input")) {
-      if(arity != 4) error("Must provide 4 arguments to init command");
+      if(arity != 4) error("Must provide 4 arguments to init_input command");
       char content[1024];
       char codec[1024];
       if(ei_decode_atom(buf, &idx, content) == -1) error("Must provide content as an atom");
@@ -252,42 +230,41 @@ void loop() {
       long bin_len = 0;
       ei_decode_binary(buf, &idx, decoder_config, &bin_len);
 
-      AVCodecContext *dec_ctx = NULL;
-      if(!strcmp(content, "audio")) {
-        adecoder = avcodec_find_decoder_by_name(codec);
-        dec_ctx = a_dec_ctx = avcodec_alloc_context3(adecoder);
-        a_dec_ctx->extradata_size = decoder_config_len;
-        a_dec_ctx->extradata = decoder_config;
-        if(!adecoder || !a_dec_ctx) error("Unknown audio decoder '%s'", codec);
-        if(avcodec_open2(a_dec_ctx, adecoder, NULL) < 0) error("failed to allocate audio decoder");
-        
-        // aencoder = avcodec_find_encoder_by_name("libfaac");
-        // a_enc_ctx = avcodec_alloc_context3(aencoder);
-        // if(!aencoder || !a_enc_ctx) error("Unknown encoder 'libfaac'");
-        // if(avcodec_open2(a_enc_ctx, aencoder, NULL) < 0) 1;// error("failed to allocate audio encoder");
-      }
+      long track_id = -1;
+      if(ei_decode_long(buf, &idx, &track_id) == -1) error("track_id must be integer");
+      if(track_id != 1 && track_id != 2) error("track_id must be 1 or 2");
+      track_id--;
 
-      if(!strcmp(content, "video")) {
-        vdecoder = avcodec_find_decoder_by_name(codec);
-        dec_ctx = v_dec_ctx = avcodec_alloc_context3(vdecoder);
-        // v_dec_ctx->flags2 |= CODEC_FLAG2_CHUNKS;
-
-        v_dec_ctx->debug |= FF_DEBUG_STARTCODE;
-        v_dec_ctx->extradata_size = decoder_config_len;
-        v_dec_ctx->extradata = decoder_config;
-        v_dec_ctx->time_base = (AVRational){1, 90};
-
-        if(!vdecoder || !v_dec_ctx) error("Unknown video decoder '%s'", codec);
-        if(avcodec_open2(v_dec_ctx, vdecoder, NULL) < 0) error("failed to allocate video decoder");
-
-        vencoder = avcodec_find_encoder_by_name("libx264");
-        if(!vencoder) error("Unknown encoder 'libx264'");
-      }
-      if(!dec_ctx) error("content must be video or audio");
-
-
+      input_tracks[track_id].codec = avcodec_find_decoder_by_name(codec);
+      input_tracks[track_id].ctx = avcodec_alloc_context3(input_tracks[track_id].codec);
+      if(!input_tracks[track_id].codec || !input_tracks[track_id].ctx) 
+        error("Unknown %s decoder '%s'", content, codec);
+      input_tracks[track_id].ctx->time_base = (AVRational){1, 90};
+      input_tracks[track_id].ctx->extradata_size = decoder_config_len;
+      input_tracks[track_id].ctx->extradata = decoder_config;
+      if(avcodec_open2(input_tracks[track_id].ctx, input_tracks[track_id].codec, NULL) < 0) 
+        error("failed to allocate %s decoder", content);
 
       reply_atom("ready");
+      continue;
+    }
+
+    if(!strcmp(command, "init_output")) {
+      if(arity != 4) error("Must provide 4 arguments to init_output command");
+      char content[1024];
+      char codec[1024];
+      if(ei_decode_atom(buf, &idx, content) == -1) error("Must provide content as an atom");
+      if(ei_decode_atom(buf, &idx, codec) == -1) error("Must provide codec as an atom");
+
+      ei_skip_term(buf, &idx);
+      long track_id = -1;
+      if(ei_decode_long(buf, &idx, &track_id) == -1) error("track_id must be integer");
+      if(track_id < 1 || track_id > MAX_OUTPUT_TRACKS+1) error("track_id must be 1 or 2");
+      track_id--;
+      
+
+
+      reply_atom("not_ready_yet");
       continue;
     }
 
@@ -313,6 +290,7 @@ void loop() {
       ei_skip_term(buf, &idx); // sound
       long track_id = 0;
       if(ei_decode_long(buf, &idx, &track_id) == -1) error("track_id must be integer"); // track_id
+      track_id--;
 
       int pkt_size = 0;
       ei_get_type(buf, &idx, &t, &pkt_size); // binary
@@ -325,15 +303,21 @@ void loop() {
       packet.size = packet_size;
       packet.dts = dts*90;
       packet.pts = pts*90;
-      // fprintf(stderr, "Input   PTS: %d\r\n", (int)packet.pts);
       packet.stream_index = track_id;
 
       if(packet_size != pkt_size) error("internal error in reading frame body");
 
       if(!strcmp(content, "audio")) {
+        if(!aencoder) {
+          aencoder = avcodec_find_encoder_by_name("libfaac");
+          a_enc_ctx = avcodec_alloc_context3(aencoder);
+          if(!aencoder || !a_enc_ctx) error("Unknown encoder 'libfaac'");
+          if(avcodec_open2(a_enc_ctx, aencoder, NULL) < 0) error("failed to allocate audio encoder");
+        }
+
         AVFrame *decoded_frame = avcodec_alloc_frame();
         int got_output = 0;
-        int ret = avcodec_decode_audio4(a_dec_ctx, decoded_frame, &got_output, &packet);
+        int ret = avcodec_decode_audio4(input_tracks[track_id].ctx, decoded_frame, &got_output, &packet);
         // fprintf(stderr, "Got it!\r\n");
         if(got_output) {
           reply_atom("ok");
@@ -345,59 +329,67 @@ void loop() {
 
       if(!strcmp(content, "video")) {
         AVFrame *decoded_frame = avcodec_alloc_frame();
-        int got_output = 0;
-        int ret = avcodec_decode_video2(v_dec_ctx, decoded_frame, &got_output, &packet);
-        if(ret >= 0) {
-          if(got_output) {
-            decoded_frame->pts = packet.pts;
-            // fprintf(stderr, "Decoded PTS: %d\r\n", (int)decoded_frame->pts);
-            int sent_config = 0;
-            if(!v_enc_ctx) {
-              v_enc_ctx = avcodec_alloc_context3(vencoder);
+        int could_decode = 0;
+        int ret = avcodec_decode_video2(input_tracks[track_id].ctx, decoded_frame, &could_decode, &packet);
+        if(ret < 0) {
+          error("failed to decode video");
+        }
+        if(could_decode) {
+          decoded_frame->pts = av_frame_get_best_effort_timestamp(decoded_frame);
+          int sent_config = 0;
+          if(!v_enc_ctx) {
+            vencoder = avcodec_find_encoder_by_name("libx264");
+            v_enc_ctx = avcodec_alloc_context3(vencoder);
+            if(!vencoder || !v_enc_ctx) error("Unknown encoder 'libx264'");
 
-              v_enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-              v_enc_ctx->width = decoded_frame->width;
-              v_enc_ctx->height = decoded_frame->height;
-              v_enc_ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
-              v_enc_ctx->time_base = (AVRational){1,90};
-              // v_enc_ctx->time_base = {1, 1};
-              AVDictionary *opts = NULL;
-              av_dict_set(&opts, "preset", "fast", 0);
-              av_dict_set(&opts, "qpmin", "23", 0);
-              av_dict_set(&opts, "qpmax", "50", 0);
+            v_enc_ctx = avcodec_alloc_context3(vencoder);
 
-              if(avcodec_open2(v_enc_ctx, vencoder, &opts) < 0) error("failed to allocate video encoder");
+            v_enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+            v_enc_ctx->width = decoded_frame->width;
+            v_enc_ctx->height = decoded_frame->height;
+            v_enc_ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+            v_enc_ctx->time_base = (AVRational){1,90};
+            // v_enc_ctx->time_base = {1, 1};
+            AVDictionary *opts = NULL;
+            av_dict_set(&opts, "preset", "fast", 0);
+            av_dict_set(&opts, "qpmin", "23", 0);
+            av_dict_set(&opts, "qpmax", "50", 0);
 
-              AVPacket config;
-              config.dts = config.pts = 0;
-              config.flags = CODEC_FLAG_GLOBAL_HEADER;
-              config.data = v_enc_ctx->extradata;
-              config.size = v_enc_ctx->extradata_size;
-              sent_config = 1;
-              reply_avframe(&config, AV_CODEC_ID_H264);
+            if(avcodec_open2(v_enc_ctx, vencoder, &opts) < 0) error("failed to allocate video encoder");
+
+            AVPacket config;
+            config.dts = config.pts = 0;
+            config.flags = CODEC_FLAG_GLOBAL_HEADER;
+            config.data = v_enc_ctx->extradata;
+            config.size = v_enc_ctx->extradata_size;
+            sent_config = 1;
+            reply_avframe(&config, AV_CODEC_ID_H264);
+          }
+
+          AVPacket pkt;
+          av_init_packet(&pkt);
+          pkt.data = NULL;
+          pkt.size = 0;
+
+          int could_encode = 0;
+
+          if(avcodec_encode_video2(v_enc_ctx, &pkt, decoded_frame, &could_encode) != 0) error("Failed to encode h264");
+
+          if(could_encode) {
+            if(dts_shift == AV_NOPTS_VALUE) {
+              dts_shift = -pkt.dts;
             }
-
-            AVPacket pkt;
-            av_init_packet(&pkt);
-            pkt.data = NULL;
-            pkt.size = 0;
-
-            if(avcodec_encode_video2(v_enc_ctx, &pkt, decoded_frame, &got_output) != 0) error("Failed to encode h264");
-
-            if(got_output) {
-              // fprintf(stderr, "Transcoded frame %dx%d\r\n", decoded_frame->width, decoded_frame->height);
-              reply_avframe(&pkt, AV_CODEC_ID_H264);
-            } else if(!sent_config) {
-              // fprintf(stderr, "Only decoded frame %dx%d\r\n", decoded_frame->width, decoded_frame->height);              
-              reply_atom("ok");
-            }
-
-          } else {
+            pkt.dts += dts_shift;
+            reply_avframe(&pkt, AV_CODEC_ID_H264);
+          } else if(!sent_config) {
             reply_atom("ok");
           }
+
+          continue;
+        } else {
+          reply_atom("ok");
           continue;
         }
-        error("Got it: %d, %d\r\n", ret, got_output);
       }
 
       error("Unknown content: '%s'", content);
