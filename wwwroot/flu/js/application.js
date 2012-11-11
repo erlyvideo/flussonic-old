@@ -48,6 +48,9 @@ Erlyvideo = {
       Erlyvideo.stream_ws = new WebSocket("ws://"+window.location.host+"/erlyvideo/api/streams");
       Erlyvideo.stream_ws.onerror = function() {
         Erlyvideo.disabled_ws = true;
+        setTimeout(function() {
+          Erlyvideo.disabled_ws = false;
+        }, 10000);
       }
       Erlyvideo.stream_ws.onmessage = function(reply) {
         Erlyvideo.draw_stream_info(JSON.parse(reply.data));

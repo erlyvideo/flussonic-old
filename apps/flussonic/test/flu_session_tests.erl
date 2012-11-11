@@ -64,37 +64,37 @@ http_mock_url() -> "http://127.0.0.1:6070/auth".
 test_backend_request1() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>, [{access,granted},{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>}]},
-    flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 test_backend_request2() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-AuthDuration">>, <<"600">>}], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>, [{access,granted},{auth_time,600000},{delete_time,600000},{referer,<<"http://ya.ru/">>}]},
-    flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 % test_backend_request3() ->
 %   meck:expect(fake_auth, reply, fun() -> {302,[{<<"X-Name">>, <<"cam1">>}], <<"">>} end),
 %   ?assertEqual({ok, <<"cam1">>, [{access,granted}]},
-%     flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
+%     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_backend_request4() ->
   meck:expect(fake_auth, reply, fun(_) -> {403,[], <<"">>} end),
   ?assertEqual({error, {403, "backend_denied"}, [{access,denied},{auth_time,30000},{delete_time,30000}]},
-    flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
+    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_backend_request5() ->
   cowboy:stop_listener(fake_http),
   ?assertEqual({error, {404, "backend_http_error"}, [{access,denied}]},
-    flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
+    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_backend_request6() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-AuthDuration">>, <<"600">>},{<<"X-UserId">>,<<"15">>}], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>, [{access,granted},{auth_time,600000},{delete_time,600000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
-    flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 test_backend_request7() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-UserId">>,<<"15">>}], <<"">>} end),
   ?assertEqual({ok, <<"cam0">>, [{access,granted},{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
-    flu_session:backend_request(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 
 test_new_session1() ->
