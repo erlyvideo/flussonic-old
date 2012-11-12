@@ -22,7 +22,7 @@
 -define(YEARS_100, 3155673600).  % RTP bases its timestamp on NTP. NTP counts from 1900. Shift it to 1970. This constant is not precise.
 
 
--define(KEEPALIVE, 3000).
+-define(KEEPALIVE, 7000).
 
 start_link(Options) ->
   gen_server:start_link(?MODULE, [Options], []).
@@ -151,13 +151,26 @@ handle_info(send_rr, #rtsp{chan1 = undefined, chan2 = undefined} = RTSP) ->
   erlang:send_after(2000, self(), send_rr),
   {noreply, RTSP};
 
-handle_info(send_rr, #rtsp{chan1 = Chan1, chan2 = Chan2, socket = Socket} = RTSP) ->
-  % <<1:2, 0:1, Count:5, ?RTCP_RR, Length:16, StreamId:32, FractionLost, LostPackets:24, MaxSeq:32, Jitter:32, LSR:32, DLSR:32>>.
-  [begin
-    RR = <<1:2, 0:6, ?RTCP_RR, 16:16, StreamId:32, 0:32, Seq:32, 0:32, LSR:32, 0:32>>,
-    gen_tcp:send(Socket, [<<$$, (Channel*2 + 1), (size(RR)): 16>>, RR])
-  end || #rtp{stream_id = StreamId, channel = Channel, seq = Seq, ntp = LSR} <- [Chan1, Chan2], StreamId + Seq + LSR > 0],
-  erlang:send_after(5000, self(), send_rr),
+handle_info(send_rr, #rtsp{} = RTSP) ->
+  self() ! {send_rr, 1},
+  erlang:send_after(1000, self(), {send_rr, 2}),
+  erlang:send_after(?KEEPALIVE, self(), send_rr),
+  {noreply, RTSP};
+
+handle_info({send_rr, N}, #rtsp{chan1 = Chan1, chan2 = Chan2, socket = Socket} = RTSP) ->
+  Chan = case N of
+    1 -> Chan1;
+    2 -> Chan2
+  end,
+  case Chan of
+    #rtp{stream_id = StreamId, channel = Channel, seq = Seq, ntp = LSR} when StreamId + Seq + LSR > 0 ->
+    % <<1:2, 0:1, Count:5, ?RTCP_RR, Length:16, StreamId:32, FractionLost, LostPackets:24, MaxSeq:32, Jitter:32, LSR:32, DLSR:32>>.
+      RR = <<2:2, 0:1, 1:5, ?RTCP_RR, 7:16, (StreamId+1):32, StreamId:32, 0:32, Seq:32, 0:32, (LSR bsr 16):32, 0:32>>,
+      % ?D({rr,Channel*2+1, RR}),
+      gen_tcp:send(Socket, [<<$$, (Channel*2 + 1), (size(RR)): 16>>, RR]);
+    _ ->
+      ok    
+  end,
   {noreply, RTSP};
 
 handle_info({tcp, Socket, <<$$, _/binary>> = Bin}, #rtsp{} = RTSP) ->
@@ -220,7 +233,7 @@ read_rtp_packets(<<$$, ChannelId, Length:16, RTCP:Length/binary, Rest/binary>>, 
   read_rtp_packets(Rest, RTSP1);
 
 read_rtp_packets(<<$$, ChannelId, Length:16, RTP:Length/binary, Rest/binary>>, #rtsp{consumer = Consumer} = RTSP) ->
-  % <<_:16, Sequence:16, _/binary>> = RTP,
+  % <<2:2, 0:1, _Extension:1, 0:4, _Marker:1, _PayloadType:7, Sequence:16, Timecode:32, _StreamId:32, Data/binary>>
   ChannelId_ = ChannelId div 2,
   Chan1 = element(#rtsp.chan1 + ChannelId_, RTSP),
   {ok, Chan2, Frames} = decode_rtp(RTP, Chan1),
@@ -249,9 +262,9 @@ read_rtp_packets(Bin, RTSP) ->
   end.
 
 
-decode_rtp(RTP, #rtp{decoder = Decoder1} = Chan1) ->
+decode_rtp(<<_:16, Seq:16, _/binary>> = RTP, #rtp{decoder = Decoder1} = Chan1) ->
   {ok, Decoder2, Frames} = rtp_decoder:decode(RTP, Decoder1),
-  {ok, Chan1#rtp{decoder = Decoder2}, Frames}.
+  {ok, Chan1#rtp{decoder = Decoder2, seq = Seq}, Frames}.
 
 
 
@@ -266,12 +279,13 @@ flush_rtp_packets(#rtsp{socket = Socket} = RTSP) ->
 
 
 
-
 read_response_code(#rtsp{socket = Socket, url = URL} = RTSP) ->
   inet:setopts(Socket, [{packet, line},{active,false}]),
   case gen_tcp:recv(Socket, 0, 10000) of
+    {error, closed} ->
+      ?ERR("Remote server '~s' closed socket", [URL]),
+      throw({stop, normal, RTSP});
     {error, Error} ->
-      
       throw({stop, {error, {socket_recv, Error, URL}}, RTSP});
     {ok, Bin} ->
       inet:setopts(Socket, [{packet,raw}]),
