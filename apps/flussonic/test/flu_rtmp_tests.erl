@@ -33,15 +33,14 @@ mp3_frame(DTS) ->
 
 init_all() ->
   error_logger:delete_report_handler(error_logger_tty_h),
-  application:stop(ranch),
-  application:stop(gen_tracker),
-  application:stop(flussonic),
-  application:stop(rtmp),
+  stop_all(),
   ok = application:start(ranch),
   ok = application:start(gen_tracker),
   ok = application:start(flussonic),
+  ok = application:start(cowboy),
   ok = application:start(rtmp),
   gen_tracker_sup:start_tracker(flu_streams),
+  gen_tracker_sup:start_tracker(flu_files),
   rtmp_socket:start_server(1938, test_rtmp_listener1, flu_rtmp),
   ok.  
 
@@ -50,6 +49,8 @@ stop_all() ->
   application:stop(gen_tracker),
   application:stop(flussonic),
   application:stop(rtmp),
+  application:stop(cowboy),
+  application:stop(ranch),
   ok.
 
 setup_publish() ->
@@ -100,13 +101,6 @@ teardown_publish(#env{}) ->
   ok.
 
 
-
-rtmp_file_test_() ->
-  {foreach,
-  fun setup_file/0,
-  fun teardown_publish/1,[
-    {with, [fun test_play_file/1]}
-  ]}.
 
 flu_rtmp_test_() ->
   {foreach, 
@@ -213,13 +207,13 @@ play_rejected_test_() ->
     ok
   end,
   [
-    fun test_forbidden_password/0
+    {"test_forbidden_password", fun test_forbidden_password/0}
   ]}.
 
 test_forbidden_password() ->
   meck:expect(flu_session, timeout, fun() -> 200 end),
-  application:set_env(flussonic, config, [{sessions, "http://127.0.0.5/"}]),
-  ?assertThrow({rtmp_error,{play,<<"ort">>}},rtmp_lib:play("rtmp://127.0.0.1:1938/live/ort", [{timeout,500}])),
+  application:set_env(flussonic, config, [{stream, <<"ort">>, <<"null">>, [{sessions, "http://127.0.0.5/"}]}]),
+  ?assertThrow({rtmp_error,{play,<<"ort">>}, [403.0|_]},rtmp_lib:play("rtmp://127.0.0.1:1938/live/ort", [{timeout,500}])),
   ok.
 
 
@@ -282,15 +276,62 @@ test_publish_catch_dvr() ->
 
 
 
+rtmp_file_test_() ->
+  {foreach,
+  fun setup_file/0,
+  fun teardown_publish/1,[
+    {"test_play_file", fun test_play_file/0}
+  ]}.
 
-test_play_file(#env{}) ->
-  {ok, _RTMP} = rtmp_lib:play("rtmp://localhost:1938/live//vod/bunny.mp4"),
+
+test_play_file() ->
+  {ok, _RTMP} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4"),
   ok.
 
 
 
+rtmp_session_auth_test_() ->
+  {foreach,
+  fun() ->
+    init_all(),
+    meck:new(fake_auth),
+    meck:expect(fake_auth, init, fun(_, Req, _) -> {ok, Req, state} end),
+    meck:expect(fake_auth, terminate, fun(_,_) -> ok end),
+    Dispatch = [{'_', [{['...'], fake_auth, []}]}],
+    {ok, _} = cowboy:start_http(fake_http, 1, [{port, 6071}],
+      [{dispatch, Dispatch}]),
+    ok
+  end,
+  fun(_) ->
+    meck:unload(fake_auth),
+    stop_all() 
+  end, [
+    {"test_rtmp_play_protected_stream", fun test_rtmp_play_protected_stream/0}
+  ]}.
 
 
+test_rtmp_play_protected_stream() ->
+  Self = self(),
+  meck:expect(fake_auth, handle, fun(Req, _) ->
+    {QsVals, _} = cowboy_req:qs_vals(Req),
+    Self ! {backend_request, QsVals},
+    {ok, R1} = cowboy_req:reply(200, [], "ok\n", Req),
+    {ok, R1, undefined}
+  end),
+  set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6071/"}]}]),
+  {ok, _RTMP} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4?token=123",
+    [{pageUrl, <<"http://ya.ru/">>}]),
+
+  Qs = receive
+    {backend_request, QsV} -> QsV
+  after
+    100 -> error(backend_wasnt_requested)
+  end,
+  ?assertEqual(<<"123">>, proplists:get_value(<<"token">>, Qs)),
+  ?assertEqual(<<"bunny.mp4">>, proplists:get_value(<<"name">>, Qs)),
+  ?assertEqual(<<"http://ya.ru/">>, proplists:get_value(<<"referer">>, Qs)),
+
+  ok.
 
 
 

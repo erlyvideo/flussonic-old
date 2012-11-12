@@ -179,9 +179,9 @@ play(Session, #rtmp_funcall{} = AMF) ->
   try play0(Session, AMF) of
     Session1 -> Session1
   catch
-    throw:reject ->
+    throw:{fail, Args} ->
       RTMP = rtmp_session:get(Session, socket),
-      rtmp_lib:fail(RTMP, AMF),
+      rtmp_lib:fail(RTMP, AMF#rtmp_funcall{args = [null|Args]}),
       Session
   end.
 
@@ -189,37 +189,78 @@ to_b(undefined) -> undefined;
 to_b(List) when is_list(List) -> list_to_binary(List);
 to_b(Bin) when is_binary(Bin) -> Bin.
 
+
+fmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
+
 play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
   Path2 = normalize_path(Path1),
   Path = clear_path(Path2),
-  {StreamName0, Args} = http_uri2:parse_path_query(Path),
+  {StreamName0, QsVals} = http_uri2:parse_path_query(Path),
   StreamName1 = list_to_binary(StreamName0),
 
-  StreamName2 = case proplists:get_value(sessions, flu_config:get_config()) of
-    undefined -> 
-      StreamName1;
+  App = rtmp_session:get_field(Session, app),
+
+  {Type, Args, Options} = case lookup_config(flu_config:get_config(), App, StreamName1) of
+    {error, _} ->
+      throw({fail, [404, fmt("failed to find in config ~s/~s", [App, StreamName1])]});
+    {ok, Spec} -> Spec
+  end,
+
+  StreamName = case proplists:get_value(sessions, Options) of
+    undefined -> StreamName1;
     URL ->
-      Token = to_b(proplists:get_value("token", Args)),
+      Token = to_b(proplists:get_value("token", QsVals)),
+      is_binary(Token) orelse throw({fail, [403, <<"no_token_passed">>]}),
       Identity = [{name,StreamName1},{ip, to_b(rtmp_session:get(Session, addr))},{token,Token}],
-      Options = [{pid,self()}],
-      case flu_session:verify(URL, Identity, Options) of
+      Referer = rtmp_session:get_field(Session, pageUrl),
+      case flu_session:verify(URL, Identity, [{pid,self()},{referer,Referer}|Options]) of
         {ok, StreamName1_} -> StreamName1_;
-        {error, _, _} -> throw(reject)
+        {error, Code, Message} ->
+          ?ERR("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName1, Token, Code, Message]),
+          throw({fail, [403, Code, to_b(Message), App, StreamName1, <<"auth_denied">>]})
       end
   end,
 
-  StreamName = StreamName2,
-  case flu_media:find_or_open(StreamName) of
-    {ok, {Type, Media}} ->
-      put(remote_ip, rtmp_session:get(Session, addr)),
-      put(rtmp_play, {Type, Media, flu:now_ms()}),
-      case Type of
-        file -> play_file(Session, AMF, StreamName, Media);
-        stream -> play_stream(Session, AMF, StreamName, Media)
-      end;
+  put(remote_ip, rtmp_session:get(Session, addr)),
+  put(rtmp_play, {Type, StreamName, flu:now_ms()}),
+
+  case find_or_open_media(Type, StreamName, Args, Options) of
+    {ok, Media} when Type == file ->
+      play_file(Session, AMF, StreamName, Media);
+    {ok, Media} ->
+      play_stream(Session, AMF, StreamName, Media);
     {error, _Error} ->
-      throw(reject)
+      ?ERR("failed to play rtmp ~s//~s: ~p", [App, StreamName, _Error]),
+      throw({fail, [500, fmt("failed to play rtmp ~s//~s: ~p", [App, StreamName, _Error])]})
   end.
+
+lookup_config([{file,App,Root,Options}|_], App, _Path) ->
+  {ok, {file, Root, Options}};
+
+lookup_config([{live,App,Options}|_], App, _Path) ->
+  {ok, {live, undefined, Options}};
+
+lookup_config([{stream,Path,URL,Options}|_], _App, Path) ->
+  {ok, {stream, URL, Options}};
+
+lookup_config([_|Config], App, Path) ->
+  lookup_config(Config, App, Path);
+
+lookup_config([], _, _) ->
+  {error, not_found}.
+
+
+find_or_open_media(file, Path, Root, Options) ->
+  flu_file:autostart(Path, [{root,Root}|Options]);
+
+find_or_open_media(stream, Path, URL, Options) ->
+  flu_stream:autostart(Path, [{url,URL}|Options]);
+
+find_or_open_media(live, Path, _, Options) ->
+  flu_stream:autostart(Path, Options).
+
+  
+
 
 play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media) ->
   erlang:monitor(process, Media),

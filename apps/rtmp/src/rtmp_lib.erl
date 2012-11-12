@@ -51,7 +51,7 @@ wait_for_reply(RTMP, InvokeId) ->
   receive
     {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_result">>, id = InvokeId, args = [null|Args]}}} -> Args;
     {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_result">>, id = InvokeId, args = Args}}} -> Args;
-    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId}}} -> rtmp_error;
+    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId, args = Args}}} -> {rtmp_error, tl(Args)};
     {rtmp, RTMP, disconnect, _} -> rtmp_closed
   after
     20000 ->
@@ -222,8 +222,8 @@ play(RTMP, Stream, Path) ->
   receive
     {rtmp, RTMP, #rtmp_message{type = stream_begin, stream_id = Stream}} -> 
       ok;
-    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId}}} -> 
-      throw({rtmp_error, {play,Path}});
+    {rtmp, RTMP, #rtmp_message{type = invoke, body = #rtmp_funcall{command = <<"_error">>, id = InvokeId, args = Args}}} -> 
+      throw({rtmp_error, {play,Path}, tl(Args)});
     {'DOWN', _, _, RTMP, _} ->
       throw({rtmp_closed, {play,Path}})
   after
@@ -241,7 +241,7 @@ sync_call(RTMP, Stream, Command, Args) ->
   },
   {ok, InvokeId} = rtmp_socket:invoke(RTMP, AMF),
   case wait_for_reply(RTMP, InvokeId) of
-    rtmp_error -> throw({rtmp_error, Command});
+    {rtmp_error, Args} -> throw({rtmp_error, Command, Args});
     Reply -> Reply
   end.
 
