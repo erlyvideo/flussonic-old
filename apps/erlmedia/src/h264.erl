@@ -250,6 +250,10 @@ parse_nal(_, H264) ->
 profile_has_scaling_matrix(Profile) ->
   lists:member(Profile, [100, 110, 122, 244, 44, 83, 86, 118, 128]).
 
+
+% SPS is described in ITUIT 7.3.2.1 Sequence parameter set RBSP syntax
+% PPS is described in ITUIT 7.3.2.1 Picture parameter set RBSP syntax
+
 parse_sps(<<0:1, _NalRefIdc:2, ?NAL_SPS:5, Profile, _:8, Level, Data/binary>>) ->
   {SPS_ID, Rest} = exp_golomb_read(Data),
   SPS = #h264_sps{profile = Profile, level = Level, sps_id = SPS_ID},
@@ -306,7 +310,6 @@ decode_scaling_list(Data, Count, NextScale) ->
 parse_sps_data(Data, SPS) ->
   {Log2FrameNum, Rest2} = exp_golomb_read(Data),
   {PicOrder, Rest3} = exp_golomb_read(Rest2),
-  % ?D({"Pic order", PicOrder}),
   parse_sps_pic_order(Rest3, PicOrder, SPS#h264_sps{max_frame_num = Log2FrameNum+4}).
 
 parse_sps_pic_order(Data, 0, SPS) ->
@@ -333,12 +336,12 @@ parse_sps_ref_frames(Data, SPS) ->
   end,
   <<_Direct8x8:1, Crop:1, Rest6/bitstring>> = Rest5,
   {SPS1 = #h264_sps{crop_left = Left, crop_right = Right, crop_top = Top, crop_bottom = Bottom}, _Rest7} = parse_sps_crop(Rest6, Crop, SPS),
-  Left = 0,
-  Top = 0, % Don't support it as FFMPEG doesn't
-  Width = (PicWidth + 1)*16 - Right*2,
+  % Left == 0 orelse ?D({h264_crop_left,Left}),
+  % Top == 0 orelse ?D({h264_crop_top,Top}), % Don't support it as FFMPEG doesn't
+  Width = (PicWidth + 1)*16 - Right*2 - Left*2,
   Height = case FrameMbsOnly of
-    0 -> (PicHeight + 1)*2*16 - 4*Bottom;
-    1 -> (PicHeight + 1)*16 - 2*Bottom
+    0 -> (PicHeight + 1)*2*16 - 4*Bottom - 4*Top;
+    1 -> (PicHeight + 1)*16 - 2*Bottom - 2*Top
   end,
   SPS1#h264_sps{width = Width, height = Height}.
   

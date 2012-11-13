@@ -55,7 +55,16 @@ main(Options) ->
   io:format("Licensed code loaded~n"),
   ok = start(Options),
   io:format("Flussonic streaming server started. ~nInformation: http://flussonic.com/ (http://erlyvideo.org/)~nContacts: Max Lapshin <info@erlyvideo.org>~n"),
-  io:get_line(""),
+  loop_readline().
+
+loop_readline() ->
+  case io:get_line("cmd> ") of
+    "r\n" -> 
+      flu:reconf(),
+      loop_readline();
+    _ ->
+      ok
+  end,
   io:format("Flussonic is exiting due to user keypress~n").
   
 

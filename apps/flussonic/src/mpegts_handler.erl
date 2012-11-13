@@ -30,6 +30,7 @@
 
 
 -include_lib("erlmedia/include/video_frame.hrl").
+-include_lib("erlmedia/include/media_info.hrl").
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
@@ -79,7 +80,9 @@ handle0(Req, #mpegts{name = RawName, options = Options, method = <<"GET">>} = St
   ?D({mpegts_play,Name}),
   inet:setopts(Socket, [{send_timeout,10000},{sndbuf,1200000}]),
   Transport:send(Socket, "HTTP/1.0 200 OK\r\nContent-Type: video/mpeg2\r\nConnection: close\r\n\r\n"),
-  case (catch write_loop(Socket, Transport, Mpegts, false)) of
+  #media_info{streams = Streams} = flu_stream:media_info(Name),
+  Started = length([S || #stream_info{content = video} = S <- Streams]) == 0,
+  case (catch write_loop(Socket, Transport, Mpegts, Started)) of
     {'EXIT', Error} -> ?D({exit,Error,erlang:get_stacktrace()});
     ok -> ok;
     {error, closed} -> ok;

@@ -193,11 +193,17 @@ handle_info({'DOWN', _Ref, process, _Pid, Reason}, #decoder{} = State) ->
   ?D({"MPEG TS reader lost pid handler", _Pid}),
   {stop, Reason, State};
 
+handle_info({tcp, Socket, Bin}, #decoder{} = Decoder) ->
+  handle_info({input_data, Socket, Bin}, Decoder);
 
-handle_info({udp, Socket, _IP, _InPortNo, Bin}, #decoder{consumer = Consumer, delay_for_config = Delay1, desynced_adts = Desynced} = Decoder) ->
+handle_info({udp, Socket, _IP, _InPortNo, Bin}, #decoder{} = Decoder) ->
+  handle_info({input_data, Socket, Bin}, Decoder);
+
+handle_info({input_data, Socket, Bin}, #decoder{consumer = Consumer, delay_for_config = Delay1, desynced_adts = Desynced} = Decoder) ->
   inet:setopts(Socket, [{active,once}]),
   try decode(Bin, Decoder) of
     {ok, #decoder{delay_for_config = Delay2, media_info = MediaInfo} = Decoder_, Frames} ->
+      % send_media_info_if_needed(Decoder_, Frames),
       if Delay1 andalso not Delay2 ->
         Consumer ! MediaInfo;
       true -> ok end,  
@@ -220,13 +226,6 @@ handle_info({udp, Socket, _IP, _InPortNo, Bin}, #decoder{consumer = Consumer, de
 handle_info(flush_desync_count, #decoder{} = Decoder) ->
   {noreply, Decoder#decoder{desynced_adts = 0}};
   
-handle_info({tcp, Socket, Bin}, #decoder{consumer = Consumer} = Decoder) ->
-  inet:setopts(Socket, [{active,once}]),
-  {ok, Decoder1, Frames} = decode(Bin, Decoder),
-  send_media_info_if_needed(Decoder1, Frames),
-  [Consumer ! Frame || Frame <- Frames],
-  {noreply, Decoder1};
-  
 handle_info({tcp_closed, _Socket}, Decoder) ->
   {stop, normal, Decoder};
 
@@ -239,14 +238,14 @@ handle_info(Else, Decoder) ->
   {stop, {unknown_message, Else}, Decoder}.
 
 
-send_media_info_if_needed(#decoder{consumer = Consumer, media_info = #media_info{}} = Decoder, Frames) when length(Frames) > 0 ->
-  case get(sent_media_info) of
-    true -> ok;
-    _ -> put(sent_media_info, true), Consumer ! media_info(Decoder)
-  end;
+% send_media_info_if_needed(#decoder{consumer = Consumer, media_info = #media_info{}} = Decoder, Frames) when length(Frames) > 0 ->
+%   case get(sent_media_info) of
+%     true -> ok;
+%     _ -> put(sent_media_info, true), Consumer ! media_info(Decoder)
+%   end;
 
-send_media_info_if_needed(_, _) -> 
-  ok.
+% send_media_info_if_needed(_, _) -> 
+%   ok.
 
 
   
@@ -482,6 +481,7 @@ psi(PSI, Stream, #decoder{pids = Streams} = Decoder) ->
 content(h264) -> video;
 content(mpeg2video) -> video;
 content(aac) -> audio;
+content(mp3) -> audio;
 content(mpeg2audio) -> audio;
 content(_) -> meta.
 
@@ -594,8 +594,7 @@ decode_pes_packet(#stream{codec = mp3, dts = DTS, pts = PTS, es_buffer = Data} =
 	  codec	  = mp3,
 	  sound	  = {stereo, bit16, rate44}
   },
-  % ?D({audio, Stream#stream.pcr, DTS}),
-  {Stream, [AudioFrame]};
+  {Stream#stream{es_buffer = <<>>}, [AudioFrame]};
 
 decode_pes_packet(#stream{codec = mpeg2audio, dts = DTS, pts = PTS, es_buffer = Data} = Stream) ->
   % TC1 = get(mp2_aac),
@@ -771,7 +770,7 @@ decode_adts(ADTS, BaseDTS, SampleRate, SampleCount, Frames) ->
     {more, _} ->
       {lists:reverse(Frames), ADTS};
     {error, Bin} ->
-      error({desync_adts,Bin})
+      error({desync_adts, Bin})
   end.
       
 % decode_aac(#stream{es_buffer = <<_Syncword:12, _ID:1, _Layer:2, 0:1, _Profile:2, _Sampling:4,
