@@ -441,7 +441,12 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
       end, Stream1, Configs),
       {noreply, Stream2};
     _ ->
-      ?ERR("Stream \"~s\" can't open source \"~s\". Retries: ~B/~B", [Name, URL, Count, Stream#stream.retry_limit]),
+      if 
+        Count < 20 orelse 
+        (Count < 500 andalso Count div 10 == 0) orelse
+        Count div 100 == 0 ->
+      ?ERR("Stream \"~s\" can't open source \"~s\". Retries: ~B/~B", [Name, URL, Count, Stream#stream.retry_limit]);
+      true -> ok end,
       Delay = ((Count rem 30) + 1)*1000,
       erlang:send_after(Delay, self(), reconnect_source),
       {noreply, Stream#stream{retry_count = Count+1}}
