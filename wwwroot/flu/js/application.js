@@ -23,9 +23,14 @@ Erlyvideo = {
   },
   
   jwplayer: function(element, url) {
+    var app = "live";
+    if(url.indexOf("vod/") == 0) {
+      app = "vod";
+      url = url.substring(3, url.length);
+    }
     var flashvars = {
         file: url+"?session="+((new Date()).getTime()),
-        streamer:'rtmp://'+window.location.hostname+':1935/ondemand/',
+        streamer:'rtmp://'+window.location.hostname+':1935/'+app,
         'rtmp.tunneling':false,
         autostart: true
       };

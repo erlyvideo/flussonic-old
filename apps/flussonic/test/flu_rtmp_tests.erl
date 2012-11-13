@@ -281,14 +281,42 @@ rtmp_file_test_() ->
   fun setup_file/0,
   fun teardown_publish/1,[
     {"test_play_file", fun test_play_file/0}
+    ,{"test_seek_file", fun test_seek_file/0}
   ]}.
 
 
 test_play_file() ->
-  {ok, _RTMP} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4"),
+  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4"),
+  receive
+    {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
+    when size(H264) > 20 andalso D1 > 20 -> ok
+  after 100 -> error(no_h264) end,
+  receive
+    {rtmp, RTMP, #rtmp_message{type = audio, body = AAC, timestamp = D2}} 
+    when size(AAC) > 20 andalso D2 > 20 -> ok
+  after 100 -> error(no_aac) end,
+  % flush_rtmp(),
   ok.
 
+test_seek_file() ->
+  {ok, RTMP, Stream} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4"),
+  rtmp_lib:seek(RTMP, Stream, 30000),
+  receive
+    {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
+    when size(H264) > 20 andalso D1 > 30020 -> ok
+  after 100 -> error(havent_seeked_h264) end,
+  receive
+    {rtmp, RTMP, #rtmp_message{type = audio, body = AAC, timestamp = D2}} 
+    when size(AAC) > 20 andalso D2 > 30020 -> ok
+  after 100 -> error(havent_seeked_aac) end,
+  % flush_rtmp(),
+  ok.
 
+% flush_rtmp() ->
+%   receive
+%     A -> ?debugFmt("~240p",[A])
+%   end,
+%   flush_rtmp().
 
 rtmp_session_auth_test_() ->
   {foreach,
@@ -319,8 +347,9 @@ test_rtmp_play_protected_stream() ->
     {ok, R1, undefined}
   end),
   set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6071/"}]}]),
-  {ok, _RTMP} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4?token=123",
+  {ok, RTMP, _} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4?token=123",
     [{pageUrl, <<"http://ya.ru/">>}]),
+
 
   Qs = receive
     {backend_request, QsV} -> QsV
@@ -330,6 +359,12 @@ test_rtmp_play_protected_stream() ->
   ?assertEqual(<<"123">>, proplists:get_value(<<"token">>, Qs)),
   ?assertEqual(<<"bunny.mp4">>, proplists:get_value(<<"name">>, Qs)),
   ?assertEqual(<<"http://ya.ru/">>, proplists:get_value(<<"referer">>, Qs)),
+
+
+  receive
+    {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
+    when size(H264) > 20 andalso D1 > 20 -> ok
+  after 100 -> error(no_h264) end,
 
   ok.
 

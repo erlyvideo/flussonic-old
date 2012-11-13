@@ -31,7 +31,7 @@
 
 -export([create_client/1]).
 -export([init/1, handle_control/2, handle_rtmp_call/2, handle_info/2]).
--export([no_function/2, publish/2, play/2]).
+-export([no_function/2, publish/2, play/2, seek/2]).
 
 -export([play_url/3]).
 
@@ -87,7 +87,19 @@ handle_control({stream_died, _}, Session) ->
 handle_control(_Control, Session) ->
   {ok, Session}.
 
-handle_info({read_burst, StreamId, Fragment}, Session) ->
+flush_burst_timer(Session) ->
+  receive
+    {read_burst, _, _, _} -> flush_burst_timer(Session)
+  after
+    0 ->
+      case rtmp_session:get(Session, burst_timer) of
+        undefined -> ok;
+        Timer -> erlang:cancel_timer(Timer)
+      end
+  end.
+
+handle_info({read_burst, StreamId, Fragment, BurstCount}, Session) ->
+  flush_burst_timer(Session),
   Stream = rtmp_session:get_stream(StreamId, Session),
   Media = rtmp_stream:get(Stream, pid),
   case flu_file:get(Media, {hds_segment, Fragment}) of
@@ -101,11 +113,12 @@ handle_info({read_burst, StreamId, Fragment}, Session) ->
       put(sent_bytes, get(sent_bytes) + size(Bin)),
       gen_tcp:send(Socket, Bin),
       {noreply, Session2} = rtmp_session:handle_info({ems_stream, StreamId, burst_stop}, Session1),
-      Sleep = if Fragment < 3 -> 0;
+      Sleep = if BurstCount > 0 -> 0;
         true -> round(Duration)
       end,
-      erlang:send_after(Sleep, self(), {read_burst, StreamId, Fragment+1}),
-      {noreply, Session2};
+      BurstTimer = erlang:send_after(Sleep, self(), {read_burst, StreamId, Fragment+1, BurstCount - 1}),
+      Session3 = rtmp_session:set(Session2, burst_timer, BurstTimer),
+      {noreply, Session3};
     {error, no_segment} ->
       rtmp_session:handle_info({ems_stream, StreamId, play_complete, 0}, Session)
   end;
@@ -121,7 +134,8 @@ handle_info(_Info, State) ->
 accumulate_frames(ReadFun, Id, MinDTS, MaxDTS, Acc, StreamId, StopDTS) ->
   case ReadFun(Id) of
     eof -> {MaxDTS - MinDTS, lists:reverse(Acc)};
-    #video_frame{dts = DTS} when DTS >= StopDTS -> {MaxDTS - MinDTS, lists:reverse(Acc)};
+    #video_frame{dts = DTS} when DTS >= StopDTS -> 
+      {if MaxDTS == undefined orelse MinDTS == undefined -> 20; true -> MaxDTS - MinDTS end, lists:reverse(Acc)};
     #video_frame{next_id = Next, dts = DTS} = Frame ->
       FlvFrameGen = flv:rtmp_tag_generator(Frame),
       Min = case MinDTS of undefined -> DTS; _ -> MinDTS end,
@@ -173,6 +187,24 @@ normalize_path(Path) -> Path.
 
 clear_path(<<"/", Path/binary>>) -> Path;
 clear_path(Path) -> Path.
+
+
+seek(Session, #rtmp_funcall{args = [null,DTS], stream_id = StreamId} = _AMF) ->
+  RTMP = rtmp_session:get(Session, socket),
+  Stream = rtmp_session:get_stream(StreamId, Session),
+  Name = rtmp_stream:get(Stream, name),
+  Keyframes = flu_file:keyframes(Name),
+  SkipGops = length(lists:takewhile(fun({TS,_}) -> TS < DTS end, Keyframes)),
+
+  flush_burst_timer(Session),
+  % ?debugFmt("seek to ~p frament",[SkipGops]),
+  self() ! {read_burst, StreamId, SkipGops, 3},
+  % ?debugFmt("seek(~p) ~s", [round(DTS), Name]),
+
+  % rtmp_lib:reply(RTMP, AMF),
+
+  rtmp_lib:seek_notify(RTMP, StreamId, DTS),
+  Session.
 
 
 play(Session, #rtmp_funcall{} = AMF) ->
@@ -276,7 +308,7 @@ play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media
         rtmp_session:send_frame(F#video_frame{stream_id = StreamId}, Sess)
       end, Session1, Configs),
       
-      self() ! {read_burst, round(StreamId), 1},
+      self() ! {read_burst, round(StreamId), 1, 3},
       
       Session2;
     {return, _Code, Msg} ->

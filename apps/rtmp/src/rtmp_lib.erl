@@ -210,7 +210,7 @@ invoke_rtmp_play(RTMP, URL, Options) ->
   ok = play(RTMP, Stream, Path),
   ?D({"Playing", Path}),
   
-  {ok, RTMP}.
+  {ok, RTMP, Stream}.
 
 
 play(RTMP, Stream, Path) when is_list(Path) ->

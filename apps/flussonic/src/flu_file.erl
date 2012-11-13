@@ -29,7 +29,7 @@
 -export([hds_manifest/1, hds_segment/2, bootstrap/1,hls_playlist/1,hls_segment/2, hds_lang_segment/3]).
 -export([hls_segment/3]).
 -export([get/2]).
--export([read_frame/2]).
+-export([read_frame/2, keyframes/1]).
 -include("log.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
@@ -79,6 +79,7 @@ get(File, Key) when is_binary(File) ->
 get(File, Key) ->
   gen_server:call(File, Key).
 
+keyframes(File) -> get(File, keyframes).
 
 bootstrap(File) -> get(File, bootstrap).
 
@@ -180,6 +181,9 @@ handle_call(Call, From, #state{file = undefined} = State) ->
 
 handle_call(media_info, _From, #state{format = Format, reader = Reader, timeout = Timeout} = State) ->
   {reply, Format:media_info(Reader), State, Timeout};
+
+handle_call(keyframes, _From, #state{keyframes = Keyframes, timeout = Timeout} = State) ->
+  {reply, Keyframes, State, Timeout};
 
 handle_call(hds_manifest, From, #state{bootstrap = undefined} = State) ->
   {reply, _, #state{bootstrap = Bootstrap} = State1, _} = handle_call(bootstrap, From, State),
