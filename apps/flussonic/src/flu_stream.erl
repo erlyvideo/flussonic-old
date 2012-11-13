@@ -442,9 +442,9 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
       {noreply, Stream2};
     _ ->
       if 
-        Count < 20 orelse 
+        Count =< 10 orelse 
         (Count < 500 andalso Count div 10 == 0) orelse
-        Count div 100 == 0 ->
+        Count rem 100 == 0 ->
       ?ERR("Stream \"~s\" can't open source \"~s\". Retries: ~B/~B", [Name, URL, Count, Stream#stream.retry_limit]);
       true -> ok end,
       Delay = ((Count rem 30) + 1)*1000,
