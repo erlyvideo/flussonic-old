@@ -39,7 +39,8 @@
 -export([parse_nal/2, depacketize/1]).
 
 
-video_config(H264) ->
+
+video_config(#h264{} = H264) ->
   case has_config(H264) of
     false -> undefined;
     true ->
@@ -51,7 +52,12 @@ video_config(H264) ->
     		body    = decoder_config(H264),
     		codec   = h264
     	}
-  end.
+  end;
+
+video_config([<<_/binary>>|_] = ConfigNals) ->
+  H264 = lists:foldl(fun(NAL, H264_) -> h264:parse_nal(NAL, H264_) end, h264:init(), ConfigNals),
+  h264:video_config(H264).
+
 
 metadata(Config) ->
   {LengthSize, [SPSBin, _]} = unpack_config(Config),
@@ -104,6 +110,8 @@ decoder_config(#h264{pps = PPS, sps = SPS, profile_compat = ProfileCompat}) ->
     2#111:3, (length(SPS)):5, (size(SPSBin)):16, SPSBin/binary,
     (length(PPS)), (size(PPSBin)):16, PPSBin/binary>>.
 
+type(<<1:1, _:2, Type:5, _/binary>>) ->
+  {broken, nal_unit_type(Type)};
 
 type(<<0:1, _:2, Type:5, _/binary>>) ->
   nal_unit_type(Type).

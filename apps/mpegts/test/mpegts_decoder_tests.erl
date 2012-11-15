@@ -15,7 +15,11 @@ bench() ->
     run_bench(mpegts_reader, undefined, Count)
   end),
 
-  io:format("mpegts_decoder: ~p, mpegts_reader: ~p~n", [T1 div Count, T2 div Count]).
+  {T3, _} = timer:tc(fun() ->
+    run_bench(mpegts_decoder1, undefined, Count)
+  end),
+
+  io:format("mpegts_decoder: ~p, mpegts_reader: ~p, mpegts_decoder1: ~p~n", [T1 div Count, T2 div Count, T3 div Count]).
 
 
 
@@ -85,6 +89,15 @@ readtest_cupertino1() ->
   check_frames(10000, 19958.33, 257, 241, 10000, 19856, 258, undefined, Frames),
   ok.
 
+readtest1_cupertino2() ->
+  {ok, Frames} = mpegts_decoder1:read_file("../test/fixtures/fileSequence0.ts"),
+  % {ok, MP4} = mp4_writer:write_frame_list(Frames, []),
+  % file:write_file("a.mp4",MP4),
+  % file:write_file("a.flv", [flv:header(), [flv_video_frame:to_tag(Frame) || Frame <- Frames]]),
+  check_frames(10000, 19958.33, 257, 241, 10000, 19856, 258, 469, Frames),
+  ok.
+
+
 readtest_flu() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/41-08000.ts"),
   check_frames(67589358.4, 67597318.4, 101, 201, 67589448.0, 67597426.7, 100, 376, Frames),
@@ -95,13 +108,40 @@ readtest_flu1() ->
   check_frames(67589358.4, 67597318.4, 101, undefined, 67589448.0, 67597426.7, 100, undefined, Frames),
   ok.
 
+readtest1_flu2() ->
+  {ok, Frames} = mpegts_decoder1:read_file("../test/fixtures/41-08000.ts"),
+  check_frames(67589358.4, 67597318.4, 101, 201, 67589448.0, 67597426.7, 100, 376, Frames),
+  ok.
+
+
+readtest_flubad() ->
+  {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/10-06800.ts"),
+  check_frames(93637031.06, 93643751.09, 269, 174, 93637018.53, 93643738.78, 268, 319, Frames),
+  ok.
+
+readtest_flubad1() ->
+  {ok, Frames} = mpegts_reader:read_file("../test/fixtures/10-06800.ts"),
+  check_frames(93637031.06, 93643751.09, 269, 173, 93637018.53, 93643738.78, 268, 318, Frames),
+  ok.
+
+readtest1_flubad2() ->
+  {ok, Frames} = mpegts_decoder1:read_file("../test/fixtures/10-06800.ts"),
+  check_frames(93637031.06, 93643751.09, 101, 174, 93637018.53, 93643738.78, 268, 319, Frames),
+  ok.
+
+
 readtest_more() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/media_7946.ts"),
   check_frames(79501707.0, 79509907.0, 256, 209, 79501624.0, 79509880.0, 257, 391, Frames),
   ok.
 
-
 readtest_more1() ->
   {ok, Frames} = mpegts_reader:read_file("../test/fixtures/media_7946.ts"),
   check_frames(79501707.0, 79509907.0, 256, undefined, 79501624.0, 79509880.0, 257, undefined, Frames),
   ok.
+
+readtest1_more2() ->
+  {ok, Frames} = mpegts_decoder1:read_file("../test/fixtures/media_7946.ts"),
+  check_frames(79501707.0, 79509907.0, 256, 209, 79501624.0, 79509880.0, 257, 391, Frames),
+  ok.
+

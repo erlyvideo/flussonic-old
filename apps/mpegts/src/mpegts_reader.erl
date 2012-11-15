@@ -170,13 +170,13 @@ handle_call(connect, _From, #decoder{options = Options} = Decoder) ->
   case Schema of
     udp -> 
       {ok, Socket} = connect_udp(URL),
-      ?DBG("MPEG-TS reader connected to \"~s\"", [URL]),
+      % ?DBG("MPEG-TS reader connected to \"~s\"", [URL]),
   	  {reply, ok, Decoder#decoder{socket = Socket}};
     _ ->
       case  http_stream:request(URL, [{timeout,Timeout}]) of 
 	{ok,{Socket,_Code,_Header}} ->
 	  ok = inet:setopts(Socket, [{packet,raw},{active,once}]),
-	  ?D({connected, URL, Socket}),
+	  % ?D({connected, URL, Socket}),
 	  {reply, ok, Decoder#decoder{socket = Socket}};
 	{error,_Reason} ->
 	  {stop,normal,Decoder}

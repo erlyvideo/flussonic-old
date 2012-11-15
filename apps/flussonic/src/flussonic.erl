@@ -75,7 +75,7 @@ start(_Options) ->
   application:start(compiler),
   application:load(lager),
   application:set_env(lager,handlers,[{lager_console_backend,info}]),
-  application:set_env(lager,error_logger_redirect,false),
+  application:set_env(lager,error_logger_redirect,true),
   lager:start(),
   license_client:load(),
   application:start(sasl),

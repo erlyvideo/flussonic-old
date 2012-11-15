@@ -462,7 +462,12 @@ handle_info({'DOWN', _, process, Source, _Reason},
   Delay = ((Count rem 30) + 1)*1000,
   erlang:send_after(Delay, self(), reconnect_source),
   
-  ?DBG("stream \"~s\" lost source \"~s\". Retry count ~p/~p", [Name, URL, Count, Limit]),
+  if 
+    Count =< 10 orelse 
+    (Count < 500 andalso Count div 10 == 0) orelse
+    Count rem 100 == 0 ->  
+  ?DBG("stream \"~s\" lost source \"~s\". Retry count ~p/~p", [Name, URL, Count, Limit]);
+  true -> ok end,
   {noreply, Stream#stream{source = undefined, ts_delta = undefined, retry_count = Count + 1}};
 
 handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = OldCheckTimer,

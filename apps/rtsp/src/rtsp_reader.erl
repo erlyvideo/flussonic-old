@@ -4,6 +4,7 @@
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
 -include_lib("erlmedia/include/sdp.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 
 -export([start_link/2, media_info/1]).
@@ -120,7 +121,8 @@ parse_content_base(Headers, URL, OldContentBase) ->
     NewContentBase -> % Here we must handle important case when Content-Base is given with local network
       {match, [_Host, BasePath]} = re:run(NewContentBase, "rtsp://([^/]+)(/.*)$", [{capture,all_but_first,list}]),
       {match, [Host, _Path]} = re:run(URL, "rtsp://([^/]+)(/.*)$", [{capture,all_but_first,list}]),
-      "rtsp://" ++ Host ++ BasePath
+      URL1 = "rtsp://" ++ Host ++ BasePath,
+      re:replace(URL1, "^rtsp://(.+@)?(.*)$", "rtsp://\\2", [{return, list}])
   end.
 
 
@@ -152,6 +154,9 @@ parse_rtp_info_header(String) when is_list(String) ->
   [[F(S1) || S1 <- string:tokens(S, ";")] || S <- string:tokens(String, ",")].
 
 
-
+% parse_content_base_test_() ->
+%  [
+%   ?_assertEqual(),
+%  ].
 
 
