@@ -21,10 +21,12 @@ media_info(RTSP) ->
 
 -record(rtsp, {
   url,
+  rtp_mode,
   content_base,
   consumer,
   media_info,
-  proto
+  proto,
+  options
 }).
 
 init([URL, Options]) ->
@@ -32,11 +34,9 @@ init([URL, Options]) ->
   {consumer, Consumer} = lists:keyfind(consumer, 1, Options),
   erlang:monitor(process, Consumer),
   % erlang:send_after(5000, self(), teardown),
-  {ok, Proto} = rtsp_protocol:start_link([{consumer, self()}, {url, URL}|Options]),
-  unlink(Proto),
-  erlang:monitor(process, Proto),
+  RTPMode = proplists:get_value(rtp, Options, tcp),
   self() ! work,
-  {ok, #rtsp{url = URL, content_base = URL, proto = Proto, consumer = Consumer}}.
+  {ok, #rtsp{url = URL, content_base = URL, options = Options, consumer = Consumer, rtp_mode = RTPMode}}.
 
 
 handle_info(work, #rtsp{} = RTSP) ->
@@ -75,12 +75,18 @@ try_read(#rtsp{url = URL} = RTSP) ->
   catch
     throw:{rtsp, exit, normal} ->
       throw({stop, normal, RTSP});
+    throw:{rtsp, restart, RTSP1} ->
+      try_read(RTSP1);
     throw:{rtsp, Error, Reason} ->
       ?ERR("Failed to read from \"~s\": ~p:~240p", [URL, Error, Reason]),
       throw({stop, normal, RTSP})
   end.
 
-try_read0(#rtsp{proto = Proto, url = URL} = RTSP) ->
+try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
+  {ok, Proto} = rtsp_protocol:start_link([{consumer, self()}, {url, URL}|Options]),
+  unlink(Proto),
+  _Ref = erlang:monitor(process, Proto),
+
   {ok, 200, _, _} = rtsp_protocol:call(Proto, 'OPTIONS', []),
   {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_protocol:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
   DescribeCode == 401 andalso throw({rtsp, denied, 401}),
@@ -95,10 +101,25 @@ try_read0(#rtsp{proto = Proto, url = URL} = RTSP) ->
   lists:foldl(fun(#stream_info{options = Opt, track_id = TrackId} = StreamInfo, N) ->
     Control = proplists:get_value(control, Opt),
     Track = control_url(ContentBase, Control),
-    Transport = io_lib:format("RTP/AVP/TCP;unicast;interleaved=~B-~B", [N, N+1]),
+    Transport = case RTPMode of
+      tcp ->
+        rtsp_protocol:add_channel(Proto, TrackId-1, StreamInfo, tcp),
+        io_lib:format("RTP/AVP/TCP;unicast;interleaved=~B-~B", [N, N+1]);
+      udp ->
+        {ok, {RTPport, RTCPport}} = rtsp_protocol:add_channel(Proto, TrackId-1, StreamInfo, udp),
+        io_lib:format("RTP/AVP;unicast;client_port=~B-~B", [RTPport, RTCPport])
+    end,
     {ok, SetupCode, _, _} = rtsp_protocol:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
-    SetupCode == 200 orelse throw({rtsp, failed_setup, {SetupCode, Track}}),
-    rtsp_protocol:add_channel(Proto, TrackId-1, StreamInfo),
+    case SetupCode of
+      % 406 when RTPMode == tcp ->
+      %   erlang:demonitor(Ref, [flush]),
+      %   (catch rtsp_protocol:stop(Proto)),
+      %   throw({rtsp, restart, RTSP#rtsp{rtp_mode = udp}});
+      200 -> 
+        ok;
+      _ ->
+        throw({rtsp, failed_setup, {SetupCode, Track, RTPMode}})
+    end,
     N + 2
   end, 0, MediaInfo#media_info.streams),
 
@@ -108,7 +129,7 @@ try_read0(#rtsp{proto = Proto, url = URL} = RTSP) ->
 
   [rtsp_protocol:sync(Proto, N, Sync) || {N, Sync} <- lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo)],
 
-  RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo}.
+  RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo, proto = Proto}.
 
 
 % Axis cameras have "rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1" in SDP
@@ -140,7 +161,7 @@ parse_rtp_info_header(String) when is_binary(String) ->
   parse_rtp_info_header(binary_to_list(String));
 
 parse_rtp_info_header(String) when is_list(String) ->
-  {ok, Re} = re:compile(" *([^=]+)=([^\\r]*)"),
+  {ok, Re} = re:compile(" *([^=]+)=([^\\r ]*)"),
   F = fun(S) ->
     {match, [_, K, V]} = re:run(S, Re, [{capture, all, list}]),
     Key = list_to_existing_atom(K),
@@ -154,9 +175,16 @@ parse_rtp_info_header(String) when is_list(String) ->
   [[F(S1) || S1 <- string:tokens(S, ";")] || S <- string:tokens(String, ",")].
 
 
-% parse_content_base_test_() ->
-%  [
-%   ?_assertEqual(),
-%  ].
+parse_content_base_test_() ->
+ [
+  ?_assertEqual("rtsp://75.130.113.168:1025/11/", 
+    parse_content_base([{'Content-Base', "rtsp://75.130.113.168:1025/11/"}],
+      "rtsp://admin:admin@75.130.113.168:1025/11/", "rtsp://admin:admin@75.130.113.168:1025/11/"))
+ ].
 
+parse_rtp_info_test_() ->
+  [
+    ?_assertEqual([[{url,"rtsp://75.130.113.168:1025/11/trackID=0"},{seq,0},{rtptime,3051549469}]], 
+      parse_rtp_info_header("url=rtsp://75.130.113.168:1025/11/trackID=0;seq=0;rtptime=3051549469 "))
+  ].
 

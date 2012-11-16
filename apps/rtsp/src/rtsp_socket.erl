@@ -1,6 +1,7 @@
 -module(rtsp_socket).
 
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
+-export([bind_udp/0]).
 
 -include("log.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
