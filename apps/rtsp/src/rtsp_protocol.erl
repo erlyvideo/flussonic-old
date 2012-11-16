@@ -77,6 +77,7 @@ sync(Proto, Channel, Sync) ->
   stream_id,
   seq,
   ntp,
+  last_sr_at,
   timecode,
   wall_clock,
   decoder,
@@ -157,16 +158,18 @@ handle_info(send_rr, #rtsp{} = RTSP) ->
   erlang:send_after(?KEEPALIVE, self(), send_rr),
   {noreply, RTSP};
 
+
 handle_info({send_rr, N}, #rtsp{chan1 = Chan1, chan2 = Chan2, socket = Socket} = RTSP) ->
   Chan = case N of
     1 -> Chan1;
     2 -> Chan2
   end,
   case Chan of
-    #rtp{stream_id = StreamId, channel = Channel, seq = Seq, ntp = LSR} when StreamId + Seq + LSR > 0 ->
+    #rtp{stream_id = StreamId, channel = Channel, seq = Seq, ntp = LSR, last_sr_at = LastSRAt} when StreamId + Seq + LSR > 0 ->
+      Delay = (timer:now_diff(os:timestamp(), LastSRAt) * 65536) div 1000000,
     % <<1:2, 0:1, Count:5, ?RTCP_RR, Length:16, StreamId:32, FractionLost, LostPackets:24, MaxSeq:32, Jitter:32, LSR:32, DLSR:32>>.
-      RR = <<2:2, 0:1, 1:5, ?RTCP_RR, 7:16, (StreamId+1):32, StreamId:32, 0:32, Seq:32, 0:32, (LSR bsr 16):32, 0:32>>,
-      % ?D({rr,Channel*2+1, RR}),
+      RR = <<2:2, 0:1, 1:5, ?RTCP_RR, 7:16, (StreamId+1):32, StreamId:32, 0:32, Seq:32, 0:32, (LSR bsr 16):32, Delay:32>>,
+      ?D({rr,Channel*2+1, RR}),
       gen_tcp:send(Socket, [<<$$, (Channel*2 + 1), (size(RR)): 16>>, RR]);
     _ ->
       ok    
@@ -225,7 +228,9 @@ read_rtp_packets(<<$$, ChannelId, Length:16, RTCP:Length/binary, Rest/binary>>, 
     <<2:2, _:6, ?RTCP_SR, _Length:16, StreamId:32, NTP:64, Timecode:32, _PacketCount:32, _OctetCount:32, _/binary>> ->
       ChannelId_ = ChannelId div 2,
       WallClock = round((NTP / 16#100000000 - ?YEARS_70) * 1000),
-      Chan = (element(#rtsp.chan1 + ChannelId_, RTSP))#rtp{ntp = NTP, timecode = Timecode, wall_clock = WallClock, stream_id = StreamId},
+      Chan = (element(#rtsp.chan1 + ChannelId_, RTSP))#rtp{
+        ntp = NTP, timecode = Timecode, wall_clock = WallClock, stream_id = StreamId, last_sr_at = os:timestamp()
+      },
       setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan);
     _ ->
       RTSP
