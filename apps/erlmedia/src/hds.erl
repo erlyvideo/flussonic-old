@@ -12,8 +12,9 @@
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([manifest/2,manifest/3, segment/3, segment/4]).
--export([stream_bootstrap/2, file_bootstrap/3, file_bootstrap/2]).
+-export([file_manifest/1, file_manifest/2]).
+-export([stream_manifest/2,stream_manifest/3, segment/3, segment/4]).
+-export([stream_bootstrap/2]).
 -export([metadata/1, abst_info/2, asrt_info/1]).
 
 -export([lang_frag_duration/0]).
@@ -27,60 +28,94 @@
   duration
 }).
 
+file_manifest(Path) when is_list(Path) ->
+  {ok, F} = file:open(Path, [binary,read,raw]),
+  {ok, Mp4} = mp4_reader:init({file,F}, []),
+  {ok, Manifest} = file_manifest(mp4_reader, Mp4),
+  file:close(F),
+  {ok, Manifest}.
+
+file_manifest(Format, Reader) ->
+  MediaInfo = #media_info{duration = Duration, streams = Streams} = Format:media_info(Reader),
+
+  FirstLanguage = case [Stream || #stream_info{content = audio} = Stream <- Streams] of
+    [#stream_info{track_id = FirstLanguageId} | _] -> FirstLanguageId;
+    [] -> undefined
+  end,
+
+  Videos = [TrackId || #stream_info{content = video, track_id = TrackId} <- Streams],
+
+
+  Manifest = iolist_to_binary([
+<<"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<manifest xmlns=\"http://ns.adobe.com/f4m/1.0\">
+  <id>file</id>
+  <streamType>recorded</streamType>
+  <duration>">>, io_lib:format("~.2f", [Duration / 1000]), <<"</duration>
+">>, 
+  lists:map(fun(VideoId) ->
+    BitrateTrackIds = [VideoId,FirstLanguage],
+    BitrateStreams = [Stream || #stream_info{track_id = TrackId} = Stream <- Streams, lists:member(TrackId,BitrateTrackIds)],
+    [#stream_info{content = video, bitrate = Bitrate}|_] = BitrateStreams,
+    MI = MediaInfo#media_info{streams = BitrateStreams},
+    Keyframes = flu_file:reduce_keyframes(Format:keyframes(Reader, [{tracks,BitrateTrackIds}])),
+
+    % ?DBG("~B -> ~240p",[VideoId,Keyframes]),
+
+  [io_lib:format("  <bootstrapInfo profile=\"named\" id=\"bootstrap~B\">\n", [VideoId]),
+    base64:encode_to_string(generate_bootstrap(Duration, Keyframes, [])),
+  "\n  </bootstrapInfo>\n",
+  io_lib:format("  <media streamId=\"stream~B\" url=\"hds/~B,~B/\" bitrate=\"~B\" bootstrapInfoId=\"bootstrap~B\">\n",
+      [VideoId,VideoId,FirstLanguage,Bitrate div 1000, VideoId]),
+  "    <metadata>\n",
+    metadata(MI),
+  "\n    </metadata>\n",
+  "  </media>\n\n"
+  ]
+  end, Videos),
+
+<<"</manifest>
+">>
+  ]),
+  {ok, Manifest}.
+
+
 lang_frag_duration() ->
   10000.
-
-file_bootstrap(Format,Reader,Options) ->
-  #media_info{duration = Duration} = Format:media_info(Reader),
-  file_bootstrap(Format:keyframes(Reader), [{duration,Duration}|Options]).
-
-file_bootstrap(Keyframes, Options) ->
-  Timestamps = [DTS || {DTS, _Key} <- Keyframes],
-  Duration = proplists:get_value(duration, Options, lists:max(Timestamps)),
-  BootStrap = generate_bootstrap(Duration,Timestamps,[{type,recorded}|Options]),
-  {ok,iolist_to_binary(BootStrap)}.
 
 stream_bootstrap(Keyframes, Options) -> 
   BootStrap = generate_bootstrap(0,Keyframes,[{type,live}|Options]),
   {ok,iolist_to_binary(BootStrap)}.
 
-manifest(Format,Reader,Options) when is_atom(Format) ->
+stream_manifest(Format,Reader,Options) when is_atom(Format) ->
   MediaInfo = Format:media_info(Reader),
-  manifest(MediaInfo,Options).
+  stream_manifest(MediaInfo,Options).
 
-manifest(#media_info{streams = Streams, duration = Duration} = MediaInfo, Options) ->
+stream_manifest(#media_info{streams = _Streams, duration = Duration} = MediaInfo, Options) ->
   Bitrates = proplists:get_value(bitrates, Options, [0]),
   #media_info{duration = Duration} = MediaInfo,   
   StreamType = atom_to_list(proplists:get_value(stream_type, Options, recorded)),  
   Meta64 = metadata(MediaInfo),
 
   
-  Streams1 = lists:zip(Streams, lists:seq(1, length(Streams))),
-  AlternativeAudio = case [{Stream,Num} || {#stream_info{content = audio} = Stream, Num} <- Streams1] of
-    [_Head|AudioStreams] when StreamType == "recorded" ->
-      % {ok, BS} = file_bootstrap([{N*lang_frag_duration(),N} || N <- lists:seq(0,round(Duration) div lang_frag_duration())], [{duration,Duration}]),
-      BS = proplists:get_value(bootstrap, Options),
-      AlternativeBS = base64:encode(BS),
-      L = fun(undefined) -> "none"; (Num) when is_number(Num) -> integer_to_list(Num); (Lang_) -> Lang_ end,
-      lists:map(fun({#stream_info{}, Num}) -> [
-      "  <bootstrapInfo profile=\"named\" id=\"bootstrap-",L(Num),"\">",AlternativeBS,"</bootstrapInfo>\n"
-      "  <media alternate=\"true\" type=\"audio\" lang=\"",L(Num),"\" bootstrapInfoId=\"bootstrap-",L(Num),"\" streamId=\"audio",L(Num),"\" url=\"hds/lang-",L(Num),"/\" bitrate=\"500\">\n",
-      "    <metadata>",Meta64,"</metadata>\n"
-      "  </media>\n"]
-      end, AudioStreams);
-    _ ->
-      []
-  end,
+  % Streams1 = lists:zip(Streams, lists:seq(1, length(Streams))),
+  % AlternativeAudio = case [{Stream,Num} || {#stream_info{content = audio} = Stream, Num} <- Streams1] of
+  %   [_Head|AudioStreams] when StreamType == "recorded" ->
+  %     % {ok, BS} = file_bootstrap([{N*lang_frag_duration(),N} || N <- lists:seq(0,round(Duration) div lang_frag_duration())], [{duration,Duration}]),
+  %     BS = proplists:get_value(bootstrap, Options),
+  %     AlternativeBS = base64:encode(BS),
+  %     L = fun(undefined) -> "none"; (Num) when is_number(Num) -> integer_to_list(Num); (Lang_) -> Lang_ end,
+  %     lists:map(fun({#stream_info{}, Num}) -> [
+  %     "  <bootstrapInfo profile=\"named\" id=\"bootstrap-",L(Num),"\">",AlternativeBS,"</bootstrapInfo>\n"
+  %     "  <media alternate=\"true\" type=\"audio\" lang=\"",L(Num),"\" bootstrapInfoId=\"bootstrap-",L(Num),"\" streamId=\"audio",L(Num),"\" url=\"hds/lang-",L(Num),"/\" bitrate=\"500\">\n",
+  %     "    <metadata>",Meta64,"</metadata>\n"
+  %     "  </media>\n"]
+  %     end, AudioStreams);
+  %   _ ->
+  %     []
+  % end,
+  AlternativeAudio = [],
 
-  Bootstrap64 = case proplists:get_value(bootstrap, Options) of
-    undefined -> "";
-    Bootstrap -> base64:encode_to_string(Bootstrap)
-  end,
-  BootstrapUrl = case Bootstrap64 of
-    "" -> "url=\"bootstrap\"";
-    _ -> ""
-  end,
-  
   M1 = [
   "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
   "<manifest xmlns=\"http://ns.adobe.com/f4m/1.0\">\n",
@@ -92,8 +127,7 @@ manifest(#media_info{streams = Streams, duration = Duration} = MediaInfo, Option
     Qs = integer_to_list(Bitrate),
     BitrateS = if Bitrate > 0 -> [" bitrate=\"", Qs,"\" "] ; true -> " bitrate=\"\" " end,
     [
-     "  <bootstrapInfo id=\"bootstrap",Qs,"\" profile=\"named\" ",BootstrapUrl," >",
-     Bootstrap64, 
+     "  <bootstrapInfo id=\"bootstrap",Qs,"\" profile=\"named\" url=\"bootstrap\" >",
      "</bootstrapInfo>\n",
      "  <media streamId=\"video_",Qs, "\" url=\"hds/", Qs, "/\" bootstrapInfoId=\"bootstrap", Qs,"\" ", BitrateS," >\n",
     "    <metadata>\n",
@@ -118,6 +152,9 @@ generate_metadata(#media_info{} = MediaInfo) ->
 
 generate_bootstrap(Duration, Keyframes,Options) when is_float(Duration) ->
   generate_bootstrap(round(Duration), Keyframes,Options);
+
+generate_bootstrap(Duration, [{_Time, _Id}|_] = Keyframes, Options) ->
+  generate_bootstrap(Duration, [Time || {Time,_} <- Keyframes], Options);
 
 generate_bootstrap(Duration, Keyframes,Options) ->
   CurrentMediaTime = lists:last(Keyframes),

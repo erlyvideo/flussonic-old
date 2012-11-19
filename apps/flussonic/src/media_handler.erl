@@ -82,6 +82,9 @@ lookup_name(Req, Opts) ->
 no_cache() ->
   [{<<"Cache-Control">>, <<"no-cache">>},{<<"Pragma">>, <<"no-cache">>}].
 
+track_spec(TrackSpec) ->
+  [cowboy_http:digits(D) || D <- binary:split(TrackSpec, <<",">>, [global])].
+
 lookup_name(PathInfo, Opts, Req, Acc) ->
   DefaultModule = proplists:get_value(module, Opts),
   case PathInfo of
@@ -94,12 +97,23 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
     [<<"hds">>, <<"lang-", Lang/binary>>, SegmentPath] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "Seg(\\d+)-Frag(\\d+)", [{capture,all_but_first,list}]),
       {{DefaultModule, hds_lang_segment, [Lang, list_to_integer(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
+    [<<"hds">>, <<"tracks-", TrackSpec/binary>>, SegmentPath] ->
+      {match, [_Segment, Fragment]} = re:run(SegmentPath, "Seg(\\d+)-Frag(\\d+)", [{capture,all_but_first,list}]),
+      {{DefaultModule, hds_segment, [list_to_integer(Fragment), track_spec(TrackSpec)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
     [<<"hds">>, _Bitrate, SegmentPath] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "Seg(\\d+)-Frag(\\d+)", [{capture,all_but_first,list}]),
       {{DefaultModule, hds_segment, [list_to_integer(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
+    [<<"tracks-", TrackSpec/binary>>, <<"index.m3u8">>] ->
+      Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
+      {{DefaultModule, hls_playlist, [track_spec(TrackSpec)]}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
     [<<"index.m3u8">>] ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
       {{DefaultModule, hls_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
+    [<<"hls">>, <<"tracks-",TrackSpec/binary>>, SegmentPath] ->
+      Root = proplists:get_value(root, Opts),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
+      {match, [Number]} = re:run(SegmentPath, "(\\d+)\\.ts", [{capture,all_but_first,list}]),
+      {{DefaultModule, hls_segment, [to_b(Root), to_i(Number), track_spec(TrackSpec)]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
     [<<"hls">>, SegmentPath] ->
       Root = proplists:get_value(root, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),

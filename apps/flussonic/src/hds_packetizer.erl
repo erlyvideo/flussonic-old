@@ -7,6 +7,7 @@
 
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -include("log.hrl").
 
 
@@ -41,7 +42,6 @@ handle_info(#media_info{} = MediaInfo, #hds{} = State) ->
   {noreply, State#hds{media_info = MediaInfo}};
 
 handle_info({gop, GOP}, #hds{media_info = MediaInfo} = HDS) when MediaInfo =/= undefined ->
-  
   GOP1 = filter_flv_frames(GOP),
   HDS1 = create_new_fragment(GOP1, HDS),
   HDS2 = delete_old_fragment(HDS1),
@@ -51,7 +51,13 @@ handle_info({gop, GOP}, #hds{media_info = MediaInfo} = HDS) when MediaInfo =/= u
 handle_info(_Else, State) ->
   {noreply, State}.
 
-terminate(_,_) -> ok.
+terminate(_,#hds{name = Name, segment = Segment, fragments = Fragments}) ->
+  Nums = [N || #fragment{number = N} <- queue:to_list(Fragments)],
+  [flu_stream_data:erase(Name, {hds_segment, Segment, N}) || N <- Nums],
+  flu_stream_data:erase(Name, hds_manifest),
+  flu_stream_data:erase(Name, bootstrap),
+  gen_tracker:setattr(flu_streams, Name, [{hds,false}]),
+  ok.
 
 
 good_codecs() ->
@@ -63,7 +69,9 @@ filter_flv_frames(GOP) ->
 create_new_fragment([#video_frame{dts = DTS}|_] = GOP, #hds{fragment = Fragment, segment = Segment, fragments = Fragments, name = Name} = HDS) ->
   Configs = make_config(HDS, DTS),
 
-  Bin1 = [[flv_video_frame:to_tag(F) || F <- Configs], [flv_video_frame:to_tag(F) || F <- GOP]],
+  BinGop = [flv_video_frame:to_tag(F) || #video_frame{flavor = Flavor} = F <- GOP, Flavor =/= config],
+  Bin1 = [[flv_video_frame:to_tag(F) || F <- Configs], BinGop],
+
   Bin = iolist_to_binary([<<(iolist_size(Bin1) + 8):32, "mdat">>, Bin1]),
   flu_stream_data:set(Name, {hds_segment, Segment,Fragment}, Bin),
   % erlang:put({hds_segment, Segment,Fragment}, Bin),
@@ -85,7 +93,7 @@ regenerate_bootstrap(#hds{fragments = Fragments, options = Options, name = Name,
   {ok,Bootstrap} = hds:stream_bootstrap(Timestamps,[{start_fragment, FirstNumber}|Options]),
   flu_stream_data:set(Name,bootstrap,Bootstrap),
   % erlang:put(bootstrap,Bootstrap),
-  {ok,Manifest} = hds:manifest(MediaInfo#media_info{duration=0}, [{stream_type,live}|Options]),
+  {ok,Manifest} = hds:stream_manifest(MediaInfo#media_info{duration=0}, [{stream_type,live}|Options]),
   flu_stream_data:set(Name,hds_manifest,Manifest),
   % erlang:put(hds_manifest,Manifest),
 

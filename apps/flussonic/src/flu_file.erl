@@ -26,10 +26,11 @@
 
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([start_link/2, autostart/2, media_info/1]).
--export([hds_manifest/1, hds_segment/2, bootstrap/1,hls_playlist/1,hls_segment/2, hds_lang_segment/3]).
+-export([hds_manifest/1, hds_segment/2, hls_playlist/1,hls_segment/2, hds_lang_segment/3]).
 -export([hls_segment/3]).
 -export([get/2]).
 -export([read_frame/2, keyframes/1]).
+-export([reduce_keyframes/1]).
 -include("log.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
@@ -41,7 +42,6 @@
   access,
   format,
   reader,
-  bootstrap,
   file,
   requested_path,
   path,
@@ -49,7 +49,6 @@
   options,
   keyframes,
   media_info,
-  bitrates,
   hds_manifest,
   timeout,
   hls_playlist,
@@ -80,8 +79,6 @@ get(File, Key) ->
   gen_server:call(File, Key).
 
 keyframes(File) -> get(File, keyframes).
-
-bootstrap(File) -> get(File, bootstrap).
 
 hds_manifest(File) -> get(File, hds_manifest).
 
@@ -162,7 +159,6 @@ init([Path, Options]) ->
     path = proplists:get_value(path, Options, URL),
     timeout = Timeout,
     options = Options,
-    bitrates = [0],
     requested_path = Path
   },
   {ok, State, Timeout}.
@@ -185,26 +181,13 @@ handle_call(media_info, _From, #state{format = Format, reader = Reader, timeout 
 handle_call(keyframes, _From, #state{keyframes = Keyframes, timeout = Timeout} = State) ->
   {reply, Keyframes, State, Timeout};
 
-handle_call(hds_manifest, From, #state{bootstrap = undefined} = State) ->
-  {reply, _, #state{bootstrap = Bootstrap} = State1, _} = handle_call(bootstrap, From, State),
-  Bootstrap =/= undefined orelse erlang:error(bootstrap_required),
-  handle_call(hds_manifest, From, State1);
-
-handle_call(hds_manifest, _From, #state{bootstrap = Bootstrap, hds_manifest = undefined, bitrates = Bitrates, format = Format, reader = Reader} = State) ->
-  {ok, HdsManifest} = hds:manifest(Format, Reader, [{bitrates, Bitrates},{bootstrap,Bootstrap}]),
+handle_call(hds_manifest, _From, #state{hds_manifest = undefined, format = Format, reader = Reader} = State) ->
+  {ok, HdsManifest} = hds:file_manifest(Format, Reader),
   gen_tracker:setattr(flu_files, State#state.path, [{hds_manifest, HdsManifest}]),
   handle_call(hds_manifest, _From, State#state{hds_manifest = HdsManifest});
 
 handle_call(hds_manifest, _From, #state{hds_manifest = HdsManifest, timeout = Timeout} = State) ->
   {reply, {ok, HdsManifest}, State, Timeout};
-
-handle_call(bootstrap,_From,#state{bootstrap=undefined, keyframes = Keyframes, media_info = #media_info{duration = Duration},
-   bitrates=Bitrates, timeout = Timeout} = State) ->
-  {ok,Bootstrap} = hds:file_bootstrap(Keyframes,[{duration,Duration},{bitrates,Bitrates}]),
-  {reply,{ok,Bootstrap},State#state{bootstrap=Bootstrap}, Timeout};
-
-handle_call(bootstrap,_From,#state{bootstrap=Bootstrap, timeout = Timeout} = State) ->
-  {reply,{ok,Bootstrap},State,Timeout};
 
 handle_call({read_frame, Id}, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
   Frame = Format:read_frame(Reader, Id),
@@ -227,8 +210,8 @@ handle_call(reader, _From, #state{timeout = Timeout, format = Format, reader = R
   {reply, {ok, {Format, Reader}}, State, Timeout};
 
 handle_call(hls_playlist, _From, #state{path=Path, keyframes = Keyframes, hls_playlist = undefined, 
-  bitrates = Bitrates, media_info = #media_info{duration = Duration}} = State) ->
-  {ok, Playlist} = hls:playlist(Keyframes, [{name,Path},{bitrates, Bitrates},{duration,Duration}]),
+  media_info = #media_info{duration = Duration}} = State) ->
+  {ok, Playlist} = hls:playlist(Keyframes, [{name,Path},{duration,Duration}]),
   handle_call(hls_playlist, _From, State#state{hls_playlist = Playlist});
 
 handle_call(hls_playlist, _From, #state{hls_playlist = Playlist, timeout = Timeout} = State) ->

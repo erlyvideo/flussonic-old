@@ -3,9 +3,11 @@
 
 -include("log.hrl").
 -include("../include/video_frame.hrl").
+-include("../include/hds.hrl").
 
 -export([last_fragment/1, read/1]).
 -export([start_link/1, init/1, handle_call/3, handle_info/2, terminate/2]).
+-export([manifest/1]).
 
 -record(reader, {
   url,
@@ -14,13 +16,6 @@
   started_at,
   prev_url,
   socket
-}).
-
--record(manifest, {
-  base,
-  media_url,
-  fragment_urls = [],
-  fragment_numbers = []
 }).
 
 b2l(URL) when is_binary(URL) ->
@@ -32,7 +27,7 @@ b2l(URL) when is_list(URL) ->
 
 last_fragment(URL) ->
   case manifest(b2l(URL)) of
-    {ok, #manifest{fragment_urls = Fragments}} -> hd(lists:reverse(Fragments));
+    {ok, #hds_manifest{fragment_urls = Fragments}} -> hd(lists:reverse(Fragments));
     {error, Reason} -> {error, Reason}
   end.
 
@@ -53,9 +48,9 @@ init([URL]) when is_list(URL) ->
 
 get_url("http://" ++ _ = URL) ->
   % ?D({request,URL}),
-  case http_stream:request_body(URL, [{socket,get(http_socket)}]) of
-    {ok,{Socket1, Code, Headers, Body}} when Code >= 200 andalso Code < 300 ->
-      gen_tcp:close(Socket1),
+  case http_stream:request_body(URL, [{keepalive,false}]) of % {socket,get(http_socket)},
+    {ok,{_Socket1, Code, Headers, Body}} when Code >= 200 andalso Code < 300 ->
+      % gen_tcp:close(Socket1),
       % put(http_socket,Socket1),
       {ok, Headers, Body};
     {ok,{_Socket,Code,_Headers,_Body}} ->
@@ -154,18 +149,17 @@ manifest(URL) ->
   end.  
 
 parse_manifest(Base, Body) ->
-  NameFun = fun(Name, _Namespace, _Prefix) -> Name end,
-	{ok, XML, _Rest} = erlsom:simple_form(Body, [{nameFun, NameFun}]),
-	Info = parse_xml(XML, Base),
-	{'Bootstrap', Bootstrap, _} = proplists:get_value(bootstrapInfo, Info),
+	{<<"manifest">>, _, Entries} = parsexml:parse(Body),
+	Info = parse_xml(Entries, Base),
+	Bootstrap = proplists:get_value(bootstrap, Info),
 	{'FragmentRunEntry', _, Fragments} = proplists:get_value(fragments, Bootstrap),
 	Media = proplists:get_value(media, Info),
 	MediaURL = proplists:get_value(url, Media),
 	FragmentNumbers = [Number || {Number, _, _} <- Fragments],
 	FragmentURLs = [Base ++ MediaURL++ "Seg1-Frag" ++ integer_to_list(Number) || Number <- FragmentNumbers],
 	
-	{ok, #manifest{
-	  base = Base,
+	{ok, #hds_manifest{
+	  base_url = Base,
 	  media_url = MediaURL,
 	  fragment_urls = FragmentURLs,
 	  fragment_numbers = FragmentNumbers
@@ -173,31 +167,40 @@ parse_manifest(Base, Body) ->
   % CurrentFragment = lists:nth(length(Fragments) div 2, Fragments),
 	
 
-parse_xml({"manifest", [], Entries}, Base) ->
-  [{list_to_atom(Key), parse_manifest_entry(list_to_atom(Key), Attrs, Value, Base)} || {Key, Attrs, Value} <- Entries].
+parse_xml(Entries, Base) ->
+  Info = [parse_manifest_entry(Key, Attrs, Value, Base) || {Key, Attrs, Value} <- Entries],
+  [{K,V} || {K,V} <- Info].
 
-parse_manifest_entry(id, _, [Id], _) ->
-  clean(Id);
 
-parse_manifest_entry(streamType, _, [Type], _) ->
-  list_to_atom(clean(Type));
+parse_manifest_entry(<<"id">>, _, [Id], _) ->
+  {id, clean(Id)};
 
-parse_manifest_entry(bootstrapInfo, Attrs, Value, Base) ->
-  Bootstrap = case {Value, proplists:get_value("url", Attrs)} of
+parse_manifest_entry(<<"streamType">>, _, [Type], _) ->
+  {stream_type, case Type of
+    <<"live">> -> stream;
+    <<"recorded">> -> file
+  end};
+
+parse_manifest_entry(<<"bootstrapInfo">>, Attrs, Value, Base) ->
+  BootstrapBin = case {Value, proplists:get_value("url", Attrs)} of
     {[Bootstrap_],_} -> base64:decode(Bootstrap_);
     {[],URL} ->
       case get_url(Base ++ URL) of
         {ok, _, Bootstrap_} -> Bootstrap_;
-        {error, Reason} -> erlang:throw({tcp_error,Reason})
+        {error, Reason} -> erlang:throw({tcp_error,Base ++ URL,Reason})
       end
   end,
-  mp4:parse_atom(Bootstrap, state);
+  {'Bootstrap',Bootstrap,_} = mp4:parse_atom(BootstrapBin, state),
+  % ?D({bootstrap,S}),
+  {bootstrap, Bootstrap};
 
-parse_manifest_entry(media, Attrs, _Value, _) ->
-  [{url, proplists:get_value("url", Attrs)}];
+parse_manifest_entry(<<"media">>, Attrs, _Value, _) ->
+  {media, [{url, binary_to_list(proplists:get_value(<<"url">>, Attrs))}]};
 
 parse_manifest_entry(_Key, _Attrs, Value, _) ->
-  Value.
+  ?D({_Key,_Attrs,Value}),
+  % Value.
+  undefined.
 
 clean(String) ->
   re:replace(String, "[\\n\\t]*([^\\n\\t]+)[\\n\\t]+", "\\1", [{return,list}]).

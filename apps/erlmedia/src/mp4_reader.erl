@@ -34,7 +34,7 @@
 
 -export([init/2, media_info/1, read_frame/2, properties/1, seek/3, can_open_file/1, write_frame/2]).
 -export([tracks_for/2]).
--export([keyframes/1]).
+-export([keyframes/1, keyframes/2]).
 
 -define(FRAMESIZE, 8).
 
@@ -165,10 +165,15 @@ first(Media, Options) ->
 
 
 tracks_for(#mp4_media{} = Media, Options) ->
-  Audio = find_track(Media, #mp4_track.language, proplists:get_value(language, Options), audio),
-  Video = find_track(Media, #mp4_track.bitrate, proplists:get_value(bitrate, Options), video),
-  Subtitle = find_track(Media, #mp4_track.language, proplists:get_value(subtitle, Options), text),
-  Video ++ Audio ++ Subtitle.
+  case proplists:get_value(tracks, Options) of
+    undefined ->
+      Audio = find_track(Media, #mp4_track.language, proplists:get_value(language, Options), audio),
+      Video = find_track(Media, #mp4_track.bitrate, proplists:get_value(bitrate, Options), video),
+      Subtitle = find_track(Media, #mp4_track.language, proplists:get_value(subtitle, Options), text),
+      Video ++ Audio ++ Subtitle;
+    Tracks ->
+      Tracks
+  end.
 
 first(#mp4_media{} = Media, Options, Id, DTS) when is_number(Id) ->
   first(Media, Options, #frame_id{id = Id, tracks = tracks_for(Media, Options)}, DTS);
@@ -311,7 +316,9 @@ seek(#mp4_media{} = Media, Timestamp, Options) ->
   end.
 
 keyframes(#mp4_media{} = Media) ->
-  Options = [],
+  keyframes(Media, []).
+
+keyframes(#mp4_media{} = Media, Options) ->
   Tracks = tracks_for(Media, Options),
   Keyframes = mp4:keyframes(Media, Tracks),
   [{DTS, #frame_id{id = Id, tracks = Tracks}} || {DTS, Id} <- Keyframes].

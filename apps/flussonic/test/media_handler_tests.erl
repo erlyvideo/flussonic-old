@@ -15,7 +15,16 @@ media_handler_test_() ->
     ,{"test_offline_rewrite_playlist", fun test_offline_rewrite_playlist/0}
     ,{"test_live_dvr_playlist", fun test_live_dvr_playlist/0}
     ,{"test_offline_live_dvr_ts", fun test_offline_live_dvr_ts/0}
+
     ,{"test_hls_file_segment", fun test_hls_file_segment/0}
+    ,{"test_hls_file_mbr_segment", fun test_hls_file_mbr_segment/0}
+    ,{"test_hls_file_playlist", fun test_hls_file_playlist/0}
+    ,{"test_hls_file_mbr_playlist", fun test_hls_file_mbr_playlist/0}
+
+    ,{"test_hds_file_manifest", fun test_hds_file_manifest/0}
+    ,{"test_hds_file_segment", fun test_hds_file_segment/0}
+    ,{"test_hds_file_mbr_segment", fun test_hds_file_mbr_segment/0}
+
     ,{"test_archive_manifest", fun test_archive_manifest/0}
     ,{"test_archive_fragment", fun test_archive_fragment/0}
     ,{"test_archive_mpeg_stream", fun test_archive_mpeg_stream/0}
@@ -92,10 +101,50 @@ test_offline_live_dvr_ts() ->
   ?assertMatch({{dvr_handler, mpeg_file, [<<"test/files">>,1348748644,3600, _]}, [], <<"livestream">>}, 
     test_lookup_by_path("/live/livestream/archive-1348748644-3600.ts")).
 
+
+
+
+
+test_hls_file_playlist() ->
+  set_config([{file, "vod", "test/files"}]),
+  ?assertMatch({{flu_file, hls_playlist, []}, _, <<"movie.mp4">>},
+    test_lookup_by_path("/vod/movie.mp4/index.m3u8")).
+
+test_hls_file_mbr_playlist() ->
+  set_config([{file, "vod", "test/files"}]),
+  ?assertMatch({{flu_file, hls_playlist, [[1,2]]}, _, <<"movie.mp4">>},
+    test_lookup_by_path("/vod/movie.mp4/tracks-1,2/index.m3u8")).
+
 test_hls_file_segment() ->
-  set_config([{file, "vod", <<"test/files">>, []}]),
+  set_config([{file, "vod", "test/files"}]),
   ?assertMatch({{flu_file, hls_segment, [<<"test/files">>,5]}, _, <<"movie.mp4">>}, 
     test_lookup_by_path("/vod/movie.mp4/hls/segment5.ts")).
+
+test_hls_file_mbr_segment() ->
+  set_config([{file, "vod", "test/files"}]),
+  ?assertMatch({{flu_file, hls_segment, [<<"test/files">>,5, [1,2]]}, _, <<"movie.mp4">>}, 
+    test_lookup_by_path("/vod/movie.mp4/hls/tracks-1,2/segment5.ts")).
+
+
+
+test_hds_file_manifest() ->
+  set_config([{file, "vod", "test/files"}]),
+  ?assertMatch({{flu_file, hds_manifest, []}, _, <<"movie.mp4">>},
+    test_lookup_by_path("/vod/movie.mp4/manifest.f4m")).
+
+test_hds_file_segment() ->
+  set_config([{file, "vod", "test/files"}]),
+  ?assertMatch({{flu_file, hds_segment, [5]}, _, <<"movie.mp4">>}, 
+    test_lookup_by_path("/vod/movie.mp4/hds/0/Seg0-Frag5")).
+
+test_hds_file_mbr_segment() ->
+  set_config([{file, "vod", "test/files"}]),
+  ?assertMatch({{flu_file, hds_segment, [5, [1,2]]}, _, <<"movie.mp4">>}, 
+    test_lookup_by_path("/vod/movie.mp4/hds/tracks-1,2/Seg0-Frag5")).
+
+
+
+
 
 test_archive_manifest() ->
   set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
