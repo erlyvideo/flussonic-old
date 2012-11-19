@@ -6,7 +6,7 @@
 -include("log.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
--include_lib("erlmedia/include/sdp.hrl").
+-include("sdp.hrl").
 
 -define(PT_H264, 96).
 -define(PT_AAC, 97).

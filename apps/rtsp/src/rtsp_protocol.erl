@@ -315,7 +315,9 @@ read_rtp_packets(Bin, RTSP) ->
   throw({stop, normal, RTSP}).
 
 
-decode_rtp(<<_:16, Seq:16, _/binary>> = RTP, #rtp{decoder = Decoder1} = Chan1) ->
+decode_rtp(<<_:8, _Marker:1, _:7, Seq:16, _Timecode:32, _/binary>> = RTP, #rtp{decoder = Decoder1} = Chan1) ->
+  % ?D({rtp,_Marker,Seq,_Timecode}),
+
   {ok, Decoder2, Frames} = rtp_decoder:decode(RTP, Decoder1),
   {ok, Chan1#rtp{decoder = Decoder2, seq = Seq}, Frames}.
 

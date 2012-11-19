@@ -6,7 +6,6 @@
 {"apps/erlmedia/src/*",    [debug_info, {outdir, "apps/erlmedia/ebin"}, {parse_transform, lager_transform}]}.
 {"apps/rtmp/src/*",        [debug_info, {outdir, "apps/rtmp/ebin"}, {parse_transform, lager_transform}]}.
 {"apps/rtsp/src/*",        [debug_info, {outdir, "apps/rtsp/ebin"}, {parse_transform, lager_transform}]}.
-{"apps/rtp/src/*",         [debug_info, {outdir, "apps/rtp/ebin"},  {parse_transform, lager_transform}]}.
 {"apps/amf/src/*",         [debug_info, {outdir, "apps/amf/ebin"}]}.
 {"apps/mpegts/src/*",      [debug_info, {outdir, "apps/mpegts/ebin"}, {parse_transform, lager_transform}]}.
 % {"apps/mpegts/src/mpegts", [native,debug_info, {outdir, "apps/mpegts/ebin"}, {i, "apps/mpegts/src"},{parse_transform, lager_transform}]}.

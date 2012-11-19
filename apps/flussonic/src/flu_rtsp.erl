@@ -31,7 +31,8 @@
 -export([record/3, announce/3, describe/3, play/3]).
 
 
-read(Stream, URL, Options) ->
+read(Stream, URL_, Options) ->
+  URL = re:replace(URL_, "rtsp1://", "rtsp://", [{return,list}]),
   {ok, Proxy} = flussonic_sup:start_stream_helper(Stream, publish_proxy, {flu_publish_proxy, start_link, [undefined, self()]}),
   {ok, RTSP, #media_info{streams = Streams} = MediaInfo} = old_rtsp_socket:read(URL, [{consumer,Proxy}|Options]),
   Proxy ! {set_source, RTSP},

@@ -151,7 +151,6 @@ define_media_info(#media_info{} = Media, #video_frame{codec = h264, flavor = con
   Info = Video#stream_info{
     codec = h264,
     config = Body,
-    timescale = 90.0,
     params = #video_params{
       length_size = LengthSize,
       nals = CfgNALS,

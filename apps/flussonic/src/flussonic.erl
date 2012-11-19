@@ -85,7 +85,6 @@ start(_Options) ->
   start_app(mimetypes),
   start_app(cowboy),
   start_app(rtmp),
-  start_app(rtp),
   start_app(rtsp),
   start_app(gen_tracker),
   start_app(os_mon),
