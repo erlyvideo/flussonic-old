@@ -24,6 +24,8 @@
   media_info,
   session,
 
+  first_dts,
+
   v_s_rtp,
   v_s_rtcp,
   v_c_rtp,
@@ -59,7 +61,7 @@ handle_info({tcp, Socket, Line}, #rtsp{timeout = Timeout} = RTSP) ->
       Body = rtsp_protocol:collect_body(Socket, Headers),
       inet:setopts(Socket, [{active,once},{packet,line}]),
 
-      io:format(">>>>>> RTSP IN (~p:~p) >>>>>~n~s~s~n~s~n", [?MODULE, ?LINE, Line, Dump, Body]),
+      io:format(">>>>>> RTSP IN (~p:~p) >>>>>~n~s~s~n~s~n", [?MODULE, ?LINE, Line, Dump, case Body of undefined -> ""; _ -> Body end]),
 
       Len = size(URL_)-1,
       URL = case URL_ of <<URL__:Len/binary, "/">> -> URL__; _ -> URL_ end,
@@ -87,25 +89,28 @@ handle_info({udp, Port, _Addr, _RPort, _Bin}, #rtsp{} = RTSP) ->
   inet:setopts(Port, [{active,once}]),
   {noreply, RTSP};
 
+handle_info(#video_frame{dts = DTS} = Frame, #rtsp{first_dts = undefined} = RTSP) ->
+  handle_info(Frame, RTSP#rtsp{first_dts = DTS});
+
 handle_info(#video_frame{content = metadata}, #rtsp{} = RTSP) ->
   {noreply, RTSP};
 
 handle_info(#video_frame{flavor = config}, #rtsp{} = RTSP) ->
   {noreply, RTSP};
 
-handle_info(#video_frame{content = video} = Frame, 
-  #rtsp{v_s_rtp = SRTP, v_c_rtp = CRTP, peer_addr = Addr, v_seq = Seq} = RTSP) ->
-  Packets = rtp_packets(Frame, RTSP),
+handle_info(#video_frame{content = video, dts = DTS, pts = PTS} = Frame,
+  #rtsp{v_s_rtp = SRTP, v_c_rtp = CRTP, peer_addr = Addr, v_seq = Seq, first_dts = FDTS} = RTSP) ->
+  Packets = rtp_packets(Frame#video_frame{dts = DTS - FDTS, pts = PTS - FDTS}, RTSP),
   [gen_udp:send(SRTP, Addr, CRTP, RTP) || RTP <- Packets],
   {noreply, RTSP#rtsp{v_seq = (Seq + length(Packets)) rem 65536}};
 
 
-handle_info(#video_frame{content = audio} = Frame, 
-  #rtsp{a_s_rtp = SRTP, a_c_rtp = CRTP, peer_addr = Addr, a_seq = Seq} = RTSP) ->
+handle_info(#video_frame{content = audio, dts = DTS, pts = PTS} = Frame, 
+  #rtsp{a_s_rtp = SRTP, a_c_rtp = CRTP, peer_addr = Addr, a_seq = Seq, first_dts = FDTS} = RTSP) ->
   
-  [RTP] = rtp_packets(Frame, RTSP),
+  [RTP] = rtp_packets(Frame#video_frame{dts = DTS - FDTS, pts = PTS - FDTS}, RTSP),
   gen_udp:send(SRTP, Addr, CRTP, RTP),
-  {noreply, RTSP#rtsp{a_seq = (Seq +1) div 65536}};
+  {noreply, RTSP#rtsp{a_seq = (Seq +1) rem 65536}};
 
 
 handle_info(Info, #rtsp{} = RTSP) ->
@@ -113,16 +118,13 @@ handle_info(Info, #rtsp{} = RTSP) ->
 
 
 
-rtp_packets(#video_frame{codec = h264, dts = DTS, body = Data, track_id = TrackID, flavor = Flavor}, 
-  #rtsp{v_seq = Seq, v_scale = Scale, length_size = LengthSize, nals = ConfigNals}) ->
+rtp_packets(#video_frame{codec = h264, dts = DTS, body = Data, track_id = TrackID}, 
+  #rtsp{v_seq = Seq, v_scale = Scale, length_size = LengthSize}) ->
   FUA_NALS = lists:flatmap(fun(NAL) -> h264:fua_split(NAL, 1387) end, split_h264_frame(Data, LengthSize)),
 
-  Nals = case Flavor of
-    keyframe -> ConfigNals ++ FUA_NALS;
-    frame -> FUA_NALS
-  end,
+  Nals = FUA_NALS,
 
-  Packets = pack_h264(Nals, round(DTS*Scale), 1, TrackID, Seq),
+  Packets = pack_h264(Nals, round(DTS*Scale), TrackID, Seq),
   Packets;
 
 
@@ -146,11 +148,15 @@ receive_aac(Count) ->
     4000 -> error(timeout)
   end.
 
-pack_h264([NAL|Nals], Timecode, Marker, TrackID, Seq) ->
+pack_h264([NAL|Nals], Timecode, TrackID, Seq) ->
+  Marker = case Nals of
+    [] -> 1;
+    _ -> 0
+  end,
   [<<2:2, 0:1, 0:1, 0:4, Marker:1, ?PT_H264:7, Seq:16, Timecode:32, TrackID:32, NAL/binary>>|
-  pack_h264(Nals, Timecode, 0, TrackID, Seq+1)];
+  pack_h264(Nals, Timecode, TrackID, (Seq+1) rem 65536)];
 
-pack_h264([], _, _, _, _) -> [].
+pack_h264([], _, _, _) -> [].
 
 
 terminate(_,_) ->
@@ -160,15 +166,18 @@ terminate(_,_) ->
 
 
 handle_request(Method, _URL, Headers, _Body, RTSP) when Method == <<"OPTIONS">> orelse Method == <<"GET_PARAMETER">>->
-  reply("200 OK", [
-    {'Server', <<"Erlyvideo">>}, {'Cseq', seq(Headers)}, 
+  reply(200, [
+    {'Cseq', seq(Headers)}, 
     {<<"Supported">>, <<"play.basic, con.persistent">>},
-    {'Public', "SETUP, TEARDOWN, PLAY, PAUSE, OPTIONS, ANNOUNCE, DESCRIBE, RECORD, GET_PARAMETER"}], RTSP);
+    {'Public', "SETUP, TEARDOWN, PLAY, OPTIONS, DESCRIBE, GET_PARAMETER"}], RTSP);
 
 handle_request(<<"DESCRIBE">>, URL, Headers, Body, #rtsp{callback = Callback} = RTSP) ->
+  ?D({describe,URL}),
   case Callback:describe(URL, Headers, Body) of
     {error, authentication} ->
-      reply(401, [{"WWW-Authenticate", "Basic realm=\"Erlyvideo Streaming Server\""}], RTSP);
+      reply(401, [{"WWW-Authenticate", "Basic realm=\"Flussonic Streaming Server\""}], RTSP);
+    {error, no_media_info} ->
+      reply(404, [], RTSP);
     {ok, #media_info{streams = Streams} = MediaInfo1} ->
       MediaInfo = MediaInfo1#media_info{streams = 
         [S#stream_info{options = []} 
@@ -181,10 +190,13 @@ handle_request(<<"DESCRIBE">>, URL, Headers, Body, #rtsp{callback = Callback} = 
       {A1, A2, A3} = now(),
       Session = integer_to_list((A1*1000000+A2)*1000000+A3),
 
-      #stream_info{timescale = AScale} = lists:keyfind(audio, #stream_info.content, Streams),
+      AScale = case lists:keyfind(audio, #stream_info.content, Streams) of
+        #stream_info{timescale = AScale_} -> AScale_;
+        false -> undefined
+      end,
       #stream_info{timescale = VScale, params = VideoParams} = lists:keyfind(video, #stream_info.content, Streams),
       #video_params{length_size = LengthSize, nals = Nals} = VideoParams,
-      reply(200, [{'Cseq', seq(Headers)}, {'Server', <<"Erlyvideo">>},
+      reply(200, [{'Cseq', seq(Headers)},
         {'Date', httpd_util:rfc1123_date()}, {'Expires', httpd_util:rfc1123_date()},
         {'Content-Base', io_lib:format("~s/", [URL])}], SDP, 
         RTSP#rtsp{media_info = MediaInfo, v_scale = VScale, a_scale = AScale, session = Session,
@@ -210,10 +222,10 @@ handle_request(<<"SETUP">>, URL, Headers, _Body, #rtsp{media_info = #media_info{
           RTSP#rtsp{a_s_rtp = RTP, a_s_rtcp = RTCP, a_c_rtp = ClientRTP, a_c_rtcp = ClientRTCP}
       end,
       Reply = iolist_to_binary(io_lib:format("~B-~B", [ServerRTP, ServerRTCP])),
-      reply(200, [{'Cseq', seq(Headers)}, {'Server', <<"Erlyvideo">>},
+      reply(200, [{'Cseq', seq(Headers)},
         {<<"Transport">>,<<Transport/binary, ";server_port=", Reply/binary>>}], RTSP1);
     _ ->
-      throw({stop, {unknown_transport, Transport}, RTSP})
+      reply(406, [{'Cseq', seq(Headers)}], RTSP)
   end;
 
 
@@ -224,17 +236,10 @@ handle_request(<<"PLAY">>, URL, Headers, Body, #rtsp{callback = Callback, media_
       % It is ok here to fetch first config frame, because we know its contents
       % from media_info and already sent to client
       % But we need its time to understand what is the first DTS of stream
-      FirstDTS = receive
-        #video_frame{flavor = config, content = video, dts = DTS} -> DTS
-      after
-        5000 -> throw({stop, {no_video_config,URL}, RTSP})
-      end,
-      RtpInfo = string:join(lists:map(fun(#stream_info{track_id = Id, timescale = Scale}) ->
-        io_lib:format("url=~s/trackID=~B;seq=0;rtptime=~B", [URL, Id, round(FirstDTS*Scale)])
+      RtpInfo = string:join(lists:map(fun(#stream_info{track_id = Id}) ->
+        io_lib:format("url=~s/trackID=~B;seq=0;rtptime=0", [URL, Id])
       end, Streams),","),
-      reply(200, [{'Cseq', seq(Headers)}, {'Server', <<"Erlyvideo">>},
-        {"RTP-Info", RtpInfo}
-      ], RTSP);
+      reply(200, [{'Cseq', seq(Headers)}, {"RTP-Info", RtpInfo}], RTSP);
     Reply ->
       throw({stop, {play_disabled,Reply}, RTSP})
   end;
@@ -252,7 +257,6 @@ handle_request(Method, URL, _Headers, _Body, RTSP) ->
 
 handle_http(<<"GET">>, _URL, _Headers, _Body, RTSP) ->
   reply({http, 500}, [
-    {'Server', <<"Erlyvideo">>},
     {'Content-Type', "application/x-rtsp-tunnelled"},
     {'Connection', "close"}
   ], <<"Not supported">>, RTSP).
@@ -347,6 +351,7 @@ reply(Code, Headers, Body, #rtsp{socket = Socket, session = Session} = RTSP) ->
     undefined -> Headers1;
     _ -> [{'Content-Length', iolist_size(Body)}, {'Content-Type', <<"application/sdp">>}|Headers1]
   end,
+  Headers3 = [{'Server', <<"Flussonic (http://erlyvideo.org/) ", (list_to_binary(flu:version()))/binary>>}|Headers2],
 
   CodeMsg = case Code of
     {http, C} when is_number(C) -> ["HTTP/1.0 ", integer_to_list(C), " ", message(C)];
@@ -355,18 +360,19 @@ reply(Code, Headers, Body, #rtsp{socket = Socket, session = Session} = RTSP) ->
     C when is_list(C) -> ["RTSP/1.0 ", C]
   end,
 
-  Reply = iolist_to_binary([CodeMsg, <<"\r\n">>, [[to_s(K),": ",to_s(V),"\r\n"] || {K,V} <- Headers2], <<"\r\n">>,
+  Reply = iolist_to_binary([CodeMsg, <<"\r\n">>, [[to_s(K),": ",to_s(V),"\r\n"] || {K,V} <- Headers3], <<"\r\n">>,
   case Body of
     undefined -> <<>>;
     _ -> Body
   end]),
-  io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Reply]),
+  % io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Reply]),
   gen_tcp:send(Socket, Reply),
   RTSP1.
 
 message(200) -> "OK";
 message(401) -> "Unauthorized";
 message(404) -> "Not found";
+message(406) -> "Transport not supported";
 message(_) -> "Response".
 
 

@@ -111,8 +111,8 @@ record(URL, _Headers, _Body) ->
 media_info(Stream) ->
   media_info(Stream, 10).
 
-media_info(Stream, 0) ->
-  throw({empty_stream,Stream});
+media_info(_Stream, 0) ->
+  {error, no_media_info};
 
 media_info(Stream, Count) ->
   case flu_stream:media_info(Stream) of
@@ -127,8 +127,10 @@ media_info(Stream, Count) ->
 describe(URL, _Headers, _Body) ->
   {rtsp, _, _Host, _Port, "/"++Path, _} = http_uri2:parse(URL),
   Stream = list_to_binary(Path),
-  MediaInfo = media_info(Stream),
-  {ok, MediaInfo}.
+  case media_info(Stream) of
+    {error, _} = Error -> Error;
+    MediaInfo -> {ok, MediaInfo}
+  end.
   % {Host, Path} = hostpath(URL),
   % {Module, Function} = ems:check_app(Host, auth, 3),
   % case Module:Function(Host, rtsp, proplists:get_value('Authorization', Headers)) of
