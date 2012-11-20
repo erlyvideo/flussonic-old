@@ -241,7 +241,10 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
   StreamName = case proplists:get_value(sessions, Options) of
     undefined -> StreamName1;
     URL ->
-      Token = to_b(proplists:get_value("token", QsVals)),
+      Token = case to_b(proplists:get_value("token", QsVals)) of
+        undefined -> to_b(proplists:get_value("session", QsVals));
+        Token_ -> Token_
+      end,
       is_binary(Token) orelse throw({fail, [403, <<"no_token_passed">>]}),
       Identity = [{name,StreamName1},{ip, to_b(rtmp_session:get(Session, addr))},{token,Token}],
       Referer = rtmp_session:get_field(Session, pageUrl),

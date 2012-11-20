@@ -63,9 +63,7 @@ announce(URL, Headers, MediaInfo) ->
   end.
 
 
-announce0(URL, Headers, #media_info{streams = Streams} = MediaInfo1) ->
-  Streams1 = [Info#stream_info{track_id = TrackId + 199} || #stream_info{track_id = TrackId} = Info <- Streams],
-  MediaInfo = MediaInfo1#media_info{streams = Streams1},
+announce0(URL, Headers, #media_info{} = MediaInfo) ->
   ?D({rtsp_announce, URL}),
   
   Env = flu_config:get_config(),
@@ -77,7 +75,7 @@ announce0(URL, Headers, #media_info{streams = Streams} = MediaInfo1) ->
   {rtsp, _Auth, _Host, _Port, "/" ++ StreamName1, _Query} = http_uri2:parse(URL),
   StreamName = case re:run(StreamName1, "(.*)\\.sdp", [{capture,all_but_first,binary}]) of
     {match, [S]} -> S;
-    nomatch -> list_to_binary(StreamName1)
+    nomatch -> StreamName1
   end,
   
   case proplists:get_value(publish_password, Env) of
@@ -96,7 +94,7 @@ announce0(URL, Headers, #media_info{streams = Streams} = MediaInfo1) ->
 
   {ok, Recorder} = flu_stream:autostart(StreamName, [{clients_timeout,false},{static,false}|Options]),
   Recorder ! MediaInfo,
-  gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,list_to_binary(Prefix)}]),
+  gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,Prefix}]),
   flu_stream:set_source(Recorder, self()),
   
   {ok, Proxy} = flussonic_sup:start_stream_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder]}),

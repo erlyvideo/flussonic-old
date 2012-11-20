@@ -23,6 +23,7 @@
   args,
   media_info,
   session,
+  media,
 
   first_dts,
 
@@ -52,6 +53,10 @@ init([Socket, Callback, Args]) ->
 
 handle_call(Call, _From, #rtsp{timeout = Timeout} = RTSP) ->
   {reply, {error, {unknown_call, Call}}, RTSP, Timeout}.
+
+
+% handle_info({tcp, Socket, <<$$, _>> = Bin}, #rtsp{timeout = Timeout} = RTSP) ->
+  
 
 
 handle_info({tcp, Socket, Line}, #rtsp{timeout = Timeout} = RTSP) ->
@@ -169,7 +174,7 @@ handle_request(Method, _URL, Headers, _Body, RTSP) when Method == <<"OPTIONS">> 
   reply(200, [
     {'Cseq', seq(Headers)}, 
     {<<"Supported">>, <<"play.basic, con.persistent">>},
-    {'Public', "SETUP, TEARDOWN, PLAY, OPTIONS, DESCRIBE, GET_PARAMETER"}], RTSP);
+    {'Public', "SETUP, TEARDOWN, ANNOUNCE, RECORD, PLAY, OPTIONS, DESCRIBE, GET_PARAMETER"}], RTSP);
 
 handle_request(<<"DESCRIBE">>, URL, Headers, Body, #rtsp{callback = Callback} = RTSP) ->
   ?D({describe,URL}),
@@ -204,11 +209,11 @@ handle_request(<<"DESCRIBE">>, URL, Headers, Body, #rtsp{callback = Callback} = 
   end;
 
 handle_request(<<"SETUP">>, URL, Headers, _Body, #rtsp{media_info = #media_info{streams = Streams}} = RTSP) ->
-  {match, [Track_]} = re:run(URL, "/trackID=(\\d+)", [{capture,all_but_first,list}]),
+  {match, [Track_]} = re:run(URL, "/track[iI][dD]=(\\d+)", [{capture,all_but_first,list}]),
   TrackId = list_to_integer(Track_),
   Transport = proplists:get_value(<<"Transport">>, Headers),
   case binary:split(Transport, <<";">>, [global]) of
-    [<<"RTP/AVP",_/binary>>, <<"unicast">>, <<"client_port=", Ports/binary>>] ->
+    [<<"RTP/AVP",_/binary>>, <<"unicast">>, <<"client_port=", Ports/binary>>|TransportArgs] ->
       {match, [ClientRTP_, ClientRTCP_]} = re:run(Ports, "(\\d+)-(\\d+)", [{capture,all_but_first,list}]),
       ClientRTP = list_to_integer(ClientRTP_),
       ClientRTCP = list_to_integer(ClientRTCP_),
@@ -221,11 +226,28 @@ handle_request(<<"SETUP">>, URL, Headers, _Body, #rtsp{media_info = #media_info{
         #stream_info{content = audio} ->
           RTSP#rtsp{a_s_rtp = RTP, a_s_rtcp = RTCP, a_c_rtp = ClientRTP, a_c_rtcp = ClientRTCP}
       end,
+      OutputMode = case TransportArgs of
+        [<<"mode=record">>|_] -> <<";mode=receive">>;
+        _ -> <<>>
+      end, 
       Reply = iolist_to_binary(io_lib:format("~B-~B", [ServerRTP, ServerRTCP])),
       reply(200, [{'Cseq', seq(Headers)},
-        {<<"Transport">>,<<Transport/binary, ";server_port=", Reply/binary>>}], RTSP1);
+        {<<"Transport">>,<<"RTP/AVP;unicast;client_port=",Ports/binary,";server_port=", 
+        Reply/binary, OutputMode/binary>>}], RTSP1);
+    [<<"RTP/AVP/TCP">>, <<"unicast">>, <<"mode=record">>, <<"interleaved=", Interleave/binary>>] ->
+      {match, [RTP_, RTCP_]} = re:run(Interleave, "(\\d+)-(\\d+)", [{capture,all_but_first,list}]),
+      RTP = list_to_integer(RTP_),
+      RTCP = list_to_integer(RTCP_),
+      RTSP1 = case lists:keyfind(TrackId, #stream_info.track_id, Streams) of
+        #stream_info{content = video} ->
+          RTSP#rtsp{v_s_rtp = RTP, v_s_rtcp = RTCP, v_c_rtp = RTP, v_c_rtcp = RTCP};
+        #stream_info{content = audio} ->
+          RTSP#rtsp{a_s_rtp = RTP, a_s_rtcp = RTCP, a_c_rtp = RTP, a_c_rtcp = RTCP}
+      end,
+      reply(200, [{'Cseq', seq(Headers)},
+        {'Transport', Transport}], RTSP1);
     _ ->
-      reply(406, [{'Cseq', seq(Headers)}], RTSP)
+      reply("406 Transport not supported", [{'Cseq', seq(Headers)}], RTSP)
   end;
 
 
@@ -248,9 +270,33 @@ handle_request(<<"TEARDOWN">>, _URL, Headers, _Body, #rtsp{} = RTSP) ->
   RTSP1 = reply(200, [{'Cseq', seq(Headers)}], RTSP),
   throw({stop, normal, RTSP1});
 
-handle_request(Method, URL, _Headers, _Body, RTSP) ->
-  ?DBG("~s ~s~n", [Method, URL]),
-  RTSP.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+handle_request(<<"ANNOUNCE">>, URL, Headers, Body, #rtsp{callback = Callback} = RTSP) ->
+  ContentType = proplists:get_value('Content-Type', Headers),
+  ContentType == <<"application/sdp">> orelse erlang:error({unknown_content_type,ContentType}),
+  MediaInfo = sdp:decode(Body),
+  % ?DBG("MI: ~240p",[MediaInfo]),
+  try Callback:announce(URL, Headers, MediaInfo) of
+    {ok, Media} ->
+      reply(200, [{'Cseq',seq(Headers)}], RTSP#rtsp{media = Media, media_info = MediaInfo})
+  catch
+    throw:authorization ->
+      reply(401, [{'Cseq', seq(Headers)}], RTSP)
+  end;
+
+
+handle_request(<<"RECORD">>, _URL, Headers, _Body, #rtsp{} = RTSP) ->
+  reply(200, [{'Cseq',seq(Headers)}], RTSP);
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+handle_request(_Method, _URL, Headers, _Body, RTSP) ->
+  reply("405 Method not allowed", [{'Cseq', seq(Headers)}], RTSP).
 
 
 
@@ -365,14 +411,14 @@ reply(Code, Headers, Body, #rtsp{socket = Socket, session = Session} = RTSP) ->
     undefined -> <<>>;
     _ -> Body
   end]),
-  % io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Reply]),
+  io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Reply]),
   gen_tcp:send(Socket, Reply),
   RTSP1.
 
 message(200) -> "OK";
 message(401) -> "Unauthorized";
 message(404) -> "Not found";
-message(406) -> "Transport not supported";
+message(406) -> "Not supported";
 message(_) -> "Response".
 
 

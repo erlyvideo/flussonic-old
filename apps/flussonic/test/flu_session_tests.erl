@@ -214,7 +214,7 @@ test_backend_arguments() ->
     {200,[{<<"X-UserId">>,<<"15">>},{<<"X-AuthDuration">>, <<"5">>}], <<"">>} 
   end),
   {ok, Reply} = httpc:request(get, 
-    {"http://127.0.0.1:5555/vod/bunny.mp4/manifest.f4m?session=123", [
+    {"http://127.0.0.1:5555/vod/bunny.mp4/manifest.f4m?token=123", [
     {"Referer", "http://ya.ru/"}, {"X-Forwarded-For", "94.95.96.97"}]},[],[]),
   ?assertMatch({{_,200,_}, _, _}, Reply),
 
@@ -227,6 +227,30 @@ test_backend_arguments() ->
   ?assertEqual(<<"bunny.mp4">>, proplists:get_value(<<"name">>, Qs)),
   ?assertEqual(<<"94.95.96.97">>, proplists:get_value(<<"ip">>, Qs)),
   ?assertEqual(<<"http://ya.ru/">>, proplists:get_value(<<"referer">>, Qs)),
+  ok.
+
+
+test_backend_is_working_without_options() ->
+  Self = self(),
+  meck:expect(fake_auth, reply, fun(Req) ->
+    {QsVals, _} = cowboy_req:qs_vals(Req),
+    Self ! {backend_request, QsVals},
+    {200,[], <<"">>} 
+  end),
+  {ok, Reply} = httpc:request(get, 
+    {"http://127.0.0.1:5555/vod/bunny.mp4/manifest.f4m?token=123", [
+    {"X-Forwarded-For", "94.95.96.97"}]},[],[]),
+  ?assertMatch({{_,200,_}, _, _}, Reply),
+
+  Qs = receive
+    {backend_request, QsVals} -> QsVals
+  after
+    10 -> error(backend_wasnt_requested)
+  end,
+  ?assertEqual(<<"123">>, proplists:get_value(<<"token">>, Qs)),
+  ?assertEqual(<<"bunny.mp4">>, proplists:get_value(<<"name">>, Qs)),
+  ?assertEqual(<<"94.95.96.97">>, proplists:get_value(<<"ip">>, Qs)),
+  ?assertEqual(false, lists:keyfind(<<"referer">>, 1, Qs)),
   ok.
 
 

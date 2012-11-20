@@ -260,12 +260,16 @@ to_duration(B) ->
 update_cookie(Req) ->
   case erlang:erase(<<"session_cookie">>) of
     undefined -> Req;
-    Token -> cowboy_req:set_resp_cookie(<<"session">>, Token, [{max_age, 5*3600}], Req)
+    Token -> cowboy_req:set_resp_cookie(<<"token">>, Token, [{max_age, 5*3600}], Req)
   end.
 
 retrieve_token(Req0) ->
-  case cowboy_req:qs_val(<<"session">>, Req0, undefined) of
-    {undefined, Req1} -> cowboy_req:cookie(<<"session">>, Req1, undefined);
+  case cowboy_req:qs_val(<<"token">>, Req0, undefined) of
+    {undefined, Req1} -> 
+      case cowboy_req:qs_val(<<"session">>, Req0, undefined) of
+        {undefined, Req1} ->  cowboy_req:cookie(<<"token">>, Req1, undefined);
+        V -> V
+      end;
     V -> V
   end.
 
@@ -284,7 +288,10 @@ check_sessions0(URL, Name0, Req0, Type) ->
       Ip = list_to_binary(inet_parse:ntoa(PeerAddr)),
       {Referer, _} = cowboy_req:header(<<"referer">>, Req1),
       Identity = [{token,Token},{name,Name0},{ip,Ip}],
-      Options = [{type,Type},{referer,Referer}],
+      Options = [{type,Type}] ++ case Referer of
+        undefined -> [];
+        _ -> [{referer,Referer}]
+      end,
       case flu_session:verify(URL, Identity, Options) of
         {ok, NewName} ->
           NewName;
