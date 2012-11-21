@@ -4,6 +4,7 @@
 -include_lib("inets/include/httpd.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
+-include_lib("erlmedia/include/hds.hrl").
 -compile(export_all).
 
 
@@ -21,25 +22,22 @@ flu_file_test_() ->
     {error, _} -> CommonTests
   end,
   {foreach,
-  fun setup_flu_file/0,
+  fun() -> setup_flu_file("bunny.mp4") end,
   fun teardown_flu_file/1,
   Tests}.
 
-setup_flu_file() ->
+setup_flu_file(Path) ->
+  error_logger:delete_report_handler(error_logger_tty_h),
   application:start(gen_tracker),
   gen_tracker_sup:start_tracker(flu_files),
-  Modules = [],
-  meck:new(Modules, [{passthrough, true}]),
-  {ok, File} = flu_file:start_link("bunny.mp4", [{root, "../../../priv"}]),
+  {ok, File} = flu_file:start_link(Path, [{root, "../../../priv"}]),
   unlink(File),
   % lager:set_loglevel(lager_console_backend, notice),
-  {Modules, File}.
+  {none,File}.
 
 
-teardown_flu_file({Modules, File}) ->
-  meck:unload(Modules),
+teardown_flu_file({none, File}) ->
   erlang:exit(File, shutdown),
-  error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(gen_tracker),
   % lager:set_loglevel(lager_console_backend, info),
   ok.
@@ -103,6 +101,58 @@ test_hls_segment({_,File}) ->
 test_hds_manifest({_,File}) ->
   ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hds_manifest(File)).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%          MBR FILE TESTS %%%%%%%%%%%%%%%%%
+
+
+mbr_file_test_() ->
+  Tests =   [
+    {with, [fun test_mbr_hds_manifest/1]}
+    ,{with, [fun test_mbr_first_track_segment/1]}
+    ,{with, [fun test_mbr_lang_segment/1]}
+  ],
+  {foreach,
+  fun() -> setup_flu_file("mbr.mp4") end,
+  fun teardown_flu_file/1,
+  Tests}.
+
+
+test_mbr_hds_manifest({_,File}) ->
+  {ok, Bin} = flu_file:hds_manifest(File),
+  Result = parsexml:parse(Bin),
+  ?assertMatch({<<"manifest">>, _, _Content}, Result),
+  {<<"manifest">>, _, Content} = Result,
+  Medias = [{<<"media">>, Attr,C} || {<<"media">>, Attr,C} <- Content],
+  {<<"media">>, MediaAttrs, _Media} = hd(Medias),
+  ?assertEqual(<<"hds/tracks-1,4/">>, proplists:get_value(<<"url">>, MediaAttrs)),
+  % ?debugFmt("media: ~p / ~p", [MediaAttr, Media]),
+  % 5 medias: 3 with video and 2 with alternate audio
+  ?assertMatch(Len when Len == 5, length(Medias)).
+
+test_mbr_first_track_segment({_,File}) ->
+  {ok, HDS} = flu_file:hds_segment(File, 2, [1,4]),
+  Frames = flv:read_all_frames(HDS),
+  ?assertMatch(Len when Len > 400 andalso Len < 500, length(Frames)),
+  Video = [F || #video_frame{content = video} = F <- Frames],
+  Audio = [F || #video_frame{content = audio} = F <- Frames],
+  ?assertMatch(VLen when VLen > 20, length(Video)),
+  ?assertMatch(ALen when ALen > 20, length(Audio)),
+  % ?debugFmt("total:~p,video:~p,audio:~p",[length(Frames),length(Video),length(Audio)]),
+  ok.
+
+test_mbr_lang_segment({_,File}) ->
+  {ok, HDS} = flu_file:hds_segment(File, 2, [4]),
+  Frames = flv:read_all_frames(HDS),
+  % ?assertMatch(Len when Len > 300 andalso Len < 400, length(Frames)),
+  Video = [F || #video_frame{content = video} = F <- Frames],
+  Audio = [F || #video_frame{content = audio} = F <- Frames],
+  ?assertMatch(VLen when VLen == 0, length(Video)),
+  ?assertMatch(ALen when ALen > 300 andalso ALen < 350, length(Audio)),
+  % ?debugFmt("total:~p,video:~p,audio:~p",[length(Frames),length(Video),length(Audio)]),
+  ok.
 
 
 

@@ -27,7 +27,7 @@
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([start_link/2, autostart/2, media_info/1]).
 -export([hds_manifest/1, hds_segment/2, hls_playlist/1,hls_segment/2, hds_lang_segment/3]).
--export([hls_segment/3]).
+-export([hls_segment/3, hds_segment/3]).
 -export([get/2]).
 -export([read_frame/2, keyframes/1]).
 -export([reduce_keyframes/1]).
@@ -90,6 +90,34 @@ hds_segment(File, Fragment) ->
     {error, Error} ->
       {error, Error}
   end.
+
+hds_segment(File, Fragment, Tracks) ->
+  case get(File, reader) of
+    {ok, {Format, Reader}} ->
+      % Need to determine if this audio-only track or has video
+      #media_info{streams = Streams1} = Format:media_info(Reader),
+      Streams = [S || #stream_info{track_id = Id} = S <- Streams1, lists:member(Id,Tracks)],
+      HasVideo = [S || #stream_info{content = video} = S <- Streams] =/= [],
+
+      Keyframes = case HasVideo of
+        true -> flu_file:reduce_keyframes(Format:keyframes(Reader, [{tracks,Tracks}]));
+        false -> [{T, Id#frame_id{tracks = Tracks}} || {T,#frame_id{} = Id} <- flu_file:reduce_keyframes(Format:keyframes(Reader))]
+      end,
+      {_DTS,Id}=lists:nth(Fragment,Keyframes),
+      StopDts = if length(Keyframes) >= Fragment + 1 ->
+        {S, _} = lists:nth(Fragment+1, Keyframes), S;
+        true -> 0 
+      end,
+      Options = case HasVideo of
+        true -> [];
+        false -> [{no_metadata,true},{hardstop,true}]
+      end,
+      Reply = hds:segment(Format, Reader, Id, [{stop_dts, StopDts},{tracks,Tracks}|Options]),
+      Reply;
+    {error, Error} ->
+      {error, Error}
+  end.
+
 
 hds_lang_segment(File, Lang_, Fragment) -> 
   % case get(File, reader) of

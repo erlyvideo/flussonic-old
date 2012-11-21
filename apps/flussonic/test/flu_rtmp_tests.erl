@@ -360,6 +360,8 @@ test_rtmp_play_protected_stream() ->
   ?assertEqual(<<"bunny.mp4">>, proplists:get_value(<<"name">>, Qs)),
   ?assertEqual(<<"http://ya.ru/">>, proplists:get_value(<<"referer">>, Qs)),
 
+  ?assertEqual(<<"rtmp">>, proplists:get_value(<<"type">>, Qs)),
+
 
   receive
     {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}

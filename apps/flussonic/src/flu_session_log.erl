@@ -12,7 +12,7 @@
 -include("log.hrl").
 -include("flu_event.hrl").
 
--define(DEFAULT_FORMAT, "%n %i %y").
+-define(DEFAULT_FORMAT, "%e %n %i %y %t").
 
 -record(state, {format, lager_trace}).
 
@@ -30,10 +30,11 @@
 %% @end
 %%--------------------------------------------------------------------
 init(Config) ->
+  Format = proplists:get_value(format, Config, ?DEFAULT_FORMAT),
   case proplists:get_value(file, Config) of
-    undefined -> {error, "No file"};
+    undefined -> 
+      {error, "No file"};
     File ->
-      Format = proplists:get_value(format, Config, ?DEFAULT_FORMAT),
       {ok, Trace} = lager:trace_file(File, [{log, sessions}], info),
       {ok, #state{format=Format, lager_trace=Trace}}
   end.
@@ -51,12 +52,12 @@ init(Config) ->
 %%                          remove_handler
 %% @end
 %%--------------------------------------------------------------------
-handle_event(#flu_event{event='user.connected', options=Stats}, State) ->
-  log("Connected: " ++ format(State#state.format, Stats)),
+handle_event(#flu_event{event='user.connected'=Event, options=Stats}, State) ->
+  log(format(State#state.format, [{event,Event}|Stats])),
   {ok, State};
 
-handle_event(#flu_event{event='user.disconnected', options=Stats}, State) ->
-  log("Disconnected: " ++ format(State#state.format, Stats)),
+handle_event(#flu_event{event='user.disconnected'=Event, options=Stats}, State) ->
+  log(format(State#state.format, [{event,Event}|Stats])),
   {ok, State};
 
 handle_event(_Event, State) ->
@@ -128,6 +129,8 @@ log(Text) ->
   lager:info([{log, sessions}], Text).
 
 %% @doc format session stat to string
+format([$%, $e | Fmt], Stats) -> print(event, Stats, "~s") ++ format(Fmt, Stats);
+format([$%, $d | Fmt], Stats) -> print(duration, Stats) ++ format(Fmt, Stats);
 format([$%, $s | Fmt], Stats) -> print(session_id, Stats) ++ format(Fmt, Stats);
 format([$%, $t | Fmt], Stats) -> print(token, Stats) ++ format(Fmt, Stats);
 format([$%, $i | Fmt], Stats) -> print(ip, Stats) ++ format(Fmt, Stats);
@@ -136,7 +139,7 @@ format([$%, $u | Fmt], Stats) -> print(user_id, Stats) ++ format(Fmt, Stats);
 format([$%, $f | Fmt], Stats) -> print(flag, Stats) ++ format(Fmt, Stats);
 format([$%, $y | Fmt], Stats) -> print(type, Stats) ++ format(Fmt, Stats);
 format([$%, $c | Fmt], Stats) -> print(created_at, Stats) ++ format(Fmt, Stats);
-format([$%, $e | Fmt], Stats) -> print(expire_time, Stats) ++ format(Fmt, Stats);
+format([$%, $x | Fmt], Stats) -> print(expire_time, Stats) ++ format(Fmt, Stats);
 format([$%, $l | Fmt], Stats) -> print(last_access_time, Stats) ++ format(Fmt, Stats);
 format([$%, $b | Fmt], Stats) -> print(bytes_sent, Stats) ++ format(Fmt, Stats);
 format([Ch | Fmt], Stats) -> [Ch | format(Fmt, Stats)];
@@ -144,8 +147,11 @@ format([], _Stats) -> [].
 
 %% @doc get proplist value as string
 print(Prop, Proplist) ->
+  print(Prop, Proplist, "~p").
+
+print(Prop, Proplist, Format) ->
   case proplists:get_value(Prop, Proplist) of
     V when is_binary(V) -> binary_to_list(V);
     V when is_list(V) -> V;
-    V -> io_lib:format("~p", [V])
+    V -> io_lib:format(Format, [V])
   end.

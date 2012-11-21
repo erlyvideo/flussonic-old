@@ -21,16 +21,7 @@ setup_flu_session() ->
   Table = ets:new(test_sessions, [{keypos,2},public]),
   meck:expect(flu_session,table, fun() -> Table end),
   meck:expect(flu_session, timeout, fun() -> 100 end),
-  meck:expect(fake_auth, init, fun(_, Req, _) -> {ok, Req, state} end),
-  meck:expect(fake_auth, handle, fun(Req, _) ->
-    {Code, Headers, Body} = fake_auth:reply(Req),
-    {ok, R1} = cowboy_req:reply(Code, Headers, Body, Req),
-    {ok, R1, undefined}
-  end),
-  meck:expect(fake_auth, terminate, fun(_,_) -> ok end),
-  Dispatch = [{'_', [{['...'], fake_auth, []}]}],
-  {ok, _} = cowboy:start_http(fake_http, 1, [{port, 6070}],
-    [{dispatch, Dispatch}]),
+  fake_auth:start_http(),
   
   ServerConf = [{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6070/"}]}],
   {ok, ServerConfig} = flu_config:parse_config(ServerConf, undefined),

@@ -6,7 +6,7 @@
 -compile(export_all).
 
 launch() ->
-  % ffmpeg:start_worker(filename:join("../priv", "ffmpeg")).
+  % ffmpeg:start_worker(filename:join("../priv", "flussonic_ffmpeg")).
   ffmpeg:start_worker("127.0.0.1:9000").
 
 

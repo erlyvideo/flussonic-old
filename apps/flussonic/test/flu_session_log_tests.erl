@@ -4,6 +4,7 @@
 
 
 -define(STATS, [{session_id,<<"34626121de81cea59069efddfd68a391880b1ddd">>},
+                {event,'user.connected'},
                 {token,<<"1349348102172">>},
                 {ip,<<"127.0.0.1">>},
                 {name,<<"ort1">>},
@@ -23,7 +24,8 @@
 flu_session_log_test_() ->
   [?TEST_FORMAT("", ""),
    ?TEST_FORMAT("%%\%%n%%b", "%%%ort1%0"),
-   ?TEST_FORMAT("%s %t %i %n %u %f %y %c %e %l %b",
+   ?TEST_FORMAT("%e %s %t %i %n %u %f %y %c %x %l %b",
+                "user.connected "
                 "34626121de81cea59069efddfd68a391880b1ddd "
                 "1349348102172 "
                 "127.0.0.1 "

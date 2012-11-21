@@ -248,7 +248,7 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
       is_binary(Token) orelse throw({fail, [403, <<"no_token_passed">>]}),
       Identity = [{name,StreamName1},{ip, to_b(rtmp_session:get(Session, addr))},{token,Token}],
       Referer = rtmp_session:get_field(Session, pageUrl),
-      case flu_session:verify(URL, Identity, [{pid,self()},{referer,Referer}|Options]) of
+      case flu_session:verify(URL, Identity, [{pid,self()},{referer,Referer},{type,rtmp}|Options]) of
         {ok, StreamName1_} -> StreamName1_;
         {error, Code, Message} ->
           ?ERR("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName1, Token, Code, Message]),

@@ -37,13 +37,19 @@ file_manifest(Path) when is_list(Path) ->
 
 file_manifest(Format, Reader) ->
   MediaInfo = #media_info{duration = Duration, streams = Streams} = Format:media_info(Reader),
+  CommonKeyframes = flu_file:reduce_keyframes(Format:keyframes(Reader)),
 
-  FirstLanguage = case [Stream || #stream_info{content = audio} = Stream <- Streams] of
+  Audio = [Stream || #stream_info{content = audio} = Stream <- Streams],
+  FirstLanguage = case Audio of
     [#stream_info{track_id = FirstLanguageId} | _] -> FirstLanguageId;
     [] -> undefined
   end,
 
   Videos = [TrackId || #stream_info{content = video, track_id = TrackId} <- Streams],
+  Audios = case Audio of
+    [] -> [];
+    [_|A_] -> [TrackId || #stream_info{track_id = TrackId} <- A_]
+  end,
 
 
   Manifest = iolist_to_binary([
@@ -65,7 +71,7 @@ file_manifest(Format, Reader) ->
   [io_lib:format("  <bootstrapInfo profile=\"named\" id=\"bootstrap~B\">\n", [VideoId]),
     base64:encode_to_string(generate_bootstrap(Duration, Keyframes, [])),
   "\n  </bootstrapInfo>\n",
-  io_lib:format("  <media streamId=\"stream~B\" url=\"hds/~B,~B/\" bitrate=\"~B\" bootstrapInfoId=\"bootstrap~B\">\n",
+  io_lib:format("  <media streamId=\"stream~B\" url=\"hds/tracks-~B,~B/\" bitrate=\"~B\" bootstrapInfoId=\"bootstrap~B\">\n",
       [VideoId,VideoId,FirstLanguage,Bitrate div 1000, VideoId]),
   "    <metadata>\n",
     metadata(MI),
@@ -73,6 +79,21 @@ file_manifest(Format, Reader) ->
   "  </media>\n\n"
   ]
   end, Videos),
+
+  lists:map(fun(AudioId) ->
+    MI = MediaInfo#media_info{streams = [lists:keyfind(AudioId,#stream_info.track_id,Streams)]},
+    [io_lib:format("  <bootstrapInfo profile=\"named\" id=\"bootstrap~B\">\n", [AudioId]),
+      base64:encode_to_string(generate_bootstrap(Duration, CommonKeyframes, [])),
+    "\n  </bootstrapInfo>\n",
+    io_lib:format("  <media streamId=\"stream~B\" url=\"hds/tracks-~B/\" lang=\"~B\" bootstrapInfoId=\"bootstrap~B\""
+      " type=\"audio\" alternate=\"true\" bitrate=\"128\">\n",
+        [AudioId,AudioId,AudioId,AudioId]),
+    "    <metadata>\n",
+      metadata(MI),
+    "\n    </metadata>\n",
+    "  </media>\n\n"
+    ]
+  end, Audios),
 
 <<"</manifest>
 ">>

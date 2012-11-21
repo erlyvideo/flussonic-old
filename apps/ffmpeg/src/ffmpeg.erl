@@ -39,7 +39,7 @@ start_link() ->
 
 
 start_worker() ->
-  start_worker(filename:join(code:lib_dir(ffmpeg, priv), "ffmpeg")).
+  start_worker(filename:join(code:lib_dir(ffmpeg, priv), "flussonic_ffmpeg")).
 
 start_worker(Path) ->
   case string:tokens(Path, ":") of
