@@ -18,6 +18,7 @@ media_handler_test_() ->
 
     ,{"test_hls_file_segment", fun test_hls_file_segment/0}
     ,{"test_hls_file_mbr_segment", fun test_hls_file_mbr_segment/0}
+    ,{"test_hls_file_mbr_root_playlist", fun test_hls_file_mbr_root_playlist/0}
     ,{"test_hls_file_playlist", fun test_hls_file_playlist/0}
     ,{"test_hls_file_mbr_playlist", fun test_hls_file_mbr_playlist/0}
 
@@ -110,6 +111,11 @@ test_hls_file_playlist() ->
   ?assertMatch({{flu_file, hls_playlist, []}, _, <<"movie.mp4">>},
     test_lookup_by_path("/vod/movie.mp4/index.m3u8")).
 
+test_hls_file_mbr_root_playlist() ->
+  set_config([{file, "vod", "test/files"}]),
+  ?assertMatch({{flu_file, hls_mbr_playlist, []}, _, <<"movie.mp4">>},
+    test_lookup_by_path("/vod/movie.mp4/mbr.m3u8")).
+
 test_hls_file_mbr_playlist() ->
   set_config([{file, "vod", "test/files"}]),
   ?assertMatch({{flu_file, hls_playlist, [[1,2]]}, _, <<"movie.mp4">>},
@@ -123,7 +129,7 @@ test_hls_file_segment() ->
 test_hls_file_mbr_segment() ->
   set_config([{file, "vod", "test/files"}]),
   ?assertMatch({{flu_file, hls_segment, [<<"test/files">>,5, [1,2]]}, _, <<"movie.mp4">>}, 
-    test_lookup_by_path("/vod/movie.mp4/hls/tracks-1,2/segment5.ts")).
+    test_lookup_by_path("/vod/movie.mp4/tracks-1,2/hls/segment5.ts")).
 
 
 

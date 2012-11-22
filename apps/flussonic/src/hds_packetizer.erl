@@ -1,7 +1,7 @@
 -module(hds_packetizer).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--define(FRAGMENTS_COUNT, 3).
+-define(FRAGMENTS_COUNT, 6).
 -define(SEGMENT_START,1).
 -define(FRAGMENT_START,1).
 
@@ -19,6 +19,7 @@
   options = [],
   fragments,
   media_info,
+  fragments_count = ?FRAGMENTS_COUNT,
   segment=?SEGMENT_START,
   fragment=?FRAGMENT_START
 }).
@@ -31,8 +32,10 @@
 init(Options) ->
   Name = proplists:get_value(name, Options),
   gen_tracker:setattr(flu_streams, Name, [{hds,true}]),
+  FragmentsCount = proplists:get_value(hds_count, Options, ?FRAGMENTS_COUNT),
   {ok, #hds{
-    name = Name, 
+    name = Name,
+    fragments_count = FragmentsCount,
     options = Options,
     fragments = queue:new()
   }}.
@@ -77,9 +80,9 @@ create_new_fragment([#video_frame{dts = DTS}|_] = GOP, #hds{fragment = Fragment,
   % erlang:put({hds_segment, Segment,Fragment}, Bin),
   HDS#hds{fragment = Fragment + 1, fragments = queue:in(#fragment{number = Fragment, dts = DTS}, Fragments)}.
 
-delete_old_fragment(#hds{segment = Segment, fragments = Fragments, name = Name} = HDS) ->
+delete_old_fragment(#hds{segment = Segment, fragments_count = FragmentsCount, fragments = Fragments, name = Name} = HDS) ->
   NewFragments = case queue:len(Fragments) of
-    Count when Count > ?FRAGMENTS_COUNT ->
+    Count when Count > FragmentsCount ->
       {{value, #fragment{number = Fragment}}, Leaving} = queue:out(Fragments),
       flu_stream_data:erase(Name, {hds_segment, Segment, Fragment}),
       Leaving;

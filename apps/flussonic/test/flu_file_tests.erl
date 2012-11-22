@@ -105,10 +105,10 @@ test_hds_manifest({_,File}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%%%%%%%%%%          MBR FILE TESTS %%%%%%%%%%%%%%%%%
+%%%%%%%%%%          MBR HDS FILE TESTS %%%%%%%%%%%%%%%%%
 
 
-mbr_file_test_() ->
+mbr_hds_file_test_() ->
   Tests =   [
     {with, [fun test_mbr_hds_manifest/1]}
     ,{with, [fun test_mbr_first_track_segment/1]}
@@ -154,6 +154,47 @@ test_mbr_lang_segment({_,File}) ->
   % ?debugFmt("total:~p,video:~p,audio:~p",[length(Frames),length(Video),length(Audio)]),
   ok.
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%          MBR HLS FILE TESTS %%%%%%%%%%%%%%%%%
+
+
+mbr_hls_file_test_() ->
+  Tests =   [
+    {with, [fun test_mbr_hls_root_playlist/1]}
+    ,{with, [fun test_mbr_hls_playlist/1]}
+    ,{with, [fun test_mbr_hls_segment/1]}
+    % ,{with, [fun test_mbr_lang_segment/1]}
+  ],
+  {foreach,
+  fun() -> setup_flu_file("mbr.mp4") end,
+  fun teardown_flu_file/1,
+  Tests}.
+
+
+test_mbr_hls_root_playlist({_,File}) ->
+  {ok, Bin} = flu_file:hls_mbr_playlist(File),
+  % ?debugFmt("bin: ~p",[Bin]),
+  Rows = binary:split(Bin, <<"\n">>, [global]),
+  URLs = [Row || <<S,_/binary>> = Row <- Rows, S =/= $#],
+  Medias = [Row || <<"#EXT-X-MEDIA",_/binary>> = Row <- Rows],
+  ?assertMatch(_ when length(URLs) == 3, URLs),
+  ?assertMatch(_ when length(Medias) == 2, Medias),
+  ok.
+
+test_mbr_hls_playlist({_,File}) ->
+  {ok, Bin} = flu_file:hls_playlist(File, [2,4]),
+  Rows = binary:split(Bin, <<"\n">>, [global]),
+  URLs = [Row || <<S,_/binary>> = Row <- Rows, S =/= $#],
+  ?assertMatch(UrlCount when UrlCount == 10, length(URLs)).
+
+
+test_mbr_hls_segment({_,File}) ->
+  {ok, _Bin} = flu_file:hls_segment(File, root, 3, [2,4]),
+  ok.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

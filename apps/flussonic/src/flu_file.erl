@@ -26,8 +26,8 @@
 
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([start_link/2, autostart/2, media_info/1]).
--export([hds_manifest/1, hds_segment/2, hls_playlist/1,hls_segment/2, hds_lang_segment/3]).
--export([hls_segment/3, hds_segment/3]).
+-export([hds_manifest/1, hds_segment/2, hds_lang_segment/3,  hds_segment/3]).
+-export([hls_segment/3, hls_segment/4, hls_segment/2, hls_mbr_playlist/1, hls_playlist/1, hls_playlist/2]).
 -export([get/2]).
 -export([read_frame/2, keyframes/1]).
 -export([reduce_keyframes/1]).
@@ -52,11 +52,15 @@
   hds_manifest,
   timeout,
   hls_playlist,
+  hls_mbr_playlist,
   hls_length=?SEGMENT_DURATION,
   mpegts
 }).
 
-  
+
+
+autostart(File, _) when is_pid(File) ->
+  {ok, File};
 
 autostart(Name, Options) ->
   gen_tracker:find_or_open(flu_files, Name, fun() -> flussonic_sup:start_flu_file(Name, Options) end).
@@ -91,7 +95,7 @@ hds_segment(File, Fragment) ->
       {error, Error}
   end.
 
-hds_segment(File, Fragment, Tracks) ->
+segment_info(File, Fragment, Tracks) ->
   case get(File, reader) of
     {ok, {Format, Reader}} ->
       % Need to determine if this audio-only track or has video
@@ -112,6 +116,14 @@ hds_segment(File, Fragment, Tracks) ->
         true -> [];
         false -> [{no_metadata,true},{hardstop,true}]
       end,
+      {ok, {Format, Reader, Id, StopDts, Options}};
+    {error, _} = Error ->
+      Error
+  end.
+
+hds_segment(File, Fragment, Tracks) ->
+  case segment_info(File, Fragment, Tracks) of
+    {ok, {Format, Reader, Id, StopDts, Options}} ->
       Reply = hds:segment(Format, Reader, Id, [{stop_dts, StopDts},{tracks,Tracks}|Options]),
       Reply;
     {error, Error} ->
@@ -138,7 +150,9 @@ hds_lang_segment(File, Lang_, Fragment) ->
   end.
 
 hls_playlist(File) -> get(File, hls_playlist).
+hls_playlist(File, Tracks) -> get(File, {hls_playlist, Tracks}).
 
+hls_mbr_playlist(File) -> get(File, hls_mbr_playlist).
 
 hls_segment(Name, Root, Segment) ->
   {ok, File} = autostart(Name, [{root,Root}]),
@@ -155,6 +169,18 @@ hls_segment(File,Segment) ->
     {error, Error} ->
       {error, Error}
   end.
+
+
+hls_segment(Name, Root, Segment, Tracks) ->
+  {ok, File} = autostart(Name, [{root,Root}]),
+  case segment_info(File, Segment, Tracks) of
+    {ok, {Format, Reader, Id, StopDts, _Options}} ->
+      Reply = hls:segment(Format, Reader, Id, [{stop_dts,StopDts},{tracks,Tracks}]),
+      {ok, Reply};
+    {error, Error} ->
+      {error, Error}
+  end.
+
 
 
 read_frame(File, Id) ->
@@ -237,12 +263,24 @@ handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Tim
 handle_call(reader, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
   {reply, {ok, {Format, Reader}}, State, Timeout};
 
-handle_call(hls_playlist, _From, #state{path=Path, keyframes = Keyframes, hls_playlist = undefined, 
+handle_call(hls_mbr_playlist, _From, #state{hls_mbr_playlist = undefined, 
+  media_info = #media_info{} = MediaInfo} = State) ->
+  {ok, Playlist} = hls:variant_playlist(MediaInfo),
+  handle_call(hls_mbr_playlist, _From, State#state{hls_mbr_playlist = Playlist});
+
+handle_call({hls_playlist, Tracks}, _From, #state{format = Format, reader = Reader,path = Path} = State) ->
+  {ok, Playlist} = hls:playlist(Format, Reader, [{name,Path},{tracks,Tracks}]),
+  handle_call(hls_playlist, _From, State#state{hls_playlist = Playlist});
+
+handle_call(hls_playlist, _From, #state{path = Path, hls_playlist = undefined, keyframes = Keyframes,
   media_info = #media_info{duration = Duration}} = State) ->
   {ok, Playlist} = hls:playlist(Keyframes, [{name,Path},{duration,Duration}]),
   handle_call(hls_playlist, _From, State#state{hls_playlist = Playlist});
 
 handle_call(hls_playlist, _From, #state{hls_playlist = Playlist, timeout = Timeout} = State) ->
+  {reply, {ok, Playlist}, State, Timeout};
+
+handle_call(hls_mbr_playlist, _From, #state{hls_mbr_playlist = Playlist, timeout = Timeout} = State) ->
   {reply, {ok, Playlist}, State, Timeout};
 
 handle_call(Call, _From, State) ->

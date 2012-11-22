@@ -109,7 +109,10 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
     [<<"index.m3u8">>] ->
       Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
       {{DefaultModule, hls_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
-    [<<"hls">>, <<"tracks-",TrackSpec/binary>>, SegmentPath] ->
+    [<<"mbr.m3u8">>] ->
+      Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
+      {{DefaultModule, hls_mbr_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
+    [<<"tracks-",TrackSpec/binary>>, <<"hls">>, SegmentPath] ->
       Root = proplists:get_value(root, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {match, [Number]} = re:run(SegmentPath, "(\\d+)\\.ts", [{capture,all_but_first,list}]),

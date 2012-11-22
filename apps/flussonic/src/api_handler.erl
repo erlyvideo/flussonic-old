@@ -34,9 +34,12 @@
 
 %% Cowboy API
 
+to_lower(undefined) -> undefined;
+to_lower(Bin) -> cowboy_bstr:to_lower(Bin).
+
 init({_Any,http}, Req, Opts) ->
   {Upgrade, Req1} = cowboy_req:header(<<"upgrade">>, Req),
-  case Upgrade of
+  case to_lower(Upgrade) of
     <<"websocket">> ->
       {upgrade, protocol, cowboy_websocket};
     undefined ->
