@@ -30,7 +30,7 @@
 -export([websocket_init/3, websocket_handle/3,
     websocket_info/3, websocket_terminate/3]).
 -include_lib("eunit/include/eunit.hrl").
-
+-include("flu_event.hrl").
 
 %% Cowboy API
 
@@ -53,7 +53,22 @@ handle(Req, {reload, Opts}) ->
     spawn(fun() -> flu:reconf() end),
     {ok, R1, undefined}
   end);
-  
+
+handle(Req, {events, _Opts}) ->
+  {Accept, _Req1} = cowboy_req:header(<<"accept">>, Req),
+  case Accept of
+    <<"text/event-stream">> ->
+      {ok, Transport, Socket} = cowboy_req:transport(Req),
+      is_port(Socket) andalso inet:setopts(Socket, [{send_timeout,10000}]),
+      Transport:send(Socket, "HTTP 200 OK\r\nConnection: keep-alive\r\n"
+        "Cache-Control: no-cache\r\nContent-Type: text/event-stream\r\n\r\n"),
+      flu_event:subscribe_to_events(self()),
+      events_sse_loop(Transport,Socket);
+    _ ->
+    {ok, R1} = cowboy_req:reply(400, [], "Should use SSE or WebSockets\n", Req),
+    {ok, R1, undefined}
+  end;
+
 
 handle(Req, {streams, Opts}) ->
   check_auth(Req, Opts, viewer, fun() ->
@@ -80,9 +95,26 @@ handle(Req, {health, Opts}) ->
 terminate(_,_) -> ok.
 
 
+events_sse_loop(Transport, Socket) ->
+  receive
+    #flu_event{event = Evt} = Event ->
+      Cmd = io_lib:format("event: ~s\ndata: ~s\n\n", [Evt, flu_event:to_json(Event)]),
+      case Transport:send(Socket, Cmd) of
+        ok -> ok;
+        {error, _} -> exit(normal)
+      end;
+    Else ->
+      ?D({unknown_message, Else})
+  end,
+  events_sse_loop(Transport,Socket).
+
 
 websocket_init(_TransportName, Req, Opts) ->
   Mode = proplists:get_value(mode, Opts),
+  case Mode of
+    events -> flu_event:subscribe_to_events(self());
+    _ -> ok
+  end,
   {ok, Req, {Mode,Opts}}.
 
 websocket_handle({text, <<"streams">>}, Req, State) ->
@@ -91,6 +123,9 @@ websocket_handle({text, <<"streams">>}, Req, State) ->
 
 websocket_handle(_Data, Req, State) ->
   {ok, Req, State}.
+
+websocket_info(#flu_event{} = Event, Req, State) ->
+  {reply, {text, flu_event:to_json(Event)}, Req, State};
 
 websocket_info(_Info, Req, State) ->
   ?DBG("api_websocket msg: ~p~n", [_Info]),

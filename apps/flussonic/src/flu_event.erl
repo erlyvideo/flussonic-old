@@ -33,7 +33,8 @@
 -export([start_handlers/0, stop_handlers/0]).
 
 -export([user_connected/2, user_disconnected/2, user_play/3, user_stop/3]).
--export([stream_created/2, stream_stopped/1, next_dvr_minute/2]).
+-export([stream_created/2, stream_stopped/1]).
+-export([add_dvr_fragment/2, delete_dvr_fragment/2]).
 
 -export([to_json/1, to_xml/1]).
 
@@ -70,9 +71,9 @@ to_json(#flu_event{options = Options} = Event) ->
     (V) when is_reference(V) -> undefined;
     (V) -> V
   end,
-  Clean1 = [{K,Map(V)} || {K,V} <- tuple_to_list(?record_to_struct(flu_event, Event#flu_event{options = {Options}}))],
+  Clean1 = [{K,Map(V)} || {K,V} <- tuple_to_list(?record_to_struct(flu_event, Event))],
   Clean = [{K,V} || {K,V} <- Clean1, V =/= undefined andalso V =/= null],
-  jiffy:encode(Clean).
+  mochijson2:encode(Clean).
 
 to_xml(Event) ->
   Content = xmlize(tuple_to_list(?record_to_struct(flu_event, Event)), []),
@@ -136,7 +137,7 @@ add_handler(Handler, Args) ->
 %% @end
 %%----------------------------------------------------------------------
 subscribe_to_events(Pid) ->
-  add_sup_handler(ems_event_consumer, [Pid]).
+  add_sup_handler(flu_event_consumer, [Pid]).
 
 %%--------------------------------------------------------------------
 %% @spec (Handler::any(), Args::[any()]) -> ok
@@ -216,11 +217,20 @@ stream_stopped(Name) ->
 
 %%--------------------------------------------------------------------
 %%
-%% @doc send event that stream was completely stopped
+%% @doc send event that new fragment was recorded for stream
 %% @end
 %%----------------------------------------------------------------------
-next_dvr_minute(Name, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = stream.next_minute, stream = Name, options = Options}).
+add_dvr_fragment(Name, Time) ->
+  gen_event:notify(?MODULE, #flu_event{event = stream.add_dvr_fragment, stream = Name, options = [{time,Time}]}).
+
+
+%%--------------------------------------------------------------------
+%%
+%% @doc send event that new fragment was recorded for stream
+%% @end
+%%----------------------------------------------------------------------
+delete_dvr_fragment(Name, Time) ->
+  gen_event:notify(?MODULE, #flu_event{event = stream.delete_dvr_fragment, stream = Name, options = [{time,Time}]}).
 
 %%%------------------------------------------------------------------------
 %%% Callback functions from gen_server

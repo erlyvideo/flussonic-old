@@ -174,6 +174,7 @@ handle_request(Method, _URL, Headers, _Body, RTSP) when Method == <<"OPTIONS">> 
   reply(200, [
     {'Cseq', seq(Headers)}, 
     {<<"Supported">>, <<"play.basic, con.persistent">>},
+    {'Date', httpd_util:rfc1123_date()},
     {'Public', "SETUP, TEARDOWN, ANNOUNCE, RECORD, PLAY, OPTIONS, DESCRIBE, GET_PARAMETER"}], RTSP);
 
 handle_request(<<"DESCRIBE">>, URL, Headers, Body, #rtsp{callback = Callback} = RTSP) ->
@@ -261,7 +262,7 @@ handle_request(<<"PLAY">>, URL, Headers, Body, #rtsp{callback = Callback, media_
       RtpInfo = string:join(lists:map(fun(#stream_info{track_id = Id}) ->
         io_lib:format("url=~s/trackID=~B;seq=0;rtptime=0", [URL, Id])
       end, Streams),","),
-      reply(200, [{'Cseq', seq(Headers)}, {"RTP-Info", RtpInfo}], RTSP);
+      reply(200, [{'Cseq', seq(Headers)}, {"RTP-Info", RtpInfo},{"Range", "npt=0-"},{"Date",httpd_util:rfc1123_date()}], RTSP);
     Reply ->
       throw({stop, {play_disabled,Reply}, RTSP})
   end;
