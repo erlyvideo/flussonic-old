@@ -1,5 +1,5 @@
 
--type(stream_decoder_config() :: any()).
+-type(stream_decoder_config() :: binary()).
 -type(stream_video_params() :: {non_neg_integer()}).
 
 -record(video_params, {

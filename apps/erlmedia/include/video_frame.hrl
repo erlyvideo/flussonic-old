@@ -8,15 +8,15 @@
 -type(frame_sound_channels() ::mono|stereo).
 -type(frame_sound_size() ::bit8|bit16).
 -type(frame_sound_rate() ::rate5|rate11|rate22|rate44).
--type(frame_sound() ::{frame_sound_channels(), frame_sound_size(), frame_sound_rate()}).
+% -type(frame_sound() ::{frame_sound_channels(), frame_sound_size(), frame_sound_rate()}).
 
 -record(video_frame,{
 	content        = undefined ::frame_content(),
-	dts            = undefined ::number(),
-	pts            = undefined ::number(),
+	dts            = 0.0 ::float(),
+	pts            = 0.0 ::float(),
 	stream_id      = 0         ::non_neg_integer(),
-	codec 	       = undefined ::frame_codec()|undefined,
-	flavor         = undefined ::frame_flavor()|undefined,
+	codec 	       ::frame_codec(),
+	flavor         ::frame_flavor(),
 	% options        = {undefined, undefined, undefined} ::frame_sound() | undefined,
 	track_id       = undefined ::any(),
 	body           = <<>>      ::binary(),
