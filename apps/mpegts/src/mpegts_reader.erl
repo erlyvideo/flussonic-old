@@ -591,8 +591,7 @@ decode_pes_packet(#stream{codec = mp3, dts = DTS, pts = PTS, es_buffer = Data} =
     dts     = DTS,
     pts     = PTS,
     body    = Data,
-	  codec	  = mp3,
-	  sound	  = {stereo, bit16, rate44}
+	  codec	  = mp3
   },
   {Stream#stream{es_buffer = <<>>}, [AudioFrame]};
 
@@ -606,8 +605,7 @@ decode_pes_packet(#stream{codec = mpeg2audio, dts = DTS, pts = PTS, es_buffer = 
     dts = DTS,
     pts = PTS,
     body = Data,
-    codec = mpeg2audio,
-    sound = {stereo, bit16, rate44}
+    codec = mpeg2audio
   }],
   {Stream#stream{es_buffer = <<>>}, Frames};
 
@@ -624,7 +622,6 @@ decode_pes_packet(#stream{dts = DTS, pts = PTS, es_buffer = Data, codec = mpeg2v
     dts = DTS,
     pts = PTS,
     body = Data,
-    sound = undefined,
     codec = mpeg2video
   }],
   {Stream#stream{es_buffer = <<>>}, Frames};
@@ -737,8 +734,7 @@ decode_aac(#stream{send_audio_config = false, es_buffer = AAC, dts = DTS} = Stre
 		dts     = DTS,
 		pts     = DTS,
 		body    = Config,
-	  codec	  = aac,
-	  sound	  = {stereo, bit16, rate44}
+	  codec	  = aac
 	},
 	{Stream1, Frames} = decode_aac(Stream#stream{send_audio_config = true, sample_rate = SampleRate}),
 	{Stream1, [AudioConfig] ++ Frames};
@@ -762,8 +758,7 @@ decode_adts(ADTS, BaseDTS, SampleRate, SampleCount, Frames) ->
         dts     = DTS,
         pts     = DTS,
         body    = Frame,
-    	  codec	  = aac,
-    	  sound	  = {stereo, bit16, rate44}
+    	  codec	  = aac
       },
       % ?D({audio, Stream#stream.pcr, DTS}),
       decode_adts(Rest, BaseDTS, SampleRate, SampleCount + 1024, [AudioFrame|Frames]);

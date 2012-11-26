@@ -216,7 +216,6 @@ read_frame(#mp3_media{reader = {Module,Device}} = Media, {Offset, N}) ->
         pts      = DTS,
         codec    = mp3,
         flavor   = frame,
-        sound    = {stereo, bit16, rate44},
         body     = Body,
         next_id  = {Offset+Length, N+1}
       };

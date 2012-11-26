@@ -163,8 +163,7 @@ flush_pes(#stream{codec = aac, es_buffer = Data, sample_rate = undefined, pid = 
     dts     = DTS,
     pts     = DTS,
     body    = Config,
-    codec   = aac,
-    sound   = {stereo, bit16, rate44}
+    codec   = aac
   },
   flush_pes(Stream#stream{sample_rate = SampleRate}, [AudioConfig|Acc]);
 
@@ -178,8 +177,7 @@ flush_pes(#stream{codec = aac, es_buffer = Data, dts = DTS, sample_rate = Sample
         dts     = DTS,
         pts     = DTS,
         body    = AAC,
-        codec   = aac,
-        sound   = {stereo, bit16, rate44}
+        codec   = aac
       },
       flush_pes(Stream#stream{dts = DTS + 1024*1000 / SampleRate, es_buffer = Rest}, [Frame|Acc]);
     {more, _} ->

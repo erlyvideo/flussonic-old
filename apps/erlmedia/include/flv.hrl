@@ -1,16 +1,16 @@
 -record(flv_audio_tag, {
-  codec              ::frame_audio_codec(),
-  rate               ::frame_sound_rate(),
-  bitsize            ::frame_sound_size(),
-  channels           ::frame_sound_channels(),
+  codec              = aac ::frame_codec(),
+  rate               = rate44 ::frame_sound_rate(),
+  bitsize            = bit16 ::frame_sound_size(),
+  channels           = stereo ::frame_sound_channels(),
   flavor             ::frame_flavor(),
   body               ::binary()
 }).
 
 -record(flv_video_tag, {
-  codec              ::frame_video_codec(),
+  codec              = h264 ::frame_codec(),
   flavor             ::frame_flavor(),
-  composition_time   ::number(),
+  composition_time   = 0 ::number(),
   body               ::binary()
 }).
 

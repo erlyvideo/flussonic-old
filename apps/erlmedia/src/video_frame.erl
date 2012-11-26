@@ -43,7 +43,6 @@ config_frame(#stream_info{codec = aac, config = Config, track_id = TrackId}) ->
 		pts     = 0,
 		body    = Config,
 	  codec	  = aac,
-	  sound	  = {stereo, bit16, rate44},
 	  track_id = TrackId
 	};
 
@@ -177,13 +176,13 @@ define_media_info(#media_info{} = Media, #video_frame{content = video, codec = C
   },
   update_stream(Info, Media);
 
-define_media_info(#media_info{} = Media, #video_frame{content = audio, codec = Codec, sound = {Channels, _, Rate}, track_id = TrackId}) ->
-  {Audio, _Streams1} = find_or_add_stream(TrackId, audio, Media),
-  Info = Audio#stream_info{
-    codec = Codec,
-    params = #audio_params{channels = Channels, sample_rate = Rate}
-  },
-  update_stream(Info, Media);
+% define_media_info(#media_info{} = Media, #video_frame{content = audio, codec = Codec, sound = {Channels, _, Rate}, track_id = TrackId}) ->
+%   {Audio, _Streams1} = find_or_add_stream(TrackId, audio, Media),
+%   Info = Audio#stream_info{
+%     codec = Codec,
+%     params = #audio_params{channels = Channels, sample_rate = Rate}
+%   },
+%   update_stream(Info, Media);
 
 define_media_info(#media_info{} = Media, _) ->
   Media.

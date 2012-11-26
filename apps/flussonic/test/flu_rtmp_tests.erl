@@ -6,8 +6,6 @@
 
 -compile(export_all).
 
--define(S, {stereo, bit16, rate44}).
-
 -record(env, {
   rtmp,
   stream,
@@ -20,7 +18,7 @@ h264_config() ->
   #video_frame{content = video, codec = h264, flavor = config, track_id = 100, dts = 0, pts = 0, body = Body}.
 
 aac_config() ->
-  #video_frame{content = audio, codec = aac, flavor = config, track_id = 101, dts = 0, pts = 0, body = <<17,144>>, sound = ?S}.
+  #video_frame{content = audio, codec = aac, flavor = config, track_id = 101, dts = 0, pts = 0, body = <<17,144>>}.
 
 mp3_frame(DTS) ->
   Body = <<255,243,96,192,88,25,185,54,65,108,98,70,144,79,60,68,175,98,168,136,90,227,131,22,229,33,196,150,106,173,87,234,
@@ -28,7 +26,7 @@ mp3_frame(DTS) ->
   115,120,209,73,233,205,170,35,181,225,226,245,242,76,127,226,238,230,91,188,55,201,203,126,116,145,201,172,68,170,72,136,
   10,164,55,1,135,133,168,38,24,54,86,182,159,66,15,60,54,72,99,146,116,64,57,225,13,98,198,92,137,25,39,138,227,6,179,90,39,
   238,99,169,233,108,194,204,56,234,215,204,0,105,165,91,226,183,97,36,40,145>>,
-  #video_frame{content = audio, codec = mp3, flavor = frame, dts = DTS, pts = DTS, body = Body, sound = ?S}.
+  #video_frame{content = audio, codec = mp3, flavor = frame, dts = DTS, pts = DTS, body = Body}.
 
 
 init_all() ->
@@ -134,15 +132,15 @@ h264_aac_frames() ->
   #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 280, pts = 280, body = <<"frame">>},
   #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 320, pts = 320, body = <<"frame">>},
 
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 0, pts = 0, body = <<"aac">>, sound = ?S},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 23, pts = 23, body = <<"aac">>, sound = ?S},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 46, pts = 46, body = <<"aac">>, sound = ?S},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 69, pts = 69, body = <<"aac">>, sound = ?S},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 92, pts = 92, body = <<"aac">>, sound = ?S},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 115, pts = 115, body = <<"aac">>, sound = ?S},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 139, pts = 139, body = <<"aac">>, sound = ?S},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 162, pts = 162, body = <<"aac">>, sound = ?S},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 185, pts = 185, body = <<"aac">>, sound = ?S}
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 0, pts = 0, body = <<"aac">>},
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 23, pts = 23, body = <<"aac">>},
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 46, pts = 46, body = <<"aac">>},
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 69, pts = 69, body = <<"aac">>},
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 92, pts = 92, body = <<"aac">>},
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 115, pts = 115, body = <<"aac">>},
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 139, pts = 139, body = <<"aac">>},
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 162, pts = 162, body = <<"aac">>},
+  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 185, pts = 185, body = <<"aac">>}
 ]).
 
 

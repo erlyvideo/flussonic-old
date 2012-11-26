@@ -127,8 +127,8 @@ decode_nal(<<0:1, _NalRefIdc:2, ?NAL_SINGLE:5, _/binary>> = Data, #h264{} = H264
    	content = video,
 		body    = nal_with_size(Data),
 		flavor  = Flavor,
-		codec   = h264,
-		sound   = Header
+		codec   = h264
+		% sound   = Header
   },
   {H264, [VideoFrame]};
 
@@ -167,8 +167,8 @@ decode_nal(<<0:1, _NalRefIdc:2, ?NAL_IDR:5, _/binary>> = Data, #h264{sps = SPS, 
    	content = video,
 		body    = iolist_to_binary([[nal_with_size(S) || S <- SPS], [nal_with_size(P) || P <- PPS], nal_with_size(Data)]),
 		flavor  = keyframe,
-		codec   = h264,
-		sound   = slice_header(Data)
+		codec   = h264
+		% sound   = slice_header(Data)
   },
   % ?D({"I-frame", VideoFrame}),
   {H264, [VideoFrame]};

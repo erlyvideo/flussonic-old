@@ -3,9 +3,7 @@
 
 -type(frame_content() ::audio|video|metadata).
 -type(frame_flavor()  ::frame|keyframe|config|disposable).
--type(frame_video_codec() ::h264|sorenson|vp6|vp6f|mpeg4).
--type(frame_audio_codec() ::aac|mp3|pcma|pcmu|pcm|pcm_le|g726_16|speex|nellymoser|nellymoser8).
--type(frame_codec()   ::frame_video_codec()|frame_audio_codec()|atom()).
+-type(frame_codec()   ::h264|sorenson|vp6|vp6f|mpeg4|mpeg2|aac|mp3|pcma|pcmu|pcm|pcm_le|g726_16|speex|nellymoser|nellymoser8).
 
 -type(frame_sound_channels() ::mono|stereo).
 -type(frame_sound_size() ::bit8|bit16).
@@ -19,7 +17,7 @@
 	stream_id      = 0         ::non_neg_integer(),
 	codec 	       = undefined ::frame_codec()|undefined,
 	flavor         = undefined ::frame_flavor()|undefined,
-	sound          = {undefined, undefined, undefined} ::frame_sound() | undefined,
+	% options        = {undefined, undefined, undefined} ::frame_sound() | undefined,
 	track_id       = undefined ::any(),
 	body           = <<>>      ::binary(),
 	next_id        = undefined ::any()

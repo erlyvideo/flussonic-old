@@ -100,7 +100,7 @@ decode(Body, #rtp_channel{codec = mpegts, buffer = Decoder} = RTP, _Timecode) ->
   {ok, Decoder1, Frames} = mpegts_reader:decode(Body, Decoder),
   {ok, RTP#rtp_channel{buffer = Decoder1}, Frames};
 
-decode(Body, #rtp_channel{stream_info = #stream_info{codec = Codec, content = Content, track_id = TrackId} = Info} = RTP, Timecode) ->
+decode(Body, #rtp_channel{stream_info = #stream_info{codec = Codec, content = Content, track_id = TrackId}} = RTP, Timecode) ->
   DTS = timecode_to_dts(RTP, Timecode),
   Frame = #video_frame{
     content = Content,
@@ -109,8 +109,7 @@ decode(Body, #rtp_channel{stream_info = #stream_info{codec = Codec, content = Co
     body    = Body,
 	  codec	  = Codec,
 	  flavor  = frame,
-    track_id = TrackId,
-	  sound	  = video_frame:frame_sound(Info)
+    track_id = TrackId
   },
   {ok, RTP, [Frame]}.
 
@@ -155,8 +154,7 @@ decode_aac(AudioData, <<AUSize:13, _Delta:3, AUHeaders/bitstring>>, RTP, Timecod
     pts     = DTS,
     body    = Body,
 	  codec	  = aac,
-	  flavor  = frame,
-	  sound	  = {stereo, bit16, rate44}
+	  flavor  = frame
   },
   [Frame|decode_aac(Rest, AUHeaders, RTP, Timecode + 1024)].
 

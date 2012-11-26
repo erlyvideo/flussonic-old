@@ -238,8 +238,7 @@ unpack_pes_aac([{DTS,PTS,Pes}|_] = Packets, Pid) ->
     dts     = DTS,
     pts     = PTS,
     body    = Config,
-    codec   = aac,
-    sound   = {stereo, bit16, rate44}
+    codec   = aac
   },
 
   [AudioConfig|unpack_pes_adts(Packets, 1024*1000 / SampleRate, Pid)].
@@ -254,8 +253,7 @@ unpack_pes_adts([{DTS,PTS,Pes}|Packets], Shift, Pid) ->
         dts     = DTS,
         pts     = DTS,
         body    = AAC,
-        codec   = aac,
-        sound   = {stereo, bit16, rate44}
+        codec   = aac
       },
       [Frame|unpack_pes_adts([{DTS+Shift,PTS+Shift,Rest}|Packets], Shift, Pid)];
     {more, _NeedBytes} when length(Packets) > 0 ->

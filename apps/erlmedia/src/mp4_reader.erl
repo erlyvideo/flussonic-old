@@ -213,8 +213,7 @@ codec_config({audio,TrackID}, #mp4_media{tracks = Tracks}) when is_number(TrackI
     		dts     = 0,
     		pts     = 0,
     		body    = Config,
-    	  codec	  = Codec,
-    	  sound   = {stereo, bit16, rate44}
+    	  codec	  = Codec
     	}
   end.
 
@@ -293,8 +292,7 @@ video_frame(audio, #mp4_frame{dts = DTS, codec = Codec}, Data) ->
 		pts     = DTS,
   	body    = Data,
   	flavor  = frame,
-	  codec	  = Codec,
-	  sound	  = {stereo, bit16, rate44}
+	  codec	  = Codec
   }.
 
 
