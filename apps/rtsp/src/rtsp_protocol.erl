@@ -447,8 +447,8 @@ send(#rtsp{socket = Socket, seq = Seq, url = URL, session = Session, auth = Auth
 
 
 
-dump_out(#rtsp{dump = false}, _) -> ok;
-dump_out(_, Call) -> io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Call]).
+dump_out(#rtsp{dump = true}, Call) -> io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Call]);
+dump_out(_, _) -> ok.
 
 
 terminate(_,_) ->

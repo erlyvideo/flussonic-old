@@ -65,7 +65,7 @@ stop_handlers() ->
 %% @doc Convert event to JSON
 %% @end
 %%----------------------------------------------------------------------
-to_json(#flu_event{options = Options} = Event) ->
+to_json(#flu_event{options = _Options} = Event) ->
   Map = fun
     (V) when is_pid(V) -> undefined;
     (V) when is_reference(V) -> undefined;

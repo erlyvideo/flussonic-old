@@ -109,11 +109,15 @@ test_hds_manifest({_,File}) ->
 
 
 mbr_hds_file_test_() ->
-  Tests =   [
+  MbrTests = [
     {with, [fun test_mbr_hds_manifest/1]}
     ,{with, [fun test_mbr_first_track_segment/1]}
     ,{with, [fun test_mbr_lang_segment/1]}
   ],
+  Tests = case file:read_file_info("../../../priv/mbr.mp4") of
+    {ok, _} -> MbrTests;
+    {error, _} -> []
+  end,
   {foreach,
   fun() -> setup_flu_file("mbr.mp4") end,
   fun teardown_flu_file/1,
@@ -163,12 +167,17 @@ test_mbr_lang_segment({_,File}) ->
 
 
 mbr_hls_file_test_() ->
-  Tests =   [
+  MbrTests =   [
     {with, [fun test_mbr_hls_root_playlist/1]}
     ,{with, [fun test_mbr_hls_playlist/1]}
     ,{with, [fun test_mbr_hls_segment/1]}
     % ,{with, [fun test_mbr_lang_segment/1]}
   ],
+  Tests = case file:read_file_info("../../hls") of
+    {ok, _} -> MbrTests;
+    {error, _} -> []
+  end,
+
   {foreach,
   fun() -> setup_flu_file("mbr.mp4") end,
   fun teardown_flu_file/1,
