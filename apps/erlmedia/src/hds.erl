@@ -105,7 +105,7 @@ lang_frag_duration() ->
   10000.
 
 stream_bootstrap(Keyframes, Options) -> 
-  BootStrap = generate_bootstrap(0,Keyframes,[{type,live}|Options]),
+  BootStrap = generate_bootstrap(proplists:get_value(duration,Options,0),Keyframes,[{type,live}|Options]),
   {ok,iolist_to_binary(BootStrap)}.
 
 stream_manifest(Format,Reader,Options) when is_atom(Format) ->

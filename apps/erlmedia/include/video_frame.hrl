@@ -18,7 +18,7 @@
 	codec 	       ::frame_codec(),
 	flavor         ::frame_flavor(),
 	% options        = {undefined, undefined, undefined} ::frame_sound() | undefined,
-	track_id       = undefined ::any(),
+	track_id       = 0 ::non_neg_integer(),
 	body           = <<>>      ::binary(),
 	next_id        = undefined ::any()
 }).

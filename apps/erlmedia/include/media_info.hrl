@@ -23,14 +23,14 @@
 
 -record(stream_info, {
   content        = undefined ::frame_content(),
-	track_id       = undefined ::any(),
+	track_id       = undefined ::non_neg_integer(),
   codec 	       = undefined ::frame_codec()|undefined,
   config         = undefined ::stream_decoder_config(),
   bitrate        = undefined ::non_neg_integer(),
-  language       = undefined ::string()|undefined,
+  language       = undefined ::binary()|undefined,
   params         = undefined ::audio_params()|video_params(),
   timescale      = 90.0      ::non_neg_integer(), % How many DTS units are in one millisecond. Erlyvideo uses milliseconds everywhere
-  options        = []        ::any()
+  options        = []        ::[any()]
 }).
 
 -type(stream_info() :: #stream_info{}).

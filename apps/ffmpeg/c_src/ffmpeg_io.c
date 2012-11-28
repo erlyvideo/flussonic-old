@@ -2,7 +2,7 @@
 #include <libavcodec/avcodec.h>
 #include <stdarg.h>
 #include <unistd.h>
-
+#include "reader.h"
 
 int in_fd = 0;
 int out_fd = 1;
@@ -27,35 +27,25 @@ void reply_atom(char *a) {
 void reply_avframe(AVPacket *pkt, AVCodec *codec) {
   ei_x_buff x;
   ei_x_new_with_version(&x);
-  ei_x_encode_tuple_header(&x, 11);
-  ei_x_encode_atom(&x, "video_frame");
-  if(codec->type == AVMEDIA_TYPE_VIDEO) {
-    ei_x_encode_atom(&x, "video");
-  } else if(codec->type == AVMEDIA_TYPE_AUDIO) {
-    ei_x_encode_atom(&x, "audio");
-  }
-  double dts = pkt->dts / 90.0;
-  double pts = pkt->pts / 90.0;
-  ei_x_encode_double(&x, dts);
-  ei_x_encode_double(&x, pts);
-  ei_x_encode_long(&x, 0);
-  ei_x_encode_atom(&x, codec->name);
+  struct video_frame r;
 
-  if(pkt->flags & CODEC_FLAG_GLOBAL_HEADER) {
-    ei_x_encode_atom(&x, "config");    
-  } else if(pkt->flags & AV_PKT_FLAG_KEY) {
-    ei_x_encode_atom(&x, "keyframe");
-  } else {
-    ei_x_encode_atom(&x, "frame");
-  }
-  ei_x_encode_atom(&x, "undefined");
-  if(codec->type == AVMEDIA_TYPE_VIDEO) {
-    ei_x_encode_long(&x, 1);
-  } else {
-    ei_x_encode_long(&x, 2);
-  }
-  ei_x_encode_binary(&x, pkt->data, pkt->size);
-  ei_x_encode_atom(&x, "undefined");
+  r.content = codec->type == AVMEDIA_TYPE_VIDEO ? frame_content_video :
+    codec->type == AVMEDIA_TYPE_AUDIO ? frame_content_audio : 0;
+
+  r.dts = pkt->dts / 90.0;
+  r.pts = pkt->pts / 90.0;
+  r.stream_id = 0;
+  r.codec = codec->id == AV_CODEC_ID_H264 ? frame_codec_h264 :
+    codec->id == AV_CODEC_ID_AAC ? frame_codec_aac : 0;
+
+  r.flavor = pkt->flags & CODEC_FLAG_GLOBAL_HEADER ? frame_flavor_config :
+    pkt->flags & AV_PKT_FLAG_KEY ? frame_flavor_keyframe : 
+    frame_flavor_frame;
+
+  r.track_id = codec->type == AVMEDIA_TYPE_VIDEO ? 1 : 2;
+  r.body.data = pkt->data;
+  r.body.size = pkt->size;
+  write_video_frame(&x, r);
   write_x(&x);
   ei_x_free(&x);
 }

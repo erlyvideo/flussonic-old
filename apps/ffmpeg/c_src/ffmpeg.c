@@ -29,7 +29,7 @@
 #include <string.h>
 
 #include <libavcodec/avcodec.h>
-
+#include "reader.h"
 
 
 typedef struct Track {
@@ -284,45 +284,20 @@ void loop() {
     }
 
     if(!strcmp(command, "video_frame")) {
-      if(arity != 10) error("#video_frame{} must have 10 fields");
-      char content[1024];
-      long l;
-      if(ei_decode_atom(buf, &idx, content) == -1) error("content must be atom");          // content
-      double pts, dts;
-      if(ei_decode_double(buf, &idx, &dts) == -1) {
-        if(ei_decode_long(buf, &idx, &l) == -1) error("dts must be int or float"); dts = l; // dts
-      }
-      if(ei_decode_double(buf, &idx, &pts) == -1) {
-        if(ei_decode_long(buf, &idx, &l) == -1) error("pts must be int or float"); pts = l; // pts
-      }
-      ei_skip_term(buf, &idx); // stream_id
-      ei_skip_term(buf, &idx); // codec
-      char flavor[1024];
-      if(ei_decode_atom(buf, &idx, flavor) == -1) error("flavor must be atom"); // flavor
-      if(strcmp(flavor, "frame") && strcmp(flavor, "keyframe")) 
-        error("flavor must be keyframe or frame,but it is '%s'", flavor);
-
-      ei_skip_term(buf, &idx); // sound
-      long track_id = 0;
-      if(ei_decode_long(buf, &idx, &track_id) == -1) error("track_id must be integer"); // track_id
-      track_id--;
-
-      int pkt_size = 0;
-      ei_get_type(buf, &idx, &t, &pkt_size); // binary
-      if(t != ERL_BINARY_EXT) error("#video_frame.body must be binary and it is %c", t);
+      idx = command_idx;
+      struct video_frame *fr = read_video_frame(buf, &idx);
 
       AVPacket packet;
-      av_new_packet(&packet, pkt_size);
-      long packet_size = 0;
-      ei_decode_binary(buf, &idx, packet.data, &packet_size);
-      packet.size = packet_size;
-      packet.dts = dts*90;
-      packet.pts = pts*90;
-      packet.stream_index = track_id;
+      av_new_packet(&packet, fr->body.size);
+      memcpy(packet.data, fr->body.data, fr->body.size);
+      packet.size = fr->body.size;
+      packet.dts = fr->dts*90;
+      packet.pts = fr->pts*90;
+      packet.stream_index = fr->track_id;
 
-      if(packet_size != pkt_size) error("internal error in reading frame body");
+      // if(packet_size != pkt_size) error("internal error in reading frame body");
 
-      if(!strcmp(content, "audio")) {
+      if(fr->content == frame_content_audio) {
         if(!input_audio.ctx) error("input audio uninitialized");
 
         AVFrame *decoded_frame = avcodec_alloc_frame();
@@ -333,10 +308,11 @@ void loop() {
         } else {
           error("Got: %d, %d\r\n", ret, got_output);
         }
+        free(fr);
         continue;
       }
 
-      if(!strcmp(content, "video")) {
+      if(fr->content == frame_content_video) {
         if(!input_video.ctx) error("input video uninitialized");
         AVFrame *decoded_frame = avcodec_alloc_frame();
         int could_decode = 0;
@@ -368,15 +344,16 @@ void loop() {
           } else if(!sent_config) {
             reply_atom("ok");
           }
-
+          free(fr);
           continue;
         } else {
           reply_atom("ok");
+          free(fr);
           continue;
         }
       }
 
-      error("Unknown content: '%s'", content);
+      error("Unknown content");
     }
 
     // AVCodecContext

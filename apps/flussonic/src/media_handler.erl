@@ -43,19 +43,25 @@ terminate(_,_) ->
   ok.
 
 handle(Req, Opts) ->
-  {Path, _} = cowboy_req:path(Req),
-  try handle1(Req, Opts) of
-    Reply -> Reply
+  {Path, Req1} = cowboy_req:path(Req),
+  {Method, Req2} = cowboy_req:method(Req1),
+  try handle1(Req2, Opts) of
+    Reply ->
+      % lager:notice([{tag,http}],"HTTP ~s ~s",[Method, Path]),
+      Reply
   catch
     throw:{return, Code, Msg} ->
-      {ok, R1} = cowboy_req:reply(Code, [], [Msg, "\n"], Req),
+      % lager:notice([{tag,http}],"HTTP ~s ~s ~s",[Method, Path, Code]),
+      {ok, R1} = cowboy_req:reply(Code, [], [Msg, "\n"], Req2),
       {ok, R1, undefined};
     throw:{return,Code,Headers,Msg} ->
-      {ok, R1} = cowboy_req:reply(Code, Headers, [Msg, "\n"], Req),
+      % lager:notice([{tag,http}],"HTTP ~s ~s ~s",[Method, Path, Code]),
+      {ok, R1} = cowboy_req:reply(Code, Headers, [Msg, "\n"], Req2),
       {ok, R1, undefined};
     Class:Reason ->
-      ?ERR("Error handling ~s: ~p:~p~n~s", [Path, Class, Reason, [io_lib:format("    ~240p~n", [T]) || T <- erlang:get_stacktrace()]]),
-      {ok, R1} = cowboy_req:reply(500, [], ["Internal server error\n", io_lib:format("~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()])], Req),
+      % lager:notice([{tag,http}],"HTTP ~s ~s ~s",[Method, Path, 500]),
+      ?ERR("Error handling HTTP ~s ~s: ~p:~p~n~s", [Method, Path, Class, Reason, [io_lib:format("    ~240p~n", [T]) || T <- erlang:get_stacktrace()]]),
+      {ok, R1} = cowboy_req:reply(500, [], ["Internal server error\n", io_lib:format("~p:~p~n~p~n", [Class, Reason, erlang:get_stacktrace()])], Req2),
       {ok, R1, undefined}
   end.
 
@@ -170,6 +176,11 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {{dvr_session, hds_manifest, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], Stream};
+    [<<"archive">>, From, Duration, <<"bootstrap">>] ->
+      Stream = check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
+      Root = proplists:get_value(dvr, Opts),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
+      {{dvr_session, hds_bootstrap, [to_b(Root), to_i(From), to_duration(Duration)]}, no_cache(), Stream};
     [<<"archive">>, From, Duration, <<"index.m3u8">>] ->
       {Query, _} = cowboy_req:qs(Req),
       throw({return, 302, [{<<"Location">>, <<"/", (name_or_pi(Opts,Acc))/binary, "/index-", From/binary, "-", Duration/binary, ".m3u8?", Query/binary>>}], <<"Redirect\n">>});
@@ -184,7 +195,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "(\\d+)-Frag(\\d+)", [{capture,all_but_first,binary}]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
-      {{dvr_session, hds_fragment, [to_b(Root), to_i(From), to_i(Duration), to_i(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
+      {{dvr_session, hds_fragment, [to_b(Root), to_i(From), to_duration(Duration), to_i(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
     [Else|PathInfo1] ->
       lookup_name(PathInfo1, Opts, Req, [Else|Acc]);
     [] ->

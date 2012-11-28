@@ -27,7 +27,12 @@ media_handler_test_() ->
     ,{"test_hds_file_mbr_segment", fun test_hds_file_mbr_segment/0}
 
     ,{"test_archive_manifest", fun test_archive_manifest/0}
+    ,{"test_archive_dvr_manifest", fun test_archive_dvr_manifest/0}
+    ,{"test_archive_dvr_bootstrap", fun test_archive_dvr_bootstrap/0} 
     ,{"test_archive_fragment", fun test_archive_fragment/0}
+    ,{"test_archive_event_fragment", fun test_archive_event_fragment/0}
+
+
     ,{"test_archive_mpeg_stream", fun test_archive_mpeg_stream/0}
     ,{"test_archive_mpeg_file", fun test_archive_mpeg_file/0}
     ,{"test_archive_timeshift_abs", fun test_archive_timeshift_abs/0}
@@ -157,10 +162,26 @@ test_archive_manifest() ->
   ?assertMatch({{dvr_session, hds_manifest, [<<"test/files">>,1234567,3600]}, _, <<"livestream">>},
     test_lookup_by_path("/livestream/archive/1234567/3600/manifest.f4m")).  
 
+test_archive_dvr_manifest() ->
+  set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
+  ?assertMatch({{dvr_session, hds_manifest, [<<"test/files">>,1234567,now]}, _, <<"livestream">>},
+    test_lookup_by_path("/livestream/archive/1234567/now/manifest.f4m")).  
+
+test_archive_dvr_bootstrap() ->
+  set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
+  ?assertMatch({{dvr_session, hds_bootstrap, [<<"test/files">>,1234567,now]}, _, <<"livestream">>},
+    test_lookup_by_path("/livestream/archive/1234567/now/bootstrap")).  
+
 test_archive_fragment() ->
   set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
   ?assertMatch({{dvr_session, hds_fragment, [<<"test/files">>,1234567,3600, 5]}, _, <<"livestream">>},
     test_lookup_by_path("/livestream/archive/1234567/3600/0/Seg2-Frag5")).
+
+test_archive_event_fragment() ->
+  set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
+  ?assertMatch({{dvr_session, hds_fragment, [<<"test/files">>,1234567,now, 5]}, _, <<"livestream">>},
+    test_lookup_by_path("/livestream/archive/1234567/now/0/Seg2-Frag5")).
+
 
 
 test_archive_mpeg_stream() ->
