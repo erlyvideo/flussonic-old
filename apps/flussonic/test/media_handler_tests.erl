@@ -16,6 +16,9 @@ media_handler_test_() ->
     ,{"test_live_dvr_playlist", fun test_live_dvr_playlist/0}
     ,{"test_offline_live_dvr_ts", fun test_offline_live_dvr_ts/0}
 
+    ,{"test_live_hds_manifest", fun test_live_hds_manifest/0}
+    ,{"test_live_hds_manifest_with_auth", fun test_live_hds_manifest_with_auth/0}
+
     ,{"test_hls_file_segment", fun test_hls_file_segment/0}
     ,{"test_hls_file_mbr_segment", fun test_hls_file_mbr_segment/0}
     ,{"test_hls_file_mbr_root_playlist", fun test_hls_file_mbr_root_playlist/0}
@@ -26,8 +29,9 @@ media_handler_test_() ->
     ,{"test_hds_file_segment", fun test_hds_file_segment/0}
     ,{"test_hds_file_mbr_segment", fun test_hds_file_mbr_segment/0}
 
-    ,{"test_archive_manifest", fun test_archive_manifest/0}
     ,{"test_archive_dvr_manifest", fun test_archive_dvr_manifest/0}
+    ,{"test_archive_dvr_event_manifest", fun test_archive_dvr_event_manifest/0}
+    ,{"test_archive_dvr_event_manifest", fun test_archive_dvr_event_manifest_with_auth/0}
     ,{"test_archive_dvr_bootstrap", fun test_archive_dvr_bootstrap/0} 
     ,{"test_archive_fragment", fun test_archive_fragment/0}
     ,{"test_archive_event_fragment", fun test_archive_event_fragment/0}
@@ -44,12 +48,19 @@ test_lookup_by_path(Path) -> catch test_lookup_by_path0(Path).
 
 test_lookup_by_path0(Path) when is_list(Path) -> test_lookup_by_path0(list_to_binary(Path));
 test_lookup_by_path0(<<"/", Path/binary>>) -> test_lookup_by_path0(Path);
-test_lookup_by_path0(Path) when is_binary(Path) ->
+test_lookup_by_path0(Path1) when is_binary(Path1) ->
   Routes = flu_config:parse_routes(flu_config:get_config()),
+  {Path,Query} = case binary:split(Path1, <<"?">>) of
+    [P,Q] -> {P,Q};
+    [P] -> {P,<<"">>}
+  end,
   {Options, PathInfo} = try select_route(Routes, binary:split(Path, <<"/">>, [global]))
   catch throw:{no_route_found,PI} -> throw({no_route_found,flu_config:get_config(),Routes,PI})
   end,
-  media_handler:lookup_name(PathInfo, Options, req, []).
+  Req = cowboy_req:new(socket, fake_inet, <<"GET">>, Path, Query, fragment, version,
+    [{<<"x-real-ip">>,<<"127.0.0.1">>}], host, port, buffer, false, undefined),
+
+  media_handler:lookup_name(PathInfo, Options, Req, []).
 
 select_route([{Prefix, _, Options}|Routes], PathInfo) ->
   case try_prefix(Prefix, PathInfo) of
@@ -110,6 +121,20 @@ test_offline_live_dvr_ts() ->
 
 
 
+test_live_hds_manifest() ->
+  set_config([{stream, "chan0", "udp://1"}]),
+  ?assertMatch({{flu_stream, hds_manifest, []}, _, <<"chan0">>},
+    test_lookup_by_path("/chan0/manifest.f4m")).
+
+
+test_live_hds_manifest_with_auth() ->
+  meck:expect(media_handler, check_sessions, fun(_,_,_) -> {ok, {<<"chan0">>, <<"a">>}} end),
+  set_config([{stream, "chan0", "udp://1", [{sessions, "http://127.0.0.1:8080/"}]}]),
+  ?assertMatch({{flu_stream, hds_manifest, [<<"a">>]}, _, <<"chan0">>},
+    test_lookup_by_path("/chan0/manifest.f4m")).
+
+
+
 
 test_hls_file_playlist() ->
   set_config([{file, "vod", "test/files"}]),
@@ -157,15 +182,22 @@ test_hds_file_mbr_segment() ->
 
 
 
-test_archive_manifest() ->
+test_archive_dvr_manifest() ->
   set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
   ?assertMatch({{dvr_session, hds_manifest, [<<"test/files">>,1234567,3600]}, _, <<"livestream">>},
     test_lookup_by_path("/livestream/archive/1234567/3600/manifest.f4m")).  
 
-test_archive_dvr_manifest() ->
+test_archive_dvr_event_manifest() ->
   set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),
   ?assertMatch({{dvr_session, hds_manifest, [<<"test/files">>,1234567,now]}, _, <<"livestream">>},
     test_lookup_by_path("/livestream/archive/1234567/now/manifest.f4m")).  
+
+test_archive_dvr_event_manifest_with_auth() ->
+  meck:expect(media_handler, check_sessions, fun(_,_,_) -> {ok, {<<"livestream">>, <<"a">>}} end),
+  set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>},{sessions,"http://127.0.0.1:8080"}]}]),
+  ?assertMatch({{dvr_session, hds_manifest, [<<"test/files">>,1234567,now, <<"a">>]}, _, <<"livestream">>},
+    test_lookup_by_path("/livestream/archive/1234567/now/manifest.f4m")).  
+
 
 test_archive_dvr_bootstrap() ->
   set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>}]}]),

@@ -34,6 +34,7 @@
 %% API
 -export([start_link/2,hds_segment/2,hls_segment/2,hds_manifest/1,bootstrap/1,hls_playlist/1, hls_key/2]).
 -export([media_info/1]).
+-export([hds_manifest/2, rewrite_manifest/2]).
 
 -export([subscribe/2, subscribe/1]).
 
@@ -186,6 +187,20 @@ hls_key(Stream, Number) ->
 hds_manifest(Stream) ->
   Reply = flu_stream:get(Stream, hds_manifest, 10000),
   Reply.
+
+hds_manifest(Stream, Token) ->
+  case hds_manifest(Stream) of
+    {ok, Manifest} -> rewrite_manifest(Manifest, Token);
+    Else -> Else
+  end.
+
+
+rewrite_manifest(Manifest, Token) when is_binary(Manifest) andalso is_binary(Token) ->
+  Manifest1 = binary:replace(Manifest, <<"url=\"bootstrap\"">>, 
+    <<"url=\"bootstrap?token=",Token/binary, "\"">>),
+  {ok, Manifest1}.
+
+
 
 bootstrap(Stream) ->
   Reply = flu_stream:get(Stream, bootstrap, 10000),

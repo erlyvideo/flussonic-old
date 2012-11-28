@@ -134,7 +134,6 @@ new_or_update(Identity, Opts) ->
   end,
   Session = OldSession#session{auth_time = AuthTime, delete_time = DeleteTime, last_access_time = Now, flag = Flag},
   ets:insert(flu_session:table(), Session),
-  erlang:put(<<"session_cookie">>, Token),
 
   case New of
     true -> flu_event:user_connected(Name, info(Session));

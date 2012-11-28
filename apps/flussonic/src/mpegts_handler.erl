@@ -66,7 +66,7 @@ handle0(Req, #mpegts{name = RawName, options = Options, method = <<"GET">>} = St
   Socket = cowboy_req:get(socket,Req),
   Transport = cowboy_req:get(transport,Req),
   
-  Name = media_handler:check_sessions(Req, RawName, Options),
+  {ok, {Name,_}} = media_handler:check_sessions(Req, RawName, Options),
 
   OurName = iolist_to_binary(io_lib:format("mpegts_client(~s)", [Name])),
   erlang:put(name, OurName),
