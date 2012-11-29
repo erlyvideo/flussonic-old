@@ -62,7 +62,7 @@ file_manifest(Format, Reader) ->
   lists:map(fun(VideoId) ->
     BitrateTrackIds = [VideoId,FirstLanguage],
     BitrateStreams = [Stream || #stream_info{track_id = TrackId} = Stream <- Streams, lists:member(TrackId,BitrateTrackIds)],
-    [#stream_info{content = video, bitrate = Bitrate}|_] = BitrateStreams,
+    #stream_info{bitrate = Bitrate} = lists:keyfind(VideoId, #stream_info.track_id, BitrateStreams),
     MI = MediaInfo#media_info{streams = BitrateStreams},
     Keyframes = flu_file:reduce_keyframes(Format:keyframes(Reader, [{tracks,BitrateTrackIds}])),
 

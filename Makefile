@@ -104,6 +104,7 @@ package:
 	mkdir -p tmproot/opt/flussonic
 	git archive master | (cd tmproot/opt/flussonic; tar x)
 	mkdir -p tmproot/opt/flussonic/deps
+	rm -rf tmproot/opt/flussonic/priv/mbr*.mp4
 	[ -d deps ] && for d in deps/* ; do git clone $$d tmproot/opt/flussonic/deps/`basename $$d`; done || true
 	(cd tmproot/opt/flussonic/ && ./rebar get-deps && ./rebar compile)
 	mkdir -p tmproot/opt/flussonic/apps/flussonic/priv/

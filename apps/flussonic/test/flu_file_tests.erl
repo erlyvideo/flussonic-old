@@ -108,6 +108,8 @@ test_hds_manifest({_,File}) ->
 %%%%%%%%%%          MBR HDS FILE TESTS %%%%%%%%%%%%%%%%%
 
 
+
+
 mbr_hds_file_test_() ->
   MbrTests = [
     {with, [fun test_mbr_hds_manifest/1]}
@@ -157,6 +159,33 @@ test_mbr_lang_segment({_,File}) ->
   ?assertMatch(ALen when ALen > 300 andalso ALen < 350, length(Audio)),
   % ?debugFmt("total:~p,video:~p,audio:~p",[length(Frames),length(Video),length(Audio)]),
   ok.
+
+
+mbr_hds_file1_test_() ->
+  MbrTests = [
+    {with, [fun test_mbr_hds_manifest1/1]}
+  ],
+  Tests = case file:read_file_info("../../../priv/mbr1.mp4") of
+    {ok, _} -> MbrTests;
+    {error, _} -> []
+  end,
+  {foreach,
+  fun() -> setup_flu_file("mbr1.mp4") end,
+  fun teardown_flu_file/1,
+  Tests}.
+
+
+test_mbr_hds_manifest1({_,File}) ->
+  {ok, Bin} = flu_file:hds_manifest(File),
+  Result = parsexml:parse(Bin),
+  ?assertMatch({<<"manifest">>, _, _Content}, Result),
+  {<<"manifest">>, _, Content} = Result,
+  Medias = [{<<"media">>, Attr,C} || {<<"media">>, Attr,C} <- Content],
+  {<<"media">>, MediaAttrs, _Media} = hd(Medias),
+  ?assertEqual(<<"hds/tracks-1,2/">>, proplists:get_value(<<"url">>, MediaAttrs)),
+  % ?debugFmt("media: ~p / ~p", [MediaAttr, Media]),
+  % 5 medias: 3 with video and 2 with alternate audio
+  ?assertMatch(Len when Len == 4, length(Medias)).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
