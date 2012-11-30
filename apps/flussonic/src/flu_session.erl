@@ -73,7 +73,7 @@ clients() ->
   [[{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type}] || #session{ip = IP, name = Name, created_at = StartAt, type = Type} <- Sessions].
 
 list() ->
-  flu_rtmp:clients() ++ clients().
+  clients().
 
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).

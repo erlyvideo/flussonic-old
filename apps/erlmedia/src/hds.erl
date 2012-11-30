@@ -41,8 +41,8 @@ file_manifest(Format, Reader) ->
 
   Audio = [Stream || #stream_info{content = audio} = Stream <- Streams],
   FirstLanguage = case Audio of
-    [#stream_info{track_id = FirstLanguageId} | _] -> FirstLanguageId;
-    [] -> undefined
+    [#stream_info{track_id = FirstLanguageId} | _] -> [FirstLanguageId];
+    [] -> []
   end,
 
   Videos = [TrackId || #stream_info{content = video, track_id = TrackId} <- Streams],
@@ -60,7 +60,7 @@ file_manifest(Format, Reader) ->
   <duration>">>, io_lib:format("~.2f", [Duration / 1000]), <<"</duration>
 ">>, 
   lists:map(fun(VideoId) ->
-    BitrateTrackIds = [VideoId,FirstLanguage],
+    BitrateTrackIds = [VideoId|FirstLanguage],
     BitrateStreams = [Stream || #stream_info{track_id = TrackId} = Stream <- Streams, lists:member(TrackId,BitrateTrackIds)],
     #stream_info{bitrate = Bitrate} = lists:keyfind(VideoId, #stream_info.track_id, BitrateStreams),
     MI = MediaInfo#media_info{streams = BitrateStreams},
@@ -71,8 +71,12 @@ file_manifest(Format, Reader) ->
   [io_lib:format("  <bootstrapInfo profile=\"named\" id=\"bootstrap~B\">\n", [VideoId]),
     base64:encode_to_string(generate_bootstrap(Duration, Keyframes, [])),
   "\n  </bootstrapInfo>\n",
-  io_lib:format("  <media streamId=\"stream~B\" url=\"hds/tracks-~B,~B/\" bitrate=\"~B\" bootstrapInfoId=\"bootstrap~B\">\n",
-      [VideoId,VideoId,FirstLanguage,Bitrate div 1000, VideoId]),
+  io_lib:format("  <media streamId=\"stream~B\" ", [VideoId]),
+  io_lib:format(case FirstLanguage of
+    [] -> "url=\"hds/tracks-~B/\" ";
+    _ -> "url=\"hds/tracks-~B,~B/\" "
+  end, [VideoId|FirstLanguage]),
+  io_lib:format("bitrate=\"~B\" bootstrapInfoId=\"bootstrap~B\">\n", [Bitrate div 1000, VideoId]),
   "    <metadata>\n",
     metadata(MI),
   "\n    </metadata>\n",

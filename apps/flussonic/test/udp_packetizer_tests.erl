@@ -61,17 +61,18 @@ test_packetizer() ->
   link(S),
   [S ! F || F <- Frames],
 
-  Frames1 = read_from_udp(Sock),
+  {ok, _, Frames1} = read_from_udp(Sock),
   Length = length(Frames1),
   ?assertMatch(_ when Length > 200, Length),
 
   ok.
 
 read_from_udp(Sock) ->
-  Data = iolist_to_binary(fetch_udp(Sock)),
+  Packets = fetch_udp(Sock),
+  Data = iolist_to_binary(Packets),
   {ok, Frames1} = mpegts_decoder:decode_file(Data),
   gen_udp:close(Sock),
-  Frames1.
+  {ok, Packets, Frames1}.
 
 fetch_udp(Sock) ->
   receive
@@ -79,6 +80,13 @@ fetch_udp(Sock) ->
   after
     100 -> []
   end.
+
+pids(Packets) ->
+  Pids = lists:flatmap(fun(Packet) ->
+    [Pid || <<16#47, _:3, Pid:13, _:185/binary>> <= Packet]
+  end, Packets),
+  lists:usort(Pids).
+  
 
 
 udp_raw_packetizer_test() ->
@@ -91,8 +99,36 @@ udp_raw_packetizer_test() ->
     UDP2_
   end, UDP1, Frames),
   udp_packetizer:terminate(normal, UDP2),
-  Frames1 = read_from_udp(Sock),
+  {ok, Packets, Frames1} = read_from_udp(Sock),
   Length = length(Frames1),
+  Pids = pids(Packets),
+  ?assert(lists:member(0, Pids)),
+  ?assert(lists:member(4095, Pids)),
+  ?assertMatch(_ when Length > 200, Length),
+  ok.
+
+
+udp_raw_packetizer_after_first_keyframe_test() ->
+  {ok, _MI, Frames} = frames(),
+  Port = crypto:rand_uniform(5000, 10000),
+  {ok, UDP1} = udp_packetizer:init([{name,<<"livestream">>},{udp, "udp://239.0.0.1:"++integer_to_list(Port) }]),
+  UDP2 = lists:foldl(fun(F, UDP1_) ->
+    {noreply, UDP2_} = udp_packetizer:handle_info(F, UDP1_),
+    UDP2_
+  end, UDP1, Frames),
+
+  {ok, Sock} = listen_multicast(Port),
+  UDP3 = lists:foldl(fun(F, UDP1_) ->
+    {noreply, UDP2_} = udp_packetizer:handle_info(F, UDP1_),
+    UDP2_
+  end, UDP2, Frames),
+
+  udp_packetizer:terminate(normal, UDP3),
+  {ok, Packets, Frames1} = read_from_udp(Sock),
+  Length = length(Frames1),
+  Pids = pids(Packets),
+  ?assert(lists:member(0, Pids)),
+  ?assert(lists:member(4095, Pids)),
   ?assertMatch(_ when Length > 200, Length),
   ok.
 

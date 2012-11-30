@@ -333,6 +333,7 @@ rtmp_session_auth_test_() ->
     stop_all() 
   end, [
     {"test_rtmp_play_protected_stream", fun test_rtmp_play_protected_stream/0}
+    ,{"test_clients_count_on_rtmp_file", fun test_clients_count_on_rtmp_file/0}
   ]}.
 
 
@@ -368,6 +369,29 @@ test_rtmp_play_protected_stream() ->
 
   ok.
 
+
+
+test_clients_count_on_rtmp_file() ->
+  ?assertEqual([], flu_session:list()),
+  meck:expect(fake_auth, handle, fun(Req, _) ->
+    {ok, R1} = cowboy_req:reply(200, [], "ok\n", Req),
+    {ok, R1, undefined}
+  end),
+  set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6071/"}]}]),
+  {ok, RTMP, _} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4?token=123",
+    [{pageUrl, <<"http://ya.ru/">>}]),
+
+  receive
+    {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
+    when size(H264) > 20 andalso D1 > 20 -> ok
+  after 100 -> error(no_h264) end,
+
+  ?assertMatch(Sessions when length(Sessions) == 1, flu_session:list()),
+  [Session] = flu_session:list(),
+  ?assertEqual(<<"rtmp">>, proplists:get_value(type, Session)),
+  % ?assertEqual(<<"http://ya.ru">>, proplists:get_value(referer, Session)),
+
+  ok.
 
 
 

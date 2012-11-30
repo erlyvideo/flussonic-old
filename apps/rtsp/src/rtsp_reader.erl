@@ -140,10 +140,21 @@ parse_content_base(Headers, URL, OldContentBase) ->
   case proplists:get_value('Content-Base', Headers) of
     undefined -> OldContentBase;
     NewContentBase -> % Here we must handle important case when Content-Base is given with local network
-      {match, [_Host, BasePath]} = re:run(NewContentBase, "rtsp://([^/]+)(/.*)$", [{capture,all_but_first,list}]),
-      {match, [Host, _Path]} = re:run(URL, "rtsp://([^/]+)(/.*)$", [{capture,all_but_first,list}]),
-      URL1 = "rtsp://" ++ Host ++ BasePath,
-      re:replace(URL1, "^rtsp://(.+@)?(.*)$", "rtsp://\\2", [{return, list}])
+      URL1 = case re:run(NewContentBase, "rtsp://([^/]+)(/.*)$", [{capture,all_but_first,list}]) of
+        {match, [_Host, BasePath]} ->
+          {match, [Host, _Path]} = re:run(URL, "rtsp://([^/]+)(/.*)$", [{capture,all_but_first,list}]),
+          "rtsp://" ++ Host ++ BasePath;
+        nomatch ->
+          case lists:last(URL) of
+            $/ -> URL ++ NewContentBase;
+            _ -> URL ++ "/" ++ NewContentBase
+          end
+      end,
+      URL2 = re:replace(URL1, "^rtsp://(.+@)?(.*)$", "rtsp://\\2", [{return, list}]),
+      case lists:last(URL2) of
+        $/ -> URL2;
+        _ -> URL2 ++ "/"
+      end
   end.
 
 
@@ -180,6 +191,9 @@ parse_content_base_test_() ->
   ?_assertEqual("rtsp://75.130.113.168:1025/11/", 
     parse_content_base([{'Content-Base', "rtsp://75.130.113.168:1025/11/"}],
       "rtsp://admin:admin@75.130.113.168:1025/11/", "rtsp://admin:admin@75.130.113.168:1025/11/"))
+  ,?_assertEqual("rtsp://75.130.113.168:1025/ipcamera/",
+    parse_content_base([{'Content-Base', "ipcamera"}],
+      "rtsp://admin:admin@75.130.113.168:1025", "rtsp://admin:admin@75.130.113.168:1025"))
  ].
 
 parse_rtp_info_test_() ->

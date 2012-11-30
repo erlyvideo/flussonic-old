@@ -101,6 +101,45 @@ test_hls_segment({_,File}) ->
 test_hds_manifest({_,File}) ->
   ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hds_manifest(File)).
 
+
+
+
+flu_video_only_file_test_() ->
+  CommonTests =   [
+    {with, [fun test_hds_video_manifest/1]}
+    ,{with, [fun test_hds_video_segment/1]}
+  ],
+  Tests = case file:read_file_info("../../hls") of
+    {ok, _} -> [{with, [fun test_hls_playlist/1]},{with, [fun test_hls_video_segment/1]}] ++ CommonTests;
+    {error, _} -> CommonTests
+  end,
+  {foreach,
+  fun() -> setup_flu_file("video_only.mp4") end,
+  fun teardown_flu_file/1,
+  Tests}.
+
+
+test_hds_video_manifest({_,File}) ->
+  Result = flu_file:hds_manifest(File),
+  ?assertMatch({ok, Bin} when is_binary(Bin), Result),
+  {ok, Bin} = Result,
+  ?assertMatch({_,_}, binary:match(Bin, <<"media streamId=\"stream1\" url=\"hds/tracks-1/\" ">>)).
+
+
+
+test_hls_video_segment({_,File}) ->
+  ?assertMatch({ok, IOlist} when is_list(IOlist), flu_file:hls_segment(File, 2)),
+  ok.
+
+test_hds_video_segment({_,File}) ->
+  ?assertMatch({ok, <<_Size:32, "mdat", _FLV/binary>>}, flu_file:hds_segment(File, 4)),
+  {ok, <<_Size:32, "mdat", FLV/binary>>} = flu_file:hds_segment(File, 4),
+  Frames = flv:read_all_frames(FLV),
+  ?assertMatch(_ when length(Frames) > 10, Frames),
+  ok.
+
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

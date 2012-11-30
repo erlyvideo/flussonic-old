@@ -289,11 +289,17 @@ read_rtp_packets(<<$$, ChannelId, Length:16, RTP:Length/binary, Rest/binary>>, #
   ChannelId_ = ChannelId div 2,
   ChannelId_ == 0 orelse ChannelId_ == 1 orelse throw({stop, {unknown_rtp_channel, ChannelId}, RTSP}),
   Chan1 = element(#rtsp.chan1 + ChannelId_, RTSP),
-  {ok, Chan2, Frames} = decode_rtp(RTP, Chan1),
-  [Consumer ! Frame || Frame <- Frames],
-  % <<_:32, TC:32, _/binary>> = RTP,
-  % [?DBG("~4s ~8s ~B ~B", [Codec, Flavor, round(DTS), TC]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS, body = Body} <- Frames],
-  RTSP1 = setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan2),
+  RTSP1 = case Chan1 of
+    undefined ->
+      % ?D({unknown_rtp,ChannelId}),
+      RTSP;
+    _ ->
+      {ok, Chan2, Frames} = decode_rtp(RTP, Chan1),
+      [Consumer ! Frame || Frame <- Frames],
+      % <<_:32, TC:32, _/binary>> = RTP,
+      % [?DBG("~4s ~8s ~B ~B", [Codec, Flavor, round(DTS), TC]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS, body = Body} <- Frames],
+      setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan2)
+  end,
   read_rtp_packets(Rest, RTSP1);
 
 read_rtp_packets(<<$$, _ChannelId, Length:16, RTP/binary>> = Bin, #rtsp{socket = Socket} = RTSP) ->
