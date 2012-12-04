@@ -122,6 +122,7 @@ package:
 	cp priv/sample/*.conf tmproot/etc/flussonic/
 	cd tmproot && \
 	fpm -s dir -t deb -n flussonic -v $(VERSION) --category net \
+	--post-install ../debian/postinst --pre-uninstall ../debian/prerm --post-uninstall ../debian/postrm \
 	--config-files /etc/flussonic/flussonic.conf --config-files /etc/flussonic/streams.conf --config-files '/etc/flussonic/*.conf' \
 	-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-nox (>= 1:15)' -m "Max Lapshin <max@maxidoors.ru>" -a amd64 etc/init.d/flussonic etc/flussonic opt 
 	mv tmproot/*.deb .

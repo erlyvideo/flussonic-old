@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -e
+
+
+
+case "$1" in
+    remove|purge)
+  [ -x /etc/init.d/flussonic ] &&
+      invoke-rc.d flussonic stop
+  ;;
+esac
