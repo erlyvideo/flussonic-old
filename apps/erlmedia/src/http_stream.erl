@@ -40,8 +40,9 @@ make_request_with_redirect(_URL, _Options, 0) ->
 
 make_request_with_redirect(URL, Options, RedirectsLeft) ->
   NoRedirect = proplists:get_value(noredirect, Options,false),
+  NoFail = proplists:get_value(no_fail, Options, false),
   case make_raw_request(URL, Options) of
-    {http, Socket, Code} when Code >= 200 andalso Code < 300 ->
+    {http, Socket, Code} when Code >= 200 andalso Code < 300 orelse NoFail ->
       {ok, Code, [{redirected_url, URL}], Socket};
     {http, Socket, Code} when (Code >= 301 orelse Code == 302) andalso NoRedirect  == true ->
       {ok, Code, [], Socket};

@@ -26,8 +26,19 @@
 
 -compile(export_all).
 
-dump() ->
+dump_raw() ->
   [{Pid, describe(Pid), length(dict(Pid)), Mem} || {Pid, Mem} <- top(full_memory, 5)].
+
+dump() ->
+  Pid = spawn(fun() ->
+    exit(dump_raw())
+  end),
+  erlang:monitor(process, Pid),
+  receive
+    {'DOWN', _, _, Pid, Reply} -> Reply
+  after
+    4000 -> erlang:exit(Pid,kill),io:format("Failed to dump info~n")
+  end.
 
 dict(Pid) ->
   element(2, process_info(Pid, dictionary)).
