@@ -395,7 +395,28 @@ test_clients_count_on_rtmp_file() ->
 
 
 
+rtmp_source_test_() ->
+  {foreach,
+  fun setup_source/0,
+  fun teardown_source/1, [
+    {"test_play_flu_publish_proxy", fun test_play_flu_publish_proxy/0}
+  ]}.
 
+setup_source() ->
+  init_all(),
+  {ok,Pid} = flu_stream:autostart(<<"chan0">>, []),
+  Pid ! h264_aac_media_info(),
+  ok.
+
+teardown_source(_) ->
+  stop_all().
+
+
+test_play_flu_publish_proxy() ->
+  set_config([{rewrite, "chan0", "dev/null"}]),
+  {ok, Proxy1} = flu_publish_proxy:init(["rtmp://127.0.0.1:1938/live/chan0", self(), []]),
+  {noreply, Proxy2} = flu_publish_proxy:handle_info(init, Proxy1),
+  flu_publish_proxy:terminate(normal, Proxy2).
 
 
 

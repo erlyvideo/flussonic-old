@@ -56,7 +56,7 @@ handle_info(init, #proxy{start_spec = StartSpec, options = Options} = Proxy) ->
       end;
     is_list(StartSpec) orelse is_binary(StartSpec) ->
       case rtmp_lib:play(StartSpec, Options) of
-        {ok, Pid} ->
+        {ok, Pid, _StreamId} ->
           erlang:monitor(process, Pid),
           Pid;
         {error, Error} ->
