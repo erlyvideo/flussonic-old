@@ -48,6 +48,7 @@
 -export([init/0, init/1, flush/1, encode/2]).
 
 -export([read/2]).
+-export([padder/0]).
 
 
 -define(TS_PACKET, 184). % 188 - 4 bytes of header

@@ -133,7 +133,7 @@ escriptize:
 	./contrib/escriptize
 
 upload:
-	./contrib/license_pack $(VERSION)
+	./contrib/license_pack upload $(VERSION)
 	scp flussonic_$(VERSION)_amd64.deb flussonic flussonic-$(VERSION).tgz erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary
 	# scp flussonic erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary/flussonic
 	ssh erlyhub@erlyvideo.org "cd /apps/erlyvideo/debian ; ./update ; cd public/binary ; ln -sf flussonic-$(VERSION).tgz flussonic-latest.tgz "
