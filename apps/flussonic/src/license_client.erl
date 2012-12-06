@@ -49,7 +49,8 @@ from_hex(C) when C >= $a andalso C =< $f -> C - $a + 16#a;
 from_hex(C) when C >= $A andalso C =< $F -> C - $A + 16#A.
 
 license_to_key(License) ->
-  unhex(re:replace(License, "\\-", "", [{return,list},global])).
+  Key = unhex(re:replace(License, "\\-", "", [{return,list},global])),
+  Key.
   
 
 

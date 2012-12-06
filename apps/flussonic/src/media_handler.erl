@@ -1,4 +1,4 @@
-%%% @author     Max Lapshin <max@maxidoors.ru> [http://erlyvideo.org]
+%% @author     Max Lapshin <max@maxidoors.ru> [http://erlyvideo.org]
 %%% @copyright  2010-2012 Max Lapshin
 %%% @doc        media handler
 %%% @reference  See <a href="http://erlyvideo.org" target="_top">http://erlyvideo.org</a> for more information
@@ -45,9 +45,9 @@ terminate(_,_) ->
 handle(Req, Opts) ->
   {Path, Req1} = cowboy_req:path(Req),
   {Method, Req2} = cowboy_req:method(Req1),
+  % lager:notice([{tag,http}],"HTTP ~s ~s",[Method, Path]),
   try handle1(Req2, Opts) of
     Reply ->
-      % lager:notice([{tag,http}],"HTTP ~s ~s",[Method, Path]),
       Reply
   catch
     throw:{return, Code, Msg} ->

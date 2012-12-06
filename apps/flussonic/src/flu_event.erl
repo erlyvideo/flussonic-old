@@ -36,7 +36,7 @@
 -export([stream_created/2, stream_stopped/1]).
 -export([add_dvr_fragment/2, delete_dvr_fragment/2]).
 
--export([to_json/1, to_xml/1]).
+-export([to_json/1, to_xml/1, to_proplist/1]).
 
 %% gen_event callbacks
 -export([init/1, handle_call/2, handle_event/2, handle_info/2, terminate/2, code_change/3]).
@@ -74,6 +74,10 @@ to_json(#flu_event{options = _Options} = Event) ->
   Clean1 = [{K,Map(V)} || {K,V} <- tuple_to_list(?record_to_struct(flu_event, Event))],
   Clean = [{K,V} || {K,V} <- Clean1, V =/= undefined andalso V =/= null],
   mochijson2:encode(Clean).
+
+
+to_proplist(#flu_event{} = Event) ->
+  lists:zip(record_info(fields, flu_event), tl(tuple_to_list(Event))).
 
 to_xml(Event) ->
   Content = xmlize(tuple_to_list(?record_to_struct(flu_event, Event)), []),

@@ -393,10 +393,12 @@ collect_body(Socket, Headers) ->
     ContentLength_ ->
       inet:setopts(Socket, [{packet, raw}]),
       ContentLength = list_to_integer(binary_to_list(ContentLength_)),
-      case gen_tcp:recv(Socket, ContentLength, 10000) of
-        {ok, Bin} -> Bin;
-        {error, Err} -> throw({error, {read_body, ContentLength, Err}})
-      end
+      if ContentLength > 0 ->
+        case gen_tcp:recv(Socket, ContentLength, 10000) of
+          {ok, Bin} -> Bin;
+          {error, Err} -> throw({error, {read_body, ContentLength, Err}})
+        end;
+      true -> undefined end
   end,
   Body.
 

@@ -19,7 +19,7 @@ cd "$PUBLIC"
 
 git add .
 git commit -m "$LAST_COMMIT_MESSAGE"
-if [ "$1" == "push" ]; then
+if [ "$1" != "nopush" ]; then
   git push
 fi
 
