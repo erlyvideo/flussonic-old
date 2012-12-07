@@ -109,7 +109,7 @@ lang_frag_duration() ->
   10000.
 
 stream_bootstrap(Keyframes, Options) -> 
-  BootStrap = generate_bootstrap(proplists:get_value(duration,Options,0),Keyframes,[{type,live}|Options]),
+  BootStrap = generate_bootstrap(proplists:get_value(duration,Options,0),Keyframes,Options ++ [{type,live}]),
   {ok,iolist_to_binary(BootStrap)}.
 
 stream_manifest(Format,Reader,Options) when is_atom(Format) ->
@@ -182,7 +182,7 @@ generate_bootstrap(Duration, [{_Time, _Id}|_] = Keyframes, Options) ->
   generate_bootstrap(Duration, [Time || {Time,_} <- Keyframes], Options);
 
 generate_bootstrap(Duration, Keyframes,Options) ->
-  CurrentMediaTime = lists:last(Keyframes),
+  CurrentMediaTime = proplists:get_value(duration, Options, lists:last(Keyframes)),
   Bin = mp4_writer:mp4_serialize([
   {abst, [abst_info(CurrentMediaTime, Options),
     <<1>>,
@@ -191,6 +191,10 @@ generate_bootstrap(Duration, Keyframes,Options) ->
     {afrt, afrt_info(Duration, Keyframes,Options)}
   ]}]),
   iolist_to_binary(Bin).
+
+
+% or_(undefined, B) -> B;
+% or_(A, _) -> A.
 
 -define(NAMED_ACCESS, 0).
 -define(RANGE_ACCESS, 1).
