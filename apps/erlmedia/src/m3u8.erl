@@ -6,19 +6,28 @@
 
 
 -export([parse/1]).
--export([fetch/1]).
+-export([fetch/1, fetch/2]).
 
 
-fetch(URL) when is_list(URL) ->
-  fetch(list_to_binary(URL));
+-export([prepend_base_path/2]).
 
-fetch(URL) when is_binary(URL) ->
+fetch(URL) ->
+  fetch(URL, []).
+
+fetch(URL, Options) when is_list(URL) ->
+  fetch(list_to_binary(URL), Options);
+
+fetch(URL, Options) when is_binary(URL) ->
+  Relative = proplists:get_value(relative, Options, true),
   Playlist1 = case http_uri:parse(binary_to_list(URL)) of
     {error, no_scheme} ->
       case file:read_file(URL) of
         {ok, Bin} ->
           Playlist = parse(Bin),
-          prepend_base_path(Playlist, URL);
+          case Relative of
+            true -> prepend_base_path(Playlist, URL);
+            _ -> Playlist
+          end;
         {error, _} = Error ->
           Error
       end;
@@ -26,7 +35,10 @@ fetch(URL) when is_binary(URL) ->
       case http_stream:request_body(URL, [{keepalive,false},{no_fail,true}]) of
         {ok, {_,200,_,Bin}} ->
           Playlist = parse(Bin),
-          prepend_base_url(Playlist, URL);
+          case Relative of
+            true -> prepend_base_url(Playlist, URL);
+            _ -> Playlist
+          end;
         {ok, Reply} ->
           {error, {fetch_manifest,URL, Reply}};
         {error, Error} ->
@@ -137,19 +149,24 @@ read_entry([], Playlist, #m3u8_entry{number = N}) ->
 % read_mbr_playlist([], MBR, _BaseUrl) ->
 %   MBR.
 
+dirname(URL) when is_binary(URL) ->
+  case filename:dirname(URL) of
+    <<".">> -> <<>>;
+    Dirname -> <<Dirname/binary, "/">>
+  end.
 
-prepend_base_path(#m3u8_mbr_playlist{playlists = Playlists} = MbrPlaylist, URL) ->
-  BasePath = filename:dirname(URL),
+prepend_base_path(#m3u8_mbr_playlist{playlists = Playlists} = MbrPlaylist, URL) when is_binary(URL) ->
+  BasePath = dirname(URL),
   MbrPlaylist#m3u8_mbr_playlist{url = URL, playlists = [
     Entry#m3u8_playlist{url = prepend_base_path(Path,BasePath)} || #m3u8_playlist{url = Path} = Entry <- Playlists]};
 
-prepend_base_path(#m3u8_playlist{entries = Entries} = Playlist, URL) ->
-  BasePath = filename:dirname(URL),
+prepend_base_path(#m3u8_playlist{entries = Entries} = Playlist, URL) when is_binary(URL) ->
+  BasePath = dirname(URL),
   Playlist#m3u8_playlist{url = URL, entries = [
     Entry#m3u8_entry{url = prepend_base_path(Path,BasePath)} || #m3u8_entry{url = Path} = Entry <- Entries]};
 
 prepend_base_path(<<"/",_/binary>> = Path, _BasePath) -> Path;
-prepend_base_path(Path, BasePath) -> <<BasePath/binary, "/", Path/binary>>.
+prepend_base_path(Path, BasePath) -> <<BasePath/binary, Path/binary>>.
 
 
 

@@ -329,6 +329,7 @@ start_flu() ->
 set_config(Env) ->
   {ok, Conf} = flu_config:parse_config(Env,undefined),
   application:set_env(flussonic, config, Conf),
+  (catch cowboy:stop_listener(fake_http)),
   cowboy:start_http(fake_http, 3, 
     [{port,5555}],
     [{dispatch,[{'_',flu_config:parse_routes(Conf)}]}]
@@ -404,7 +405,9 @@ flu_file_http_test_() ->
     application:stop(flussonic),
     ok
   end, [
-    fun test_flu_hds_no_segment/0
+    {"test_flu_hds_no_segment", fun test_flu_hds_no_segment/0}
+    ,{"test_answer_404_on_no_file", fun test_answer_404_on_no_file/0}
+    ,{"test_answer_404_on_no_file_with_auth", fun test_answer_404_on_no_file_with_auth/0}
   ]}.
 
 
@@ -412,4 +415,17 @@ test_flu_hds_no_segment() ->
   Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny.mp4/hds/0/Seg0-Frag100",[{keepalive,false}]),
   ?assertMatch({error, {http_code,404}}, Result).
 
+test_answer_404_on_no_file() ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m",[{keepalive,false}]),
+  ?assertMatch({error, {http_code, 404}}, Result).
+
+test_answer_404_on_no_file_with_auth() ->
+  set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:5555/index.html"}]},{root, "../../../wwwroot"}]),
+
+  Result1 = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m",[{keepalive,false}]),
+  ?assertMatch({error, {http_code, 403}}, Result1),
+
+  Result2 = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m?token=a",[{keepalive,false},{no_fail,true}]),
+  ?assertMatch({ok, {_, 404, _, _}}, Result2),
+  ok.
 

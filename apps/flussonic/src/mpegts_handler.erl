@@ -98,7 +98,7 @@ handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"PUT">>} =
   ?D({mpegts_input,StreamName}),
   
   {ok, Recorder} = flu_stream:autostart(StreamName, Options),
-  {ok, Reader} = mpegts_reader:init([]),
+  {ok, Reader} = mpegts_decoder:init(),
   
   ?MODULE:read_loop(Recorder, Reader, Transport, Socket),
   ?D({exit,mpegts_reader}),
@@ -112,7 +112,7 @@ terminate(_,_) -> ok.
 read_loop(Recorder, Reader, Transport, Socket) ->
   case Transport:recv(Socket, 16*1024, 10000) of
     {ok, Bin} ->
-      {ok, Reader1, Frames} = mpegts_reader:decode(Bin, Reader),
+      {ok, Reader1, Frames} = mpegts_decoder:decode(Bin, Reader),
       [Recorder ! Frame || Frame <- Frames],
       ?MODULE:read_loop(Recorder, Reader1, Transport, Socket);
     Else ->

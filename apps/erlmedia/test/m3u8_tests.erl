@@ -97,6 +97,22 @@ fetch_invalid_playlist_test() ->
 
 
 
+prepend_base_path_test() ->
+  ?assertMatch(#m3u8_playlist{url = <<"playlist.txt">>, entries = [
+    #m3u8_entry{url = <<"ort">>},
+    #m3u8_entry{url = <<"priv/bunny.mp4">>}
+  ]}, m3u8:prepend_base_path(#m3u8_playlist{entries = [
+    #m3u8_entry{url = <<"ort">>},
+    #m3u8_entry{url = <<"priv/bunny.mp4">>}]
+  }, <<"playlist.txt">>)).
+
+no_prepend_base_path_test() ->
+  ?assertMatch(#m3u8_playlist{
+    entries = [
+      #m3u8_entry{duration = 4000, number = 0, url = <<"hls/segment1.ts">>},
+      #m3u8_entry{duration = 4000, number = 1, url = <<"hls/segment2.ts">>}
+    ]
+  }, m3u8:fetch("../test/files/playlist-file.m3u8",[{relative,false}])).
 
 
 

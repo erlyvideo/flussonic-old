@@ -65,8 +65,8 @@ config_frames(#media_info{streams = Streams} = MediaInfo) ->
   [meta_frame(MediaInfo) | [F || F <- Frames, F =/= undefined]].
 
 
-has_media_info(undefined) ->
-  false;
+has_media_info(undefined) -> false;
+has_media_info(#media_info{streams = []}) -> false;
 
 has_media_info(#media_info{streams = Streams}) ->
   length([true || #stream_info{config = undefined, codec = Codec} <- Streams, Codec == h264 orelse Codec == aac]) == 0.
@@ -184,8 +184,13 @@ define_media_info(#media_info{} = Media, #video_frame{content = video, codec = C
 %   },
 %   update_stream(Info, Media);
 
-define_media_info(#media_info{} = Media, _) ->
-  Media.
+define_media_info(#media_info{} = Media, #video_frame{}) ->
+  Media;
+
+define_media_info(Media, Frames) when is_list(Frames) ->
+  lists:foldl(fun(Frame, MI) ->
+    define_media_info(MI,Frame)
+  end, Media, Frames).
 
 
 frame_sorter(#video_frame{dts = DTS1}, #video_frame{dts = DTS2}) when DTS1 < DTS2 -> true;

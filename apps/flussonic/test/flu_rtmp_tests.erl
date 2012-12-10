@@ -118,36 +118,27 @@ publish_with_password_test_() ->
   
 
 h264_aac_frames() ->
-[
-  h264_config(),
-  aac_config()
-] ++ video_frame:sort([
-  #video_frame{content = video,track_id=100, codec = h264, flavor = keyframe, dts = 0, pts = 0, body = <<"keyframe">>},
-  #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 40, pts = 40, body = <<"frame">>},
-  #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 80, pts = 80, body = <<"frame">>},
-  #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 120, pts = 120, body = <<"frame">>},
-  #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 160, pts = 160, body = <<"frame">>},
-  #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 200, pts = 200, body = <<"frame">>},
-  #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 240, pts = 240, body = <<"frame">>},
-  #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 280, pts = 280, body = <<"frame">>},
-  #video_frame{content = video,track_id=100, codec = h264, flavor = frame, dts = 320, pts = 320, body = <<"frame">>},
+  {ok, F} = file:open("../../../priv/bunny.mp4", [binary,read,raw]),
+  {ok, R} = mp4_reader:init({file,F},[]),
+  Frames = read_frames(R, undefined),
+  file:close(F),
+  Frames.
 
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 0, pts = 0, body = <<"aac">>},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 23, pts = 23, body = <<"aac">>},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 46, pts = 46, body = <<"aac">>},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 69, pts = 69, body = <<"aac">>},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 92, pts = 92, body = <<"aac">>},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 115, pts = 115, body = <<"aac">>},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 139, pts = 139, body = <<"aac">>},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 162, pts = 162, body = <<"aac">>},
-  #video_frame{content = audio,track_id=101, codec = aac, flavor = frame, dts = 185, pts = 185, body = <<"aac">>}
-]).
+read_frames(R, Key) ->
+  case mp4_reader:read_frame(R, Key) of
+    #video_frame{next_id = Next} = F ->
+      [F|read_frames(R, Next)];
+    eof ->
+      []
+  end.
 
 
 h264_aac_media_info() ->
-  MI1 = video_frame:define_media_info(#media_info{flow_type = stream}, h264_config()),
-  MI2 = video_frame:define_media_info(MI1, aac_config()),
-  MI2.
+  {ok, F} = file:open("../../../priv/bunny.mp4", [binary,read,raw]),
+  {ok, R} = mp4_reader:init({file,F},[]),
+  MI = mp4_reader:media_info(R),
+  file:close(F),
+  MI.
 
 publish(h264_aac, #env{rtmp= RTMP, name = StreamName, stream=Stream}) ->
   [rtmp_publish:send_frame(RTMP, Stream, Frame) || Frame <- h264_aac_frames()],

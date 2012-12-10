@@ -3,6 +3,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
+-include_lib("erlmedia/include/media_info.hrl").
 
 
 bench() ->
@@ -36,20 +37,40 @@ run_bench(M, _, Count) ->
 
 -define(assertFloatEq(X,Y), ?assert(abs((X-Y)/(X+Y)) < 0.01)).
 
-check_frames(VideoStart,VideoEnd,VideoTrackId,VideoCount,AudioStart,AudioEnd,AudioTrackId,AudioCount,Frames) ->
-  Video = [Frame || #video_frame{content = video} = Frame <- Frames],
-  Audio = [Frame || #video_frame{content = audio} = Frame <- Frames],
+check_frames(VideoStart,VideoEnd,VideoTrackId,VideoCount,AudioStart,_AudioEnd,AudioTrackId,AudioCount,Frames) ->
+  Video = [Frame || #video_frame{content = video, flavor = F} = Frame <- Frames, lists:member(F,[keyframe,frame])],
+  Audio = [Frame || #video_frame{content = audio, flavor = frame} = Frame <- Frames],
 
-  ?assertFloatEq(VideoStart, (hd(Video))#video_frame.dts),
-  ?assertFloatEq(VideoEnd, (hd(lists:reverse(Video)))#video_frame.dts),
+  CheckMonotonic = fun(Frames1,Tag) ->
+    lists:foldl(fun(#video_frame{dts = DTS}, PrevDTS) ->
+      DTS >= PrevDTS orelse error({non_monotonic_frame_dts,Tag,PrevDTS,DTS}),
+      DTS;
+    (#media_info{}, PrevDTS) -> PrevDTS
+    end, 0, Frames1)
+  end,
+
+  CheckMonotonic(Video, video_frames),
+  CheckMonotonic(Audio, audio_frames),
+  CheckMonotonic(Frames, all_frames),
+
+  ?assertEqual(VideoStart, round((hd(Video))#video_frame.dts*90)),
+  ?assertEqual(VideoEnd, round((lists:last(Video))#video_frame.dts*90)),
   [?assertEqual(VideoTrackId, TrackId) || #video_frame{track_id = TrackId} <- Video],
-  is_number(VideoCount) andalso ?assertEqual(VideoCount,length(Video)),
+  % is_number(VideoCount) andalso ?assertEqual(VideoCount,length(Video)),
+  if length(Video) == VideoCount -> ok;
+    VideoCount == undefined -> ok;
+    true -> ?debugFmt("requested video_count = ~B, real = ~B",[VideoCount, length(Video)])
+  end,
 
 
-  ?assertFloatEq(AudioStart, (hd(Audio))#video_frame.dts),
-  ?assertFloatEq(AudioEnd, (hd(lists:reverse(Audio)))#video_frame.dts),
+  ?assertEqual(AudioStart, round((hd(Audio))#video_frame.dts*90)),
+  % ?assertEqual(AudioEnd, round((lists:last(Audio))#video_frame.dts*90)),
   [?assertEqual(AudioTrackId, TrackId) || #video_frame{track_id = TrackId} <- Audio],
-  is_number(AudioCount) andalso ?assertEqual(AudioCount,length(Audio)),
+  % is_number(AudioCount) andalso ?assertEqual(AudioCount,length(Audio)),
+  if length(Audio) == AudioCount -> ok;
+    AudioCount == undefined -> ok;
+    true -> ?debugFmt("requested audio_count = ~B, real = ~B",[AudioCount, length(Audio)])
+  end,
 
   ok.
 
@@ -77,71 +98,49 @@ mpegts_test_() ->
 
 readtest_cupertino() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/fileSequence0.ts"),
-  % {ok, MP4} = mp4_writer:write_frame_list(Frames, []),
-  % file:write_file("a.mp4",MP4),
-  % file:write_file("a.flv", [flv:header(), [flv_video_frame:to_tag(Frame) || Frame <- Frames]]),
-  check_frames(10000, 19958.33, 257, 241, 10000, 19856, 258, 469, Frames),
-  ok.
-
-readtest_cupertino1() ->
-  {ok, Frames} = mpegts_reader:read_file("../test/fixtures/fileSequence0.ts"),
-  % mpegts_reader is known to loose last audio frames
-  check_frames(10000, 19958.33, 257, 241, 10000, 19856, 258, undefined, Frames),
-  ok.
-
-readtest1_cupertino2() ->
-  {ok, Frames} = mpegts_decoder1:read_file("../test/fixtures/fileSequence0.ts"),
-  % {ok, MP4} = mp4_writer:write_frame_list(Frames, []),
-  % file:write_file("a.mp4",MP4),
-  % file:write_file("a.flv", [flv:header(), [flv_video_frame:to_tag(Frame) || Frame <- Frames]]),
-  check_frames(10000, 19958.33, 257, 241, 10000, 19856, 258, 469, Frames),
+  check_frames(900000,1796250,1,241,900000,1787040,2,15,Frames),
   ok.
 
 
 readtest_flu() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/41-08000.ts"),
-  check_frames(67589358.4, 67597318.4, 101, 201, 67589448.0, 67597426.7, 100, 376, Frames),
-  ok.
-
-readtest_flu1() ->
-  {ok, Frames} = mpegts_reader:read_file("../test/fixtures/41-08000.ts"),
-  check_frames(67589358.4, 67597318.4, 101, undefined, 67589448.0, 67597426.7, 100, undefined, Frames),
-  ok.
-
-readtest1_flu2() ->
-  {ok, Frames} = mpegts_decoder1:read_file("../test/fixtures/41-08000.ts"),
-  check_frames(67589358.4, 67597318.4, 101, 201, 67589448.0, 67597426.7, 100, 376, Frames),
+  check_frames(6083042256,6083758656,1,200,6083050323,6083768403,2,375,Frames),
   ok.
 
 
 readtest_flubad() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/10-06800.ts"),
-  check_frames(93637031.06, 93643751.09, 269, 174, 93637018.53, 93643738.78, 268, 319, Frames),
+  check_frames(8427325595,8427933998,1,173,8427327828,8427936491,2,318,Frames),
   ok.
 
-readtest_flubad1() ->
-  {ok, Frames} = mpegts_reader:read_file("../test/fixtures/10-06800.ts"),
-  check_frames(93637031.06, 93643751.09, 269, 173, 93637018.53, 93643738.78, 268, 318, Frames),
-  ok.
-
-readtest1_flubad2() ->
-  {ok, Frames} = mpegts_decoder1:read_file("../test/fixtures/10-06800.ts"),
-  check_frames(93637031.06, 93643751.09, 101, 174, 93637018.53, 93643738.78, 268, 319, Frames),
-  ok.
 
 
 readtest_more() ->
   {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/media_7946.ts"),
-  check_frames(79501707.0, 79509907.0, 256, 209, 79501624.0, 79509880.0, 257, 391, Frames),
+  check_frames(7155146430,7155891630,1,210,7155146160,7155889200,2,130,Frames),
   ok.
 
-readtest_more1() ->
-  {ok, Frames} = mpegts_reader:read_file("../test/fixtures/media_7946.ts"),
-  check_frames(79501707.0, 79509907.0, 256, undefined, 79501624.0, 79509880.0, 257, undefined, Frames),
+
+
+readtest_fltv() ->
+  {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/fltv-01245629.ts"),
+  check_frames(6256905057,6257653857,1,210,6256905651,6257656371,2,394,Frames),
   ok.
 
-readtest1_more2() ->
-  {ok, Frames} = mpegts_decoder1:read_file("../test/fixtures/media_7946.ts"),
-  check_frames(79501707.0, 79509907.0, 256, 209, 79501624.0, 79509880.0, 257, 391, Frames),
+
+readtest_flunew1() ->
+  {ok, Frames} = mpegts_decoder:read_file("../../../test/files/livestream/2012/09/27/12/24/36-07292.ts"),
+  check_frames(1597500,2250000,1,175,1599360,2252160,2,341,Frames),
   ok.
+
+
+
+
+
+
+
+
+
+
+
 
