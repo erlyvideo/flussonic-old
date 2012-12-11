@@ -32,8 +32,23 @@
 merge(List1, List2) ->
   lists:ukeymerge(1, lists:ukeysort(1,List1), lists:ukeysort(1, List2) ).
 
+verify(URL, Identity, Options) when is_list(URL) ->
+  verify(list_to_binary(URL), Identity, Options);
+
 verify(URL, Identity, Options) ->
   Now = flu:now_ms(),
+
+  is_binary(URL) orelse throw({error, bad_auth_url}),
+  is_list(Identity) orelse throw({error, bad_identity}),
+  is_binary(proplists:get_value(token,Identity)) orelse throw({error, bad_token}),
+  is_binary(proplists:get_value(ip,Identity)) orelse throw({error, bad_ip}),
+  is_binary(proplists:get_value(name,Identity)) orelse throw({error, bad_name}),
+
+  case Options of
+    [] -> ok;
+    [{_K,_V}|_] -> ok;
+    [_] -> throw({error, bad_params})
+  end,
 
   {Session, ErrorMessage} = case find_session(Identity) of
     Sess when Sess == undefined orelse Now > Sess#session.last_access_time + Sess#session.auth_time ->

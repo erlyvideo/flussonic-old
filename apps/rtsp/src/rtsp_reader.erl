@@ -85,7 +85,7 @@ try_read(#rtsp{url = URL} = RTSP) ->
 try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
   {ok, Proto} = rtsp_protocol:start_link([{consumer, self()}, {url, URL}|Options]),
   unlink(Proto),
-  _Ref = erlang:monitor(process, Proto),
+  Ref = erlang:monitor(process, Proto),
 
   {ok, 200, _, _} = rtsp_protocol:call(Proto, 'OPTIONS', []),
   {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_protocol:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
@@ -111,10 +111,10 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
     end,
     {ok, SetupCode, _, _} = rtsp_protocol:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
     case SetupCode of
-      % 406 when RTPMode == tcp ->
-      %   erlang:demonitor(Ref, [flush]),
-      %   (catch rtsp_protocol:stop(Proto)),
-      %   throw({rtsp, restart, RTSP#rtsp{rtp_mode = udp}});
+      406 when RTPMode == tcp ->
+        erlang:demonitor(Ref, [flush]),
+        (catch rtsp_protocol:stop(Proto)),
+        throw({rtsp, restart, RTSP#rtsp{rtp_mode = udp}});
       200 -> 
         ok;
       _ ->

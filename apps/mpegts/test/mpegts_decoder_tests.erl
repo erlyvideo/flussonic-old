@@ -135,9 +135,34 @@ readtest_flunew1() ->
 
 
 
+precise_compare_frames1_test() ->
+  precise_compare("../../../test/files/livestream/2012/09/27/12/24/23-05875.ts", "example.txt").
+
+precise_compare_frames2_test() ->
+  precise_compare("../../../test/files/livestream/2012/09/27/12/24/57-06000.ts", "example2.txt").
 
 
+precise_compare(Path, ExamplePath) ->
+  {ok, Frames} = mpegts_decoder:read_file(Path),
+  {ok, [Example]} = file:consult("../test/fixtures/"++ExamplePath),
+  zipwith(fun({Codec1,Flavor1,DTS1,PTS1,Size1,CRC1,_}, 
+    #video_frame{codec = Codec2, flavor = Flavor2, dts = DTS2, pts = PTS2, body = Body}) ->
+    Size2 = size(Body),
+    CRC2 = erlang:crc32(Body),
+    % {Codec1,Flavor1,round(DTS1),round(PTS1),Size1,CRC1} == {Codec2,Flavor2,round(DTS2),round(PTS2),Size2,CRC2} orelse
+    % ?debugFmt("~240p =/= ~240p", [{Codec1,Flavor1,round(DTS1),round(PTS1),Size1,CRC1}, {Codec2,Flavor2,round(DTS2),round(PTS2),Size2,CRC2}]),
+    ?assertEqual({Codec1,Flavor1,round(DTS1),round(PTS1),Size1,CRC1}, {Codec2,Flavor2,round(DTS2),round(PTS2),Size2,CRC2}),
+    ok
+  end, Example, Frames),
+  ok.
 
+
+zipwith(Fun, [X1|X], [Y1|Y]) ->
+  Fun(X1,Y1),
+  zipwith(Fun, X, Y);
+
+zipwith(_, [], _) -> ok;
+zipwith(_, Left, []) -> error(Left).
 
 
 

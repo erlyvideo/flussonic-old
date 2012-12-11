@@ -310,7 +310,23 @@ test_session_is_not_destroyed_after_rerequest() ->
   ok.
 
 
+params_validation_test_() ->
+  [
+   ?_assertException(throw, {error, bad_auth_url}, flu_session:verify(undefined, [], []))
+  ,?_assertException(throw, {error, bad_identity}, flu_session:verify("http://no_url/", undefined, []))
+  ,?_assertException(throw, {error, bad_token}, flu_session:verify("http://no_url/", [{token, undefined}], []))
+  ,?_assertException(throw, {error, bad_token}, flu_session:verify("http://no_url/", [{token, 1234}], []))
+  ,?_assertException(throw, {error, bad_ip}, flu_session:verify("http://no_url/", [{token, <<"1234">>}], []))
+  ,?_assertException(throw, {error, bad_ip}, flu_session:verify("http://no_url/", [{token, <<"1234">>},{ip, lala}], []))
+  ,?_assertException(throw, {error, bad_name}, flu_session:verify("http://no_url/", [{token, <<"1234">>},{ip, <<"127.0.0.1">>}], []))
+  ,?_assertException(throw, {error, bad_name}, flu_session:verify("http://no_url/", 
+      [{token, <<"1234">>},{ip, <<"127.0.0.1">>}, {name, lala}], []))
+  ,?_assertException(throw, {error, bad_name}, flu_session:verify("http://no_url/", 
+      [{token, <<"1234">>},{ip, <<"127.0.0.1">>}, {name, undefined}], []))
 
+  ,?_assertException(throw, {error, bad_params}, flu_session:verify("http://no_url/", 
+      [{token, <<"1234">>},{ip, <<"127.0.0.1">>}, {name, <<"stream">>}], [[{key,value}]]))
+  ].
 
 
 

@@ -60,12 +60,10 @@ decode_file(Bin) ->
   codec,
   dts,
   pts,
-  old_dts,
-  old_pts,
-  old_buffer = <<>>,
-  closing = false,
   sample_rate,
   es_buffer = <<>>,
+  sent_config = false,
+  switching = false,
   pes_header = undefined
 }).
 
@@ -165,22 +163,16 @@ decode(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>> = Packet, #decoder{pmt 
   MI2 = MI1#media_info{streams = lists:ukeymerge(#stream_info.track_id, MI1#media_info.streams, NewStreams)},
   decode(Rest, Decoder2#decoder{media_info = MI2}, Frames);
 
-decode(<<16#47, _:1, 1:1, _:1, Pid:13, _:185/binary, Rest/binary>> = Packet, #decoder{} = Decoder, Frames) ->
-  PES = ts_payload(Packet),
-  {Decoder2, NewFrames} = new_pes_packet(PES, Pid, Decoder),
-  decode(Rest, Decoder2, NewFrames ++ Frames);
 
-decode(<<16#47, _:1, 0:1, _:1, Pid:13, _:185/binary, Rest/binary>> = Packet, #decoder{} = Decoder, Frames) ->
+decode(<<16#47, _:1, Start:1, _:1, Pid:13, _:185/binary, Rest/binary>> = Packet, #decoder{} = Decoder, Frames) ->
   Data = ts_payload(Packet),
   {Decoder2, NewFrames} = case Decoder of
-    #decoder{video = #stream{pes_header = PES} = S} when size(PES) > 0 ->
-      new_pes_packet(<<PES/binary, Data/binary>>, Pid, Decoder#decoder{video = S#stream{pes_header = undefined}});
-    #decoder{audio = #stream{pes_header = PES} = S} when size(PES) > 0 ->
-      new_pes_packet(<<PES/binary, Data/binary>>, Pid, Decoder#decoder{audio = S#stream{pes_header = undefined}});
-    #decoder{video = #stream{pid = Pid, es_buffer = Buffer} = Stream} ->
-      {Decoder#decoder{video = Stream#stream{es_buffer = <<Buffer/binary, Data/binary>>}}, []};
-    #decoder{audio = #stream{pid = Pid, es_buffer = Buffer} = Stream} ->
-      {Decoder#decoder{audio = Stream#stream{es_buffer = <<Buffer/binary, Data/binary>>}}, []};
+    #decoder{video = #stream{pid = Pid} = Stream} ->
+      {Stream1, NewFrames_} = pes_data(Data, Stream, Start),
+      {Decoder#decoder{video = Stream1}, NewFrames_};
+    #decoder{audio = #stream{pid = Pid} = Stream} ->
+      {Stream1, NewFrames_} = pes_data(Data, Stream, Start),
+      {Decoder#decoder{audio = Stream1}, NewFrames_};
     #decoder{} ->
       {Decoder, []}
   end,
@@ -197,119 +189,114 @@ decode(<<16#47, _/binary>> = TS, #decoder{ts_buffer = undefined} = Decoder, Fram
 %   decode(TS, Decoder, Frames);
 
 decode(eof, #decoder{audio = A, video = V} = Decoder, Frames) ->
-  {A1, AFrames} = case A of undefined -> {A, []}; _ -> more_pes_data(A#stream{closing = true}) end,
-  {V1, VFrames} = case V of undefined -> {V, []}; _ -> more_pes_data(V#stream{closing = true}) end,
+  {A1, AFrames} = case A of undefined -> {A, []}; _ -> pes_data(eof, A, 0) end,
+  {V1, VFrames} = case V of undefined -> {V, []}; _ -> pes_data(eof, V, 0) end,
 
   {ok, Decoder#decoder{audio = A1, video = V1}, AFrames ++ VFrames ++ Frames}.
 
 
 
-new_pes_packet(<<1:24, _StreamId, _PESLength:16, _:5, _Alignment:1, _:2, PtsDts:2, _:6, HeaderLength, PESHeader:HeaderLength/binary, Data/binary>>,
-  Pid, #decoder{} = Decoder) ->
-  {DTS, PTS} = pes_timestamp(PtsDts, PESHeader),
-
-  % Decoder1 = case Decoder of
-  %   #decoder{video = undefined} when StreamId == 224 -> % H264 stream type. Allocate it
-  %     Decoder#decoder{video = #stream{pid = Pid, codec = h264}};
-  %   #decoder{audio = undefined} when StreamId == 192 -> % AAC stream type. Allocate it
-  %     Decoder#decoder{audio = #stream{pid = Pid, codec = aac}};
-  %   #decoder{} ->
-  %     Decoder
-  % end,
-  Decoder1 = Decoder,
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%                  PES level
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-  {Decoder2, NewFrames} = case Decoder1 of
-    #decoder{video = #stream{pid = Pid, es_buffer = Buffer} = Stream} ->
-      {Stream1, NewFrames_} = more_pes_data(Stream#stream{dts = DTS, pts = PTS, es_buffer = <<Buffer/binary, Data/binary>>}),
-      {Decoder1#decoder{video = Stream1}, NewFrames_};
-    #decoder{audio = #stream{pid = Pid, es_buffer = Buffer} = Stream} ->
-      {Stream1, NewFrames_} = more_pes_data(Stream#stream{dts = DTS, pts = PTS, es_buffer = <<Buffer/binary, Data/binary>>}),
-      {Decoder1#decoder{audio = Stream1}, NewFrames_};
-    #decoder{} ->
-     {Decoder1, []}
-  end,
-  {Decoder2, NewFrames};
+pes_data(eof, #stream{} = Stream, 0) ->
+  new_pes_packet(eof, undefined, undefined, Stream);
 
-new_pes_packet(<<1:24, _/binary>> = PES, Pid, #decoder{} = Decoder) ->
-  Decoder1 = case Decoder of
-    #decoder{video = #stream{pid = Pid} = S} -> Decoder#decoder{video = S#stream{pes_header = PES}};
-    #decoder{audio = #stream{pid = Pid} = S} -> Decoder#decoder{audio = S#stream{pes_header = PES}};
-    #decoder{} -> Decoder
-  end,
-  {Decoder1, []}.
+pes_data(Data, #stream{pes_header = PES} = Stream, 0) when size(PES) > 0 ->
+  pes_data(<<PES/binary, Data/binary>>, Stream#stream{pes_header = undefined}, 1);
+
+%%
+%% PES header
+%% 1:24, StreamId:8, PESLength:16, Marker:2, Scrambling:2, Priority:1, Alignment:1, Copyright:1,
+%% OriginalOrCopy:1, PtsDtsIndicator:2, ESCR:1, ESRate:1, DSM:1, AdditionalCopy:1, CRC:1, Extension:1
+
+pes_data(<<1:24, _:32, PtsDts:2, _:6, Len, Header:Len/binary, Data/binary>>, #stream{} = Stream, 1) ->
+  {DTS, PTS} = pes_timestamp(PtsDts, Header),
+
+  % ?debugFmt("new dts ~B ~s (~B buffer)", [DTS, Stream#stream.codec, size(Stream#stream.es_buffer)]),
+  new_pes_packet(Data, DTS, PTS, Stream);
+
+pes_data(<<1:24, _/binary>> = PES, #stream{pes_header = undefined} = Stream, 1) ->
+  {Stream#stream{pes_header = PES}, []};
+
+pes_data(Data, #stream{switching = {DTS, PTS}} = Stream, 0) ->
+  new_pes_packet(Data, DTS, PTS, Stream);
+
+pes_data(Data, #stream{es_buffer = Buffer, switching = false} = Stream, 0) ->
+  {Stream#stream{es_buffer = <<Buffer/binary, Data/binary>>}, []}.
 
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%                  ES level
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+%% H264
 
-more_pes_data(#stream{} = Stream) -> more_pes_data(Stream, []).
+new_pes_packet(NewData, DTS, PTS, #stream{codec = h264, dts = undefined} = Stream) ->
+  {Stream#stream{es_buffer = NewData, dts = DTS, pts = PTS}, []};
 
+new_pes_packet(eof, _, _, #stream{codec = h264} = Stream) ->
+  {Stream1, Frames} = h264_frames(Stream),
+  {Stream1#stream{es_buffer = <<>>}, Frames};
 
-more_pes_data(#stream{codec = h264, closing = true, es_buffer = Data, dts = DTS, pts = PTS, 
-  old_buffer = OldBuffer} = Stream, Acc) ->
-  Frames = h264_frames(DTS, PTS, <<OldBuffer/binary, Data/binary>>),
-  % ?debugFmt("closing ~B",[DTS]),
-  {Stream#stream{old_buffer = <<>>}, Frames ++ Acc};
-
-more_pes_data(#stream{codec = h264, closing = false, es_buffer = Data, dts = DTS, pts = PTS,
-  old_dts = OldDTS, old_pts = OldPTS, old_buffer = OldBuffer} = Stream, Acc) when size(OldBuffer) > 0 ->
-
-  case binary:split(Data, [<<1:32>>, <<1:24>>]) of
+new_pes_packet(NewData, DTS, PTS, #stream{codec = h264, es_buffer = Buffer} = Stream) ->
+  case binary:split(NewData, [<<1:32>>, <<1:24>>]) of
     [Tail,NewBuffer] ->
-      % ?debugFmt("reflush ~p(~B+~B) / ~p(~B)", [OldDTS, size(OldBuffer),size(Tail),DTS, size(NewBuffer)]),
-      Frames = h264_frames(OldDTS, OldPTS, <<OldBuffer/binary, Tail/binary>>),
-      {Stream#stream{old_buffer = NewBuffer, old_dts = DTS, old_pts = PTS, es_buffer = <<>>}, Frames ++ Acc};     
-    [_Tail] ->
-      % ?debugFmt("failed reflush on ~B", [DTS]),
-      {Stream#stream{old_buffer = <<OldBuffer/binary, Data/binary>>, es_buffer = <<>>}, Acc}
+      % ?debugFmt("close old h264 frame ~B (~p)", [Stream#stream.dts, size(Buffer) + size(Tail)]),
+      {Stream1, Frames} = h264_frames(Stream#stream{es_buffer = <<Buffer/binary, Tail/binary>>}),
+      {Stream1#stream{es_buffer = NewBuffer, dts = DTS, pts = PTS, switching = false}, Frames};
+    [_] ->
+      {Stream#stream{es_buffer = <<Buffer/binary, NewData/binary>>, switching = {DTS,PTS}}, []}
   end;
 
-more_pes_data(#stream{codec = h264, closing = false, es_buffer = Data, dts = DTS, pts = PTS, old_buffer = <<>>} = Stream, Acc) ->
-  % ?debugFmt("initial h264 ~p", [DTS]),
-  {Stream#stream{old_buffer = Data, old_dts = DTS, old_pts = PTS}, Acc};
 
+%% AAC
 
-more_pes_data(#stream{codec = aac, old_buffer = Data, sample_rate = undefined, old_dts = DTS} = Stream, Acc) 
-  when size(Data) > 0 ->
+new_pes_packet(eof, _DTS, _PTS, #stream{dts = DTS, codec = aac, es_buffer = Buffer} = Stream) ->
+  new_pes_packet(Buffer, DTS, DTS, Stream#stream{es_buffer = <<>>});
+
+new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = undefined} = Stream) ->
   {AudioConfig, SampleRate} = aac_config(DTS, Data),
-  more_pes_data(Stream#stream{sample_rate = SampleRate}, [AudioConfig|Acc]);
+  {Stream1, Frames} = new_pes_packet(Data, DTS, PTS, Stream#stream{sample_rate = SampleRate}),
+  {Stream1, [AudioConfig|Frames]};
 
-more_pes_data(#stream{codec = aac, es_buffer = Data, sample_rate = undefined, dts = DTS} = Stream, Acc) 
-  when size(Data) > 0 ->
-  {AudioConfig, SampleRate} = aac_config(DTS, Data),
-  more_pes_data(Stream#stream{sample_rate = SampleRate}, [AudioConfig|Acc]);
 
-more_pes_data(#stream{codec = aac, closing = true, old_buffer = OldBuffer, es_buffer = Buffer} = Stream, Acc) 
-  when size(OldBuffer) > 0 ->
-  more_pes_data(Stream#stream{old_buffer = <<>>, es_buffer = <<OldBuffer/binary, Buffer/binary>>}, Acc);
+new_pes_packet(Data, DTS, PTS, #stream{codec = aac, es_buffer = Old, dts = OldDTS} = Stream) when size(Old) > 0 ->
+  {ok, Frame, Rest} = aac_frame(OldDTS, <<Old/binary, Data/binary>>),
+  {Stream1, Frames} = new_pes_packet(Rest, DTS, PTS, Stream#stream{es_buffer = <<>>}),
+  {Stream1, [Frame|Frames]};
 
-more_pes_data(#stream{codec = aac, old_buffer = OldBuffer, es_buffer = Data, old_dts = OldDTS} = Stream, Acc) 
-  when size(OldBuffer) > 0 ->
-  Bin = <<OldBuffer/binary, Data/binary>>,
-  case aac_frame(OldDTS, Bin) of
-    {ok, Frame, Rest} ->
-      more_pes_data(Stream#stream{old_dts = undefined, old_buffer = <<>>, es_buffer = Rest}, [Frame|Acc]);
-    {more, _} ->
-      {Stream#stream{old_buffer = Bin}, Acc};
-    {error, _} ->
-      <<_, Rest/binary>> = Data,
-      more_pes_data(Stream#stream{es_buffer = Rest}, Acc)
-  end;      
-
-more_pes_data(#stream{codec = aac, es_buffer = Data, dts = DTS, sample_rate = SampleRate} = Stream, Acc) ->
+new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = SampleRate} = Stream) ->
   case aac_frame(DTS, Data) of
     {ok, Frame, Rest} ->
-      more_pes_data(Stream#stream{dts = DTS + 1024*90*1000 div SampleRate, es_buffer = Rest}, [Frame|Acc]);
+      {Stream1, Frames} = new_pes_packet(Rest, DTS + 1024*90*1000 div SampleRate, PTS, Stream),
+      {Stream1, [Frame|Frames]};
     {more, _} ->
-      {Stream#stream{es_buffer = <<>>, old_buffer = Data, old_dts = DTS}, Acc};
-    {error, _} ->
-      <<_, Rest/binary>> = Data,
-      more_pes_data(Stream#stream{es_buffer = Rest}, Acc)
+      {Stream#stream{es_buffer = Data, dts = DTS}, []}
   end;
 
-more_pes_data(#stream{} = Stream, Acc) ->
-  {Stream#stream{es_buffer = <<>>}, Acc}.
+new_pes_packet(_, _, _, #stream{} = Stream) ->
+  {Stream#stream{es_buffer = <<>>}, []}.
+
+
+
+
+
+% more_pes_data(#stream{codec = aac, closing = true, old_buffer = OldBuffer, es_buffer = Buffer} = Stream, Acc) 
+%   when size(OldBuffer) > 0 ->
+%   more_pes_data(Stream#stream{old_buffer = <<>>, es_buffer = <<OldBuffer/binary, Buffer/binary>>}, Acc);
+
+
+
+% more_pes_data(#stream{} = Stream, Acc) ->
+%   {Stream#stream{es_buffer = <<>>}, Acc}.
 
 
 aac_config(DTS, Data) when size(Data) > 0 ->
@@ -345,7 +332,7 @@ aac_frame(DTS, Data) ->
   end.
 
 
-h264_frames(DTS, PTS, AnnexB) ->
+h264_frames(#stream{dts = DTS, pts = PTS, es_buffer = AnnexB, sent_config = SentConfig} = Stream) ->
   NALs = [NAL || NAL <- binary:split(AnnexB, [<<1:32>>, <<1:24>>], [global]), NAL =/= <<>>, h264:type(NAL) =/= delim],
   NalTypes = [h264:type(NAL) || NAL <- NALs],
   {ConfigNals, PayloadNals} = lists:partition(fun(NAL) -> lists:member(h264:type(NAL), [sps,pps]) end, NALs),
@@ -356,7 +343,8 @@ h264_frames(DTS, PTS, AnnexB) ->
   Keyframe = lists:member(idr, NalTypes),
   Payload = case PayloadNals of
     [] -> [];
-    _ -> %?debugFmt("h264 fr ~B ~p", [DTS, NalTypes]),
+    _ -> 
+    % ?debugFmt("h264 fr ~B ~p", [DTS, [{h264:type(NAL), size(NAL)} || NAL <- NALs]]),
     [#video_frame{
     content = video,
     track_id= 1,
@@ -367,7 +355,12 @@ h264_frames(DTS, PTS, AnnexB) ->
     pts     = PTS / 90
     }]
   end,
-  Payload ++ Config.
+  Frames = Payload ++ case SentConfig of
+    true -> [];
+    false -> Config
+  end,
+  {Stream#stream{sent_config = SentConfig orelse length(Config) > 0}, Frames}.
+
 
 
 

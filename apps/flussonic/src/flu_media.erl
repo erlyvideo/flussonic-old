@@ -26,7 +26,44 @@
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([find/1, find_or_open/1, lookup_path/1]).
+-export([find/1, find_or_open/1, lookup/1]).
+-export([find_or_open/2]).
+
+
+
+find_or_open(Path, Headers) ->
+  try find_or_open0(Path, Headers)
+  catch
+    throw:{error, Code} -> {error, Code};
+    Class:Error ->
+      ?debugFmt("find_or_open(~s) ~p:~p~n~240p~n",[Path, Class, Error, erlang:get_stacktrace()]),
+      erlang:raise(Class, Error, erlang:get_stacktrace())
+  end.
+
+
+find_or_open0(Path, Headers) ->
+  case lookup(Path) of
+    {ok, {Type, Name, Opts}} ->
+      case proplists:get_value(sessions, Opts) of
+        undefined ->
+          {ok, Reply} = autostart(Type, Name, Opts),
+          {ok, Reply};
+        AuthUrl ->
+          Identity = proplists:get_value(identity, Headers),
+          SessionParams = proplists:get_value(session, Headers),
+          case flu_session:verify(AuthUrl, Identity, SessionParams) of
+            {ok, _} ->
+              {ok, Reply} = autostart(Type, Name, Opts),
+              {ok, Reply};
+            {error, Code, _Message} ->
+              {error, Code}
+          end
+      end;
+    {error, enoent} ->
+      {error, 404}
+  end.
+
+
 
 
 find(Path) ->
@@ -48,11 +85,22 @@ find_or_open(Path) when is_list(Path) ->
 find_or_open(Path) ->
   case gen_tracker:find(flu_streams, Path) of
     undefined ->
-      lookup_path(Path);
+      case lookup(Path) of
+        {ok, {Type, Name, Opts}} ->
+          autostart(Type, Name, Opts);
+        {error, _} = Error ->
+          Error
+      end;
     {ok,_Pid} ->
       {ok,{stream,Path}}
   end.
   
+autostart(file, File, Opts) -> open_file(proplists:get_value(root,Opts), File, []);
+autostart(Type, Stream, Opts) when Type == stream orelse Type == live -> 
+  {ok, Media} = flu_stream:autostart(Stream, Opts),
+  {ok, {stream, Media}}.
+
+
   % case proplists:get_value(type, Env) of
   %   <<"stream">> ->
   %     {ok, _Pid} = open_stream(Env),
@@ -61,36 +109,35 @@ find_or_open(Path) ->
   %     find_or_open(file,Env)
   % end;
 
-lookup_path(Path) when is_list(Path) ->
-  lookup_path(list_to_binary(Path));
+lookup(Path) when is_list(Path) ->
+  lookup(list_to_binary(Path));
   
-lookup_path(Path) ->
-  lookup_path(Path, flu_config:get_config()).
+lookup(Path) ->
+  lookup(Path, flu_config:get_config()).
   
 
-lookup_path(Path, [{live, Prefix, _Options}|Config]) ->
+lookup(Path, [{live, Prefix, Options}|Config]) ->
   PrefixLen = size(Prefix),
   case Path of
-    <<Prefix:PrefixLen/binary, "/", Stream/binary>> -> {ok, {stream, Stream}};
-    _ -> lookup_path(Path, Config)
+    <<Prefix:PrefixLen/binary, "/", Stream/binary>> -> {ok, {live, Stream, [{prefix,Prefix}|Options]}};
+    _ -> lookup(Path, Config)
   end;
 
-lookup_path(Path, [{file, Prefix, Root, _}|Config]) ->
+lookup(Path, [{file, Prefix, Root, Opts}|Config]) ->
   PrefixLen = size(Prefix),
   case Path of
-    <<Prefix:PrefixLen/binary, "/", File/binary>> ->
-     open_file(Root, File, []);
-    _ -> lookup_path(Path, Config)
+    <<Prefix:PrefixLen/binary, "/", File/binary>> -> 
+      {ok, {file, File, [{root, Root}|Opts]}};
+    _ -> lookup(Path, Config)
   end;
   
-lookup_path(Path, [{stream, Path, URL, Opts}|_Config]) ->
-  {ok, Media} = flu_stream:autostart(Path, [{url,URL}|Opts]),
-  {ok, {stream, Media}};
+lookup(Path, [{stream, Path, URL, Opts}|_Config]) ->
+  {ok, {stream, Path, [{url,URL}|Opts]}};
 
-lookup_path(Path, [_Option|Config]) ->
-  lookup_path(Path, Config);
+lookup(Path, [_Option|Config]) ->
+  lookup(Path, Config);
 
-lookup_path(_Path, []) ->
+lookup(_Path, []) ->
   {error, enoent}.
 
 

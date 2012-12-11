@@ -25,6 +25,13 @@
   session,
   media,
 
+  flow_type = stream :: stream | file,
+
+  paused = false,
+
+  ticker,
+  url,
+
   first_dts,
 
   v_s_rtp,
@@ -92,6 +99,9 @@ handle_info({udp, Port, _Addr, _RPort, _Bin}, #rtsp{} = RTSP) ->
   _Name = proplists:get_value(Port, List),
   % ?D({udp_on_port,Name, Bin}),
   inet:setopts(Port, [{active,once}]),
+  {noreply, RTSP};
+
+handle_info(#video_frame{}, #rtsp{paused = true} = RTSP) ->
   {noreply, RTSP};
 
 handle_info(#video_frame{dts = DTS} = Frame, #rtsp{first_dts = undefined} = RTSP) ->
@@ -177,9 +187,10 @@ handle_request(Method, _URL, Headers, _Body, RTSP) when Method == <<"OPTIONS">> 
     {'Date', httpd_util:rfc1123_date()},
     {'Public', "SETUP, TEARDOWN, ANNOUNCE, RECORD, PLAY, OPTIONS, DESCRIBE, GET_PARAMETER"}], RTSP);
 
-handle_request(<<"DESCRIBE">>, URL, Headers, Body, #rtsp{callback = Callback} = RTSP) ->
+handle_request(<<"DESCRIBE">>, URL1, Headers, Body, #rtsp{callback = Callback} = RTSP) ->
+  {URL, Auth} = extract_url(URL1),
   ?D({describe,URL}),
-  case Callback:describe(URL, Headers, Body) of
+  case Callback:describe(URL, Auth ++ Headers, Body) of
     {error, authentication} ->
       reply(401, [{"WWW-Authenticate", "Basic realm=\"Flussonic Streaming Server\""}], RTSP);
     {error, no_media_info} ->
@@ -206,7 +217,7 @@ handle_request(<<"DESCRIBE">>, URL, Headers, Body, #rtsp{callback = Callback} = 
         {'Date', httpd_util:rfc1123_date()}, {'Expires', httpd_util:rfc1123_date()},
         {'Content-Base', io_lib:format("~s/", [URL])}], SDP, 
         RTSP#rtsp{media_info = MediaInfo, v_scale = VScale, a_scale = AScale, session = Session,
-          length_size = LengthSize, nals = Nals})
+          length_size = LengthSize, nals = Nals, url = URL1})
   end;
 
 handle_request(<<"SETUP">>, URL, Headers, _Body, #rtsp{media_info = #media_info{streams = Streams}} = RTSP) ->
@@ -251,10 +262,15 @@ handle_request(<<"SETUP">>, URL, Headers, _Body, #rtsp{media_info = #media_info{
       reply("406 Transport not supported", [{'Cseq', seq(Headers)}], RTSP)
   end;
 
+handle_request(<<"PLAY">>, _URL, Headers, _Body, #rtsp{media = Media, paused = true, flow_type = stream} = RTSP) when is_pid(Media) ->
+  reply(200, [{'Cseq', seq(Headers)}], RTSP#rtsp{paused = false});
 
-handle_request(<<"PLAY">>, URL, Headers, Body, #rtsp{callback = Callback, media_info = #media_info{streams = Streams}} = RTSP) ->
-  case Callback:play(URL, Headers, Body) of
-    {ok, Stream} ->
+handle_request(<<"PLAY">>, _URL1, Headers, Body, #rtsp{url = URL1, callback = Callback, peer_addr = Addr, 
+  media_info = #media_info{streams = Streams}} = RTSP) ->
+  {URL, Auth} = extract_url(URL1),
+  case Callback:play(URL, [{ip,inet_parse:ntoa(Addr)}]++ Auth ++ Headers, Body) of
+    {ok, {Type, Stream}} ->
+      ?D({got, Type, Stream}),
       erlang:monitor(process, Stream),
       % It is ok here to fetch first config frame, because we know its contents
       % from media_info and already sent to client
@@ -262,7 +278,10 @@ handle_request(<<"PLAY">>, URL, Headers, Body, #rtsp{callback = Callback, media_
       RtpInfo = string:join(lists:map(fun(#stream_info{track_id = Id}) ->
         io_lib:format("url=~s/trackID=~B;seq=0;rtptime=0", [URL, Id])
       end, Streams),","),
-      reply(200, [{'Cseq', seq(Headers)}, {"RTP-Info", RtpInfo},{"Range", "npt=0-"},{"Date",httpd_util:rfc1123_date()}], RTSP);
+      reply(200, [{'Cseq', seq(Headers)}, {"RTP-Info", RtpInfo},{"Range", "npt=0-"},{"Date",httpd_util:rfc1123_date()}], 
+        RTSP#rtsp{media = Stream, flow_type = Type});
+    {fail, Code, Message} ->
+      reply(Code, [{'Cseq', seq(Headers)}], Message, RTSP);
     Reply ->
       throw({stop, {play_disabled,Reply}, RTSP})
   end;
@@ -271,6 +290,9 @@ handle_request(<<"TEARDOWN">>, _URL, Headers, _Body, #rtsp{} = RTSP) ->
   RTSP1 = reply(200, [{'Cseq', seq(Headers)}], RTSP),
   throw({stop, normal, RTSP1});
 
+
+handle_request(<<"PAUSE">>, _URL, Headers, _Body, #rtsp{flow_type = stream} = RTSP) ->
+  reply(200, [{'Cseq', seq(Headers)}], RTSP#rtsp{paused = true});
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -311,8 +333,14 @@ handle_http(<<"GET">>, _URL, _Headers, _Body, RTSP) ->
 
 
 
-
-
+extract_url(URL1) ->
+  {Host, PathQuery} = http_uri2:extract_path_with_query(URL1),
+  {Path, Query} = http_uri2:parse_path_query(PathQuery),
+  Name = case Path of
+    "/live" -> "/"++proplists:get_value("id", Query);
+    _ -> Path
+  end,
+  {"rtsp://"++Host++Name, Query}.
 
 
 

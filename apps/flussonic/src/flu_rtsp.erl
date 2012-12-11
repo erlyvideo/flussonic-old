@@ -118,17 +118,48 @@ media_info(Stream, Count) ->
       timer:sleep(200),
       media_info(Stream, Count - 1);
     MediaInfo ->
-      MediaInfo
+      {ok, MediaInfo}
   end.
 
 
-describe(URL, _Headers, _Body) ->
+describe(URL, Headers, _Body) ->
+  ?D({describe,URL}),
   {rtsp, _, _Host, _Port, "/"++Path, _} = http_uri2:parse(URL),
-  Stream = list_to_binary(Path),
-  case media_info(Stream) of
-    {error, _} = Error -> Error;
-    MediaInfo -> {ok, MediaInfo}
+  case Path of
+    "archive" -> describe_archive(Headers);
+    _ -> 
+      case flu_media:find_or_open(list_to_binary(Path)) of
+        {ok, {file, File}} -> {ok, flu_file:media_info(File)};
+        {ok, {stream, Stream}} -> media_info(Stream)
+      end
   end.
+
+
+
+to_i(List) -> list_to_integer(List).
+
+parse_time(Time) ->
+  Time1 = cowboy_http:urldecode(list_to_binary(Time)),
+  {match, [Y,Mon,D,H,Min,S]} = re:run(Time1, "(\\d{4})-(\\d{2})-(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2})", [{capture,all_but_first,list}]),
+  dvr_minute:timestamp({{to_i(Y),to_i(Mon),to_i(D)}, {to_i(H),to_i(Min),to_i(S)}}).
+
+dvr_session(Headers) ->
+  Name = list_to_binary(proplists:get_value("id",Headers)),
+  {ok, {stream, Name, Options}} = flu_media:lookup(Name),
+  {dvr, Root} = lists:keyfind(dvr, 1, Options),
+  {_, From_} = lists:keyfind("from", 1, Headers),
+  From = parse_time(From_),
+  {_, To_} = lists:keyfind("to", 1, Headers),
+  To = parse_time(To_),
+  {ok, Session} = dvr_session:autostart(Name, From, To - From, [{root,Root}]),
+  {ok, Session}.
+
+describe_archive(Headers) ->
+  {ok, Session} = dvr_session(Headers),
+  Reply = dvr_session:media_info(Session),
+  Reply.
+
+
   % {Host, Path} = hostpath(URL),
   % {Module, Function} = ems:check_app(Host, auth, 3),
   % case Module:Function(Host, rtsp, proplists:get_value('Authorization', Headers)) of
@@ -139,15 +170,63 @@ describe(URL, _Headers, _Body) ->
   %     {ok, Media}
   % end.
 
-play(URL, _Headers, _Body) ->
+to_b(undefined) -> undefined;
+to_b(List) when is_list(List) -> list_to_binary(List). 
+
+play(URL, Headers, _Body) ->
   {rtsp, _, _Host, _Port, "/"++Path, _} = http_uri2:parse(URL),
-  % {Host, Path} = hostpath(URL),
-  % {Module, Function} = ems:check_app(Host, auth, 3),
-  % ems_log:access(Host, "RTSP PLAY ~s ~s", [Host, Path]),
-  % {ok, Media} = media_provider:play(Host, Path, [{stream_id,1}, {client_buffer,50}, {burst_size, 1}]),
-  % ems_network_lag_monitor:watch(self()),
-  Name = list_to_binary(Path),
-  ?DBG("subscribing to ~s", [Name]),
-  flu_stream:subscribe(Name),
-  {ok, Media} = flu_stream:autostart(Name),
-  {ok, Media}.
+  case Path of
+    "archive" -> play_archive(Headers);
+    _ -> play_media(Path, Headers)
+  end.
+
+play_media(Path, Headers) ->
+  Name = to_b(Path),
+  Ip = to_b(proplists:get_value(ip,Headers)),
+  Token = to_b(proplists:get_value("token",Headers)),
+  Identity = [{name,Name},{ip, Ip},{token,Token}],
+  Params = [{pid,self()},{type,<<"rtsp">>}],
+  case flu_media:find_or_open(Name, [{identity,Identity},{session,Params}]) of
+    {ok, {stream, Pid}} ->
+      flu_stream:subscribe(Name),    
+      {ok, {stream, Pid}};
+    {ok, {file, Pid}} ->
+      {ok, _Ticker} = monotone_ticker:start_link(self(), {flu_file, read_frame, Pid}),
+      {ok, {file, Pid}};
+    {error, Code} when is_integer(Code) ->
+      {fail, Code, <<>>};
+    {error, bad_token} ->
+      {fail, 403, <<"no_token">>};
+    {error, Error} ->
+      {fail, 500, io_lib:format("~250p", [Error])}
+  end.
+
+
+% rtsp://127.0.0.1:1554/archive?id=ort&from=2012-12-11%2013:08:00&to=2012-12-11%2013:12:00
+
+play_archive(Headers) ->
+  {ok, Session} = dvr_session(Headers),
+  {ok, _Ticker} = monotone_ticker:start_link(self(), {dvr_session, read_frame, Session}),
+  {ok, {file, Session}}.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

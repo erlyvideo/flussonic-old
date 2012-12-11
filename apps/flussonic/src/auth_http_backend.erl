@@ -1,6 +1,7 @@
 -module(auth_http_backend).
 -export([verify/3]).
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 
 merge(List1, List2) ->
@@ -18,18 +19,20 @@ to_i(List) when is_list(List) -> list_to_integer(List);
 to_i(Bin) when is_binary(Bin) -> list_to_integer(binary_to_list(Bin));
 to_i(Int) when is_integer(Int) -> Int.
 
+verify(URL, Identity, Options) when is_list(URL) ->
+  verify(list_to_binary(URL), Identity, Options);
 
-verify(URL, Identity, Options) ->
+verify(URL, Identity, Options) when is_binary(URL) ->
   Query = [ [to_s(K), "=", to_s(V), "&"] || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V) orelse is_atom(V) orelse is_integer(V)],
-  RequestURL = lists:flatten([URL, "?", Query]),
+  RequestURL = lists:flatten([binary_to_list(URL), "?", Query]),
   case httpc:request(get, {RequestURL, []}, [{connect_timeout, flu_session:timeout()},{timeout, flu_session:timeout()},{autoredirect,false}],
     [], auth) of
     {ok, {{_,Code,_}, Headers, _Body}} ->
-      ?DBG("Backend auth request \"~s\": ~B code", [RequestURL, Code]),
       AuthDuration = to_i(proplists:get_value("x-authduration", Headers, 30))*1000,
       DeleteTime = lists:max([AuthDuration, 10000]),
       Opts0_ = [{auth_time,AuthDuration},{delete_time,DeleteTime},
         {user_id,to_i(proplists:get_value("x-userid", Headers))}],
+      ?DBG("Backend auth request \"~s\": ~B code, duration: ~B", [RequestURL, Code, AuthDuration]),
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
       % Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),
       Name = proplists:get_value(name, Identity),
