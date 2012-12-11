@@ -36,6 +36,8 @@
 -export([stream_created/2, stream_stopped/1]).
 -export([add_dvr_fragment/2, delete_dvr_fragment/2]).
 
+-export([hls_bitrate_down/2, hls_bitrate_up/2]).
+
 -export([to_json/1, to_xml/1, to_proplist/1]).
 
 %% gen_event callbacks
@@ -235,6 +237,20 @@ add_dvr_fragment(Name, Time) ->
 %%----------------------------------------------------------------------
 delete_dvr_fragment(Name, Time) ->
   gen_event:notify(?MODULE, #flu_event{event = stream.delete_dvr_fragment, stream = Name, options = [{time,Time}]}).
+
+
+%%--------------------------------------------------------------------
+%% @spec (Name, Stream, Options) -> ok
+%%
+%% @doc send event that stream has been created
+%% @end
+%%----------------------------------------------------------------------
+hls_bitrate_up(Name, Options) ->
+  gen_event:notify(?MODULE, #flu_event{event = hls.bitrate.up, stream = Name, options = Options}).
+
+hls_bitrate_down(Name, Options) ->
+  gen_event:notify(?MODULE, #flu_event{event = hls.bitrate.down, stream = Name, options = Options}).
+
 
 %%%------------------------------------------------------------------------
 %%% Callback functions from gen_server

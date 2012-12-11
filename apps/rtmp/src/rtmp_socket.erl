@@ -684,7 +684,9 @@ send_data(#rtmp_socket{socket = Socket, key_out = KeyOut} = State, Message) ->
     is_port(Socket) ->
       case gen_tcp:send(Socket, Crypt) of
         ok -> ok;
-        {error, timeout} -> flush_all(), throw({stop, network_timeout, NewState1});
+        {error, timeout} -> flush_all(),
+          ?ERR("RTMP client from ~p is exiting due to slow connection", [State#rtmp_socket.address]),
+          throw({stop, normal, NewState1});
         {error, Else} -> flush_all(), throw({stop, {network_error,Else}, NewState1})
       end;
     is_pid(Socket) ->
