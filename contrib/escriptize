@@ -43,7 +43,7 @@ main(Options) ->
     true -> Files1;
     false ->
       Removing = [filename:basename(Path) || Path <- 
-        lists:flatmap(fun(Path) -> filelib:wildcard(Root ++ "/apps/"++Path++"/ebin/*") end, Commercial)],
+        lists:flatmap(fun(Path) -> filelib:wildcard(Root ++ "apps/"++Path++"/ebin/*") end, Commercial)],
       [{Path,Bin} || {Path,Bin} <- Files1, not lists:member(Path, Removing)]
   end,
 

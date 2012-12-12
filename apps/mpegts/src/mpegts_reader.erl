@@ -42,6 +42,8 @@
   decoder,
   socket,
   options,
+  counters,
+  url,
   byte_counter = 0,
   media_info,
   delay_for_config = true,
@@ -86,7 +88,8 @@ init([Options]) ->
       erlang:monitor(process, Cons),
       Cons
   end,
-  {ok, #reader{consumer = Consumer, options = Options, decoder = mpegts_decoder:init()}}.
+  URL = proplists:get_value(url, Options),
+  {ok, #reader{consumer = Consumer, url = URL, options = Options, counters = dict:new(), decoder = mpegts_decoder:init()}}.
 
 
 
@@ -98,8 +101,7 @@ handle_call({set_socket, Socket}, _From, #reader{} = Decoder) ->
 handle_call(media_info, _From, #reader{media_info = MI} = Decoder) ->
   {reply, MI, Decoder};
 
-handle_call(connect, _From, #reader{options = Options} = Decoder) ->
-  URL = proplists:get_value(url, Options),
+handle_call(connect, _From, #reader{options = Options, url = URL} = Decoder) ->
   Timeout = proplists:get_value(timeout, Options, 2000),
   {Schema, _, _Host, _Port, _Path, _Query} = http_uri2:parse(URL),
   case Schema of
@@ -127,8 +129,14 @@ handle_info({'DOWN', _Ref, process, Consumer, _Reason}, #reader{consumer = Consu
 handle_info({tcp, Socket, Bin}, #reader{} = Reader) ->
   handle_info({input_data, Socket, Bin}, Reader);
 
-handle_info({udp, Socket, _IP, _InPortNo, Bin}, #reader{} = Reader) ->
-  handle_info({input_data, Socket, Bin}, Reader);
+handle_info({udp, Socket, _IP, _InPortNo, Bin}, #reader{counters = Counters, url = URL} = Reader) ->
+  Data = iolist_to_binary([Bin|fetch_udp()]),
+  Counters2 = validate_mpegts(Data, Counters, URL),
+  handle_info({input_data, Socket, Data}, Reader#reader{counters = Counters2});
+
+handle_info({mpegts_udp, Socket, Data}, #reader{counters = Counters, url = URL} = Reader) ->
+  Counters2 = validate_mpegts(Data, Counters, URL),
+  handle_info({input_data, Socket, Data}, Reader#reader{counters = Counters2});  
 
 handle_info({input_data, Socket, Bin}, #reader{consumer = Consumer, decoder = Decoder, sent_media_info = Sent} = Reader) ->
   inet:setopts(Socket, [{active,once}]),
@@ -166,6 +174,35 @@ handle_info(Else, #reader{} = Reader) ->
   {stop, {unknown_message, Else}, Reader}.
 
 
+fetch_udp() ->
+  receive
+    {udp, _Socket, _IP, _InPortNo, Bin} -> [Bin|fetch_udp()]
+  after
+    0 -> []
+  end.
+
+
+validate_mpegts(Data, Counters, URL) ->
+  Packets = [{Pid,Counter} || <<16#47, _:3, Pid:13, _:4, Counter:4, _:184/binary>> <= Data],
+  Counters2 = lists:foldl(fun({Pid,Counter}, Counters1) ->
+    case dict:find(Pid, Counters1) of
+      {ok, Value} when (Value + 1) rem 16 == Counter -> ok;
+      {ok, Value} when (Value + 1) rem 16 =/= Counter ->
+        {Mega,Sec,_} = os:timestamp(),
+        CurrentMinute = (Mega*1000000+Sec) div 60,
+        case get(error_happened_at) of
+          CurrentMinute -> ok;
+          _ -> ?ERR("Pid ~p desync ~B -> ~B (~s)", [Pid,Value,Counter,URL])
+        end,
+        put(error_happened_at, CurrentMinute)
+        ;
+      error -> ok
+    end,
+    dict:store(Pid,Counter,Counters1)
+  end, Counters, Packets),
+  Counters2.
+
+
 % send_media_info_if_needed(#reader{consumer = Consumer, media_info = #media_info{}} = Decoder, Frames) when length(Frames) > 0 ->
 %   case get(sent_media_info) of
 %     true -> ok;
@@ -191,15 +228,26 @@ code_change(_OldVsn, State, _Extra) ->
 connect_udp(URL) ->
   {_, _, Host, Port, _Path, _Query} = http_uri2:parse(URL),
   {ok, Addr} = inet_parse:address(Host),
-  Common = [binary,{active,once},{recbuf,65536},inet,{ip,Addr}],
-  case is_multicast(Addr) of
+  % Yes. Here is active,true because UDP can loose data
+  Common = [binary,{active,true},{recbuf,2*1024*1024},inet,{ip,Addr}],
+  Options = case is_multicast(Addr) of
     true ->
       Multicast = [{reuseaddr,true},{multicast_ttl,4},{multicast_loop,true}],
-      {ok, Socket} = gen_udp:open(Port, Common ++ Multicast),
-      inet:setopts(Socket,[{add_membership,{Addr,{0,0,0,0}}}]),
-      {ok, Socket};
+      Common ++ Multicast;
     false ->
-      {ok, Socket} = gen_udp:open(Port, Common),
+      Common
+  end,
+
+  case mpegts_udp:open(Port, Options) of
+    {ok, Socket} ->
+      {ok, Socket};
+    {error, _} ->
+      {ok, Socket} = gen_udp:open(Port, Options),
+      case is_multicast(Addr) of
+        true -> inet:setopts(Socket,[{add_membership,{Addr,{0,0,0,0}}}]);
+        false -> ok
+      end,
+      process_flag(priority, high),
       {ok, Socket}
   end.
 

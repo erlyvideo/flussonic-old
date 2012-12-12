@@ -22,15 +22,17 @@ case $1 in
   mkdir -p /var/run/flussonic
   export RUN_ERL_LOG_GENERATIONS=100
   export RUN_ERL_LOG_MAXSIZE=10000000
-	run_erl -daemon /var/run/flussonic/ /var/log/flussonic "exec $0 launch"
-	while [ ! -e /var/run/flussonic.pid ] ; do sleep 1; echo -n "."; done
-	echo ""
+  rm -rf /var/run/flussonic/*
+  run_erl -daemon /var/run/flussonic/ /var/log/flussonic "exec $0 launch"
+  while [ ! -e /var/run/flussonic.pid ] ; do sleep 1; echo -n "."; done
+  echo ""
   ;;
 "stop")
   echo "Stopping flussonic"
-	echo -e "init:stop().\n" > /var/run/flussonic/erlang.pipe.1.w
-	sleep 1
+  echo -e "init:stop().\n" > /var/run/flussonic/erlang.pipe.1.w
+  sleep 1
   kill `cat /var/run/flussonic.pid`
+  rm -rf /var/run/flussonic/*
   ;;
 "run")
   echo "Running"
@@ -44,7 +46,7 @@ case $1 in
   exec $CMD
   ;;
 "reload")
-  echo "Reloading unimplemented"
+  echo -e "flu:reconf().\n" > /var/run/flussonic/erlang.pipe.1.w
   ;;
 "restart")
   echo "Restarting"
@@ -69,5 +71,5 @@ case $1 in
   echo "Status unimplemented"
   ;;
 *)
-  echo "$0 start|stop|run|reload|restart|attach|status"
+  echo "$0 start|stop|run|reload|restart|attach|shell"
 esac

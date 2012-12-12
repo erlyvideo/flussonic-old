@@ -215,7 +215,10 @@ pes_data(Data, #stream{pes_header = PES} = Stream, 0) when size(PES) > 0 ->
 %% OriginalOrCopy:1, PtsDtsIndicator:2, ESCR:1, ESRate:1, DSM:1, AdditionalCopy:1, CRC:1, Extension:1
 
 pes_data(<<1:24, _:32, PtsDts:2, _:6, Len, Header:Len/binary, Data/binary>>, #stream{} = Stream, 1) ->
-  {DTS, PTS} = pes_timestamp(PtsDts, Header),
+  {DTS, PTS} = case pes_timestamp(PtsDts, Header) of
+    undefined -> {Stream#stream.dts + 40*90, Stream#stream.pts + 40*90};
+    {D,P} -> {D,P}
+  end,
 
   % ?debugFmt("new dts ~B ~s (~B buffer)", [DTS, Stream#stream.codec, size(Stream#stream.es_buffer)]),
   new_pes_packet(Data, DTS, PTS, Stream);
@@ -269,9 +272,15 @@ new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = undefined} = S
 
 
 new_pes_packet(Data, DTS, PTS, #stream{codec = aac, es_buffer = Old, dts = OldDTS} = Stream) when size(Old) > 0 ->
-  {ok, Frame, Rest} = aac_frame(OldDTS, <<Old/binary, Data/binary>>),
-  {Stream1, Frames} = new_pes_packet(Rest, DTS, PTS, Stream#stream{es_buffer = <<>>}),
-  {Stream1, [Frame|Frames]};
+  case aac_frame(OldDTS, <<Old/binary, Data/binary>>) of
+    {ok, Frame, Rest} ->
+      {Stream1, Frames} = new_pes_packet(Rest, DTS, PTS, Stream#stream{es_buffer = <<>>}),
+      {Stream1, [Frame|Frames]};
+    {more, _} ->
+      new_pes_packet(Data, DTS, PTS, Stream#stream{es_buffer = <<>>});
+    {error, _} ->
+      new_pes_packet(Data, DTS, PTS, Stream#stream{es_buffer = <<>>})
+  end;
 
 new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = SampleRate} = Stream) ->
   case aac_frame(DTS, Data) of
@@ -279,7 +288,9 @@ new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = SampleRate} = 
       {Stream1, Frames} = new_pes_packet(Rest, DTS + 1024*90*1000 div SampleRate, PTS, Stream),
       {Stream1, [Frame|Frames]};
     {more, _} ->
-      {Stream#stream{es_buffer = Data, dts = DTS}, []}
+      {Stream#stream{es_buffer = Data, dts = DTS}, []};
+    {error, _} ->
+      {Stream#stream{es_buffer = <<>>, dts = DTS}, []}
   end;
 
 new_pes_packet(_, _, _, #stream{} = Stream) ->
@@ -394,7 +405,7 @@ pes_timestamp(2#10, <<2#0010:4, Pts1:3, 1:1, Pts2:15, 1:1, Pts3:15, 1:1, _/binar
   {PTS1, PTS1};
 
 pes_timestamp(_, _) ->
-  erlang:error(stream_without_pts_dts).
+  undefined.
 
 
 
