@@ -7,7 +7,7 @@ Flussonic is a HTTP streaming video solution, former erlyvideo.
 Installation
 ------------
 
-* install erlang from http://www.erlang-solutions.com/section/132/erlang-otp-packages
+* install erlang from https://www.erlang-solutions.com/downloads/download-erlang-otp
 
 ```
 wget -q -O - http://debian.erlyvideo.org/binary/gpg.key | apt-key add -
