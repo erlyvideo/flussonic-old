@@ -37,6 +37,7 @@ open(Port, Options) ->
           <<I1, I2, I3, I4>>
       end end,
       <<"ok">> = port_control(Socket, ?CMD_OPEN, <<Port:16, Multicast/binary>>),
+      erlang:port_set_data(Socket, inet_udp),
       {ok, Socket};
     Else ->
       Else

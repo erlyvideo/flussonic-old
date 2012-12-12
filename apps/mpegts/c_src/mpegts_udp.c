@@ -44,8 +44,8 @@ static ErlDrvData mpegts_drv_start(ErlDrvPort port, char *buff)
     d->port = port;
     d->owner = driver_caller(port);
     set_port_control_flags(port, PORT_CONTROL_FLAG_BINARY);
-    d->size = 65536;
-    d->limit = 50000;
+    d->size = 2*65536;
+    d->limit = 2*50000;
     d->timeout = 500;
     d->buf = (uint8_t *)driver_alloc(d->size);
     d->len = 0;
@@ -146,7 +146,7 @@ static ErlDrvSSizeT mpegts_drv_command(ErlDrvData handle, unsigned int command, 
 static void check_errors(mpegts *d) 
 {
   uint8_t *packet;
-  assert(d->len % 188 == 0);
+  return;
   for(packet = d->buf; packet < d->buf + d->len; packet += 188) {
     if(packet[0] == 0x47) {
       d->packet_count++;

@@ -75,12 +75,16 @@ handle0(Req, #mpegts{name = RawName, options = Options, method = <<"GET">>} = St
      {ok, P} -> {ok, P};
      _ -> throw({return, 404, "No stream found\n"})
   end,
+  Streams = case flu_stream:media_info(Name) of
+    undefined -> throw({return, 404, "Stream not started\n"});
+    #media_info{streams = Streams_} -> Streams_
+  end,
+
   Mpegts = mpegts:init([{resync_on_keyframe,true}]),
   flu_stream:subscribe(Pid, Options),
   ?D({mpegts_play,Name}),
   inet:setopts(Socket, [{send_timeout,10000},{sndbuf,1200000}]),
   Transport:send(Socket, "HTTP/1.0 200 OK\r\nContent-Type: video/mpeg2\r\nConnection: close\r\n\r\n"),
-  #media_info{streams = Streams} = flu_stream:media_info(Name),
   Started = length([S || #stream_info{content = video} = S <- Streams]) == 0,
   case (catch write_loop(Socket, Transport, Mpegts, Started)) of
     {'EXIT', Error} -> ?D({exit,Error,erlang:get_stacktrace()});

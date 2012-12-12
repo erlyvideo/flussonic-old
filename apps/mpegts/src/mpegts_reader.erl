@@ -89,6 +89,7 @@ init([Options]) ->
       Cons
   end,
   URL = proplists:get_value(url, Options),
+  put(name, {mpegts_reader,URL}),
   {ok, #reader{consumer = Consumer, url = URL, options = Options, counters = dict:new(), decoder = mpegts_decoder:init()}}.
 
 
@@ -127,19 +128,21 @@ handle_info({'DOWN', _Ref, process, Consumer, _Reason}, #reader{consumer = Consu
   {stop, normal, State};
   
 handle_info({tcp, Socket, Bin}, #reader{} = Reader) ->
+  inet:setopts(Socket, [{active,once}]),
   handle_info({input_data, Socket, Bin}, Reader);
 
-handle_info({udp, Socket, _IP, _InPortNo, Bin}, #reader{counters = Counters, url = URL} = Reader) ->
+handle_info({udp, Socket, _IP, _InPortNo, Bin}, #reader{counters = Counters, url = _URL} = Reader) ->
   Data = iolist_to_binary([Bin|fetch_udp()]),
-  Counters2 = validate_mpegts(Data, Counters, URL),
+  % Counters2 = validate_mpegts(Data, Counters, URL),
+  Counters2 = Counters,
   handle_info({input_data, Socket, Data}, Reader#reader{counters = Counters2});
 
-handle_info({mpegts_udp, Socket, Data}, #reader{counters = Counters, url = URL} = Reader) ->
-  Counters2 = validate_mpegts(Data, Counters, URL),
+handle_info({mpegts_udp, Socket, Data}, #reader{counters = Counters, url = _URL} = Reader) ->
+  % Counters2 = validate_mpegts(Data, Counters, URL),
+  Counters2 = Counters,
   handle_info({input_data, Socket, Data}, Reader#reader{counters = Counters2});  
 
-handle_info({input_data, Socket, Bin}, #reader{consumer = Consumer, decoder = Decoder, sent_media_info = Sent} = Reader) ->
-  inet:setopts(Socket, [{active,once}]),
+handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = Decoder, sent_media_info = Sent} = Reader) ->
   try mpegts_decoder:decode(Bin, Decoder) of
     {ok, Decoder2, Frames} ->
       % send_media_info_if_needed(Decoder_, Frames),
@@ -182,25 +185,25 @@ fetch_udp() ->
   end.
 
 
-validate_mpegts(Data, Counters, URL) ->
-  Packets = [{Pid,Counter} || <<16#47, _:3, Pid:13, _:4, Counter:4, _:184/binary>> <= Data],
-  Counters2 = lists:foldl(fun({Pid,Counter}, Counters1) ->
-    case dict:find(Pid, Counters1) of
-      {ok, Value} when (Value + 1) rem 16 == Counter -> ok;
-      {ok, Value} when (Value + 1) rem 16 =/= Counter ->
-        {Mega,Sec,_} = os:timestamp(),
-        CurrentMinute = (Mega*1000000+Sec) div 60,
-        case get(error_happened_at) of
-          CurrentMinute -> ok;
-          _ -> ?ERR("Pid ~p desync ~B -> ~B (~s)", [Pid,Value,Counter,URL])
-        end,
-        put(error_happened_at, CurrentMinute)
-        ;
-      error -> ok
-    end,
-    dict:store(Pid,Counter,Counters1)
-  end, Counters, Packets),
-  Counters2.
+% validate_mpegts(Data, Counters, URL) ->
+%   Packets = [{Pid,Counter} || <<16#47, _:3, Pid:13, _:4, Counter:4, _:184/binary>> <= Data],
+%   Counters2 = lists:foldl(fun({Pid,Counter}, Counters1) ->
+%     case dict:find(Pid, Counters1) of
+%       {ok, Value} when (Value + 1) rem 16 == Counter -> ok;
+%       {ok, Value} when (Value + 1) rem 16 =/= Counter ->
+%         {Mega,Sec,_} = os:timestamp(),
+%         CurrentMinute = (Mega*1000000+Sec) div 60,
+%         case get(error_happened_at) of
+%           CurrentMinute -> ok;
+%           _ -> ?ERR("Pid ~p desync ~B -> ~B (~s)", [Pid,Value,Counter,URL])
+%         end,
+%         put(error_happened_at, CurrentMinute)
+%         ;
+%       error -> ok
+%     end,
+%     dict:store(Pid,Counter,Counters1)
+%   end, Counters, Packets),
+%   Counters2.
 
 
 % send_media_info_if_needed(#reader{consumer = Consumer, media_info = #media_info{}} = Decoder, Frames) when length(Frames) > 0 ->
@@ -238,18 +241,18 @@ connect_udp(URL) ->
       Common
   end,
 
-  case mpegts_udp:open(Port, Options) of
-    {ok, Socket} ->
-      {ok, Socket};
-    {error, _} ->
+  % case mpegts_udp:open(Port, Options) of
+  %   {ok, Socket} ->
+  %     {ok, Socket};
+  %   {error, _E} ->
       {ok, Socket} = gen_udp:open(Port, Options),
       case is_multicast(Addr) of
         true -> inet:setopts(Socket,[{add_membership,{Addr,{0,0,0,0}}}]);
         false -> ok
       end,
       process_flag(priority, high),
-      {ok, Socket}
-  end.
+      {ok, Socket}.
+  % end.
 
 
 is_multicast(Addr) when is_tuple(Addr) ->
