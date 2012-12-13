@@ -87,6 +87,7 @@ mmap_open(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
   
   fd = open(path, O_RDONLY);
   if(fd == -1) {
+    if(errno == ENOENT) return enif_make_tuple2(env, enif_make_atom(env, "error"), enif_make_atom(env, "enoent"));
     return enif_make_tuple2(env, enif_make_atom(env, "error"), enif_make_string(env, strerror(errno), ERL_NIF_LATIN1));
   }
   if(fstat(fd, &st)) {

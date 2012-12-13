@@ -10,8 +10,9 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(CMD_OPEN, 1).
+-define(CMD_ACTIVE_ONCE, 5).
 
--export([open/2, close/1]).
+-export([open/2, close/1, active_once/1]).
 
 open(Port, Options) ->
   Path = case code:lib_dir(mpegts,priv) of
@@ -42,6 +43,12 @@ open(Port, Options) ->
     Else ->
       Else
   end.
+
+
+active_once(Port) ->
+  <<"ok">> = port_control(Port, ?CMD_ACTIVE_ONCE, <<>>),
+  ok.
+
 
 close(Socket) ->
   erlang:port_close(Socket).

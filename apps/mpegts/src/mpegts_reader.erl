@@ -105,12 +105,11 @@ handle_call(media_info, _From, #reader{media_info = MI} = Decoder) ->
 handle_call(connect, _From, #reader{options = Options, url = URL} = Decoder) ->
   Timeout = proplists:get_value(timeout, Options, 2000),
   {Schema, _, _Host, _Port, _Path, _Query} = http_uri2:parse(URL),
-  case Schema of
-    udp -> 
+  if Schema == udp orelse Schema == udp2 ->
       {ok, Socket} = connect_udp(URL),
       % ?DBG("MPEG-TS reader connected to \"~s\"", [URL]),
   	  {reply, ok, Decoder#reader{socket = Socket}};
-    _ ->
+    true ->
       case  http_stream:request(URL, [{timeout,Timeout}]) of 
       	{ok,{Socket,_Code,_Header}} ->
       	  ok = inet:setopts(Socket, [{packet,raw},{active,once}]),
@@ -132,7 +131,7 @@ handle_info({tcp, Socket, Bin}, #reader{} = Reader) ->
   handle_info({input_data, Socket, Bin}, Reader);
 
 handle_info({udp, Socket, _IP, _InPortNo, Bin}, #reader{counters = Counters, url = _URL} = Reader) ->
-  Data = iolist_to_binary([Bin|fetch_udp()]),
+  Data = iolist_to_binary([Bin|fetch_udp(Socket)]),
   % Counters2 = validate_mpegts(Data, Counters, URL),
   Counters2 = Counters,
   handle_info({input_data, Socket, Data}, Reader#reader{counters = Counters2});
@@ -140,6 +139,7 @@ handle_info({udp, Socket, _IP, _InPortNo, Bin}, #reader{counters = Counters, url
 handle_info({mpegts_udp, Socket, Data}, #reader{counters = Counters, url = _URL} = Reader) ->
   % Counters2 = validate_mpegts(Data, Counters, URL),
   Counters2 = Counters,
+  mpegts_udp:active_once(Socket),
   handle_info({input_data, Socket, Data}, Reader#reader{counters = Counters2});  
 
 handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = Decoder, sent_media_info = Sent} = Reader) ->
@@ -177,11 +177,11 @@ handle_info(Else, #reader{} = Reader) ->
   {stop, {unknown_message, Else}, Reader}.
 
 
-fetch_udp() ->
-  receive
-    {udp, _Socket, _IP, _InPortNo, Bin} -> [Bin|fetch_udp()]
-  after
-    0 -> []
+fetch_udp(Socket) ->
+  case gen_udp:recv(Socket, 2*1024*1024, 0) of
+    {ok, {_, _, Bin}} -> [Bin|fetch_udp(Socket)];
+    {error, timeout} -> [];
+    {error, Error} -> error({udp,Error})
   end.
 
 
@@ -229,10 +229,10 @@ code_change(_OldVsn, State, _Extra) ->
 
     
 connect_udp(URL) ->
-  {_, _, Host, Port, _Path, _Query} = http_uri2:parse(URL),
+  {Proto, _, Host, Port, _Path, _Query} = http_uri2:parse(URL),
   {ok, Addr} = inet_parse:address(Host),
   % Yes. Here is active,true because UDP can loose data
-  Common = [binary,{active,true},{recbuf,2*1024*1024},inet,{ip,Addr}],
+  Common = [binary,{active,once},{recbuf,2*1024*1024},inet,{ip,Addr}],
   Options = case is_multicast(Addr) of
     true ->
       Multicast = [{reuseaddr,true},{multicast_ttl,4},{multicast_loop,true}],
@@ -241,18 +241,26 @@ connect_udp(URL) ->
       Common
   end,
 
-  % case mpegts_udp:open(Port, Options) of
-  %   {ok, Socket} ->
-  %     {ok, Socket};
-  %   {error, _E} ->
+  case Proto of
+    udp ->
       {ok, Socket} = gen_udp:open(Port, Options),
       case is_multicast(Addr) of
         true -> inet:setopts(Socket,[{add_membership,{Addr,{0,0,0,0}}}]);
         false -> ok
       end,
       process_flag(priority, high),
-      {ok, Socket}.
-  % end.
+      {ok, Socket};
+    udp2 ->
+      case mpegts_udp:open(Port, Options) of
+        {ok, Socket} ->
+          process_flag(priority, high),
+          mpegts_udp:active_once(Socket),
+          {ok, Socket};
+        {error, _E} = Error ->
+          ?D(Error),
+          Error
+      end
+  end.
 
 
 is_multicast(Addr) when is_tuple(Addr) ->

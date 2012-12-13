@@ -7,15 +7,40 @@
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([init/0]).
+% -on_load(init_nif/0).
+
+-export([init/0, init_nif/0]).
 -export([decode/2]).
 -export([read_file/1, decode_file/1]).
 -export([media_info/1]).
 
 
+-export([bench/1]).
+
 -define(PAT_PID, 0).
 
 -define(DD(Fmt,X), ?debugFmt(Fmt, X)).
+
+
+
+bench(Path) ->
+  {ok, F} = mmap:open(Path, []),
+  Decoder = ?MODULE:init(),
+  T1 = erlang:now(),
+  Count = bench_loop(F, Decoder, 0, 0),
+  T2 = erlang:now(),
+  Delta = timer:now_diff(T2,T1),
+  io:format("~B frames in ~B us, ~B us/frame~n", [Count, Delta, Delta div Count]),
+  ok.
+
+bench_loop(F, Decoder, Offset, Count) ->
+  case mmap:pread(F, Offset, 8192) of
+    {ok, Bin} ->
+      {ok, Decoder1, Frames} = ?MODULE:decode(Bin, Decoder),
+      bench_loop(F, Decoder1, Offset + size(Bin), Count + length(Frames));
+    eof ->
+      Count
+  end.
 
 
 
@@ -52,7 +77,31 @@ decode_file(Bin) ->
 
 %% Further goes real API
 
--define(DELAY, 7).
+-define(DELAY, 10).
+
+-type decoder() :: any().
+
+-spec init() -> decoder().
+
+-spec decode(Bin::binary(), Decoder::decoder()) -> {ok, Decoder1::decoder(), [Frame::video_frame()]}.
+
+
+
+
+
+init_nif() ->
+  Path = case code:lib_dir(mpegts,priv) of
+    {error, _} -> case file:read_file_info("apps/mpegts/priv") of
+      {ok, _} -> "apps/mpegts/priv";
+      {error, _} -> "priv"
+    end;
+    Dir -> Dir
+  end ++ "/mpegts_decoder",
+  case erlang:load_nif(Path, 0) of
+    ok -> ?DBG("mpegts_decoder loaded, acceleration enabled.", []), ok;
+    {error, Error} -> ?DBG("Loading mpegts_decoder failed: ~p. Acceleration disabled", [Error]), ok
+  end.
+
 
 
 -record(stream, {
@@ -64,7 +113,8 @@ decode_file(Bin) ->
   es_buffer = <<>>,
   sent_config = false,
   switching = false,
-  pes_header = undefined
+  pes_header = undefined,
+  frames = []
 }).
 
 -record(decoder,{
@@ -72,24 +122,12 @@ decode_file(Bin) ->
   video,
   audio,
   ts_buffer = undefined,
-  media_info = undefined,
-  delayed = []
+  sent_media_info = false,
+  media_info = undefined
 }).
 
-decode(Bin, #decoder{delayed = Delayed} = Decoder) ->
-  {ok, #decoder{media_info = MI} = Decoder1, Frames} = decode(Bin, Decoder, []),
-  % Quick and dirty frame resorting
-  Sorted = video_frame:sort(Frames ++ Delayed),
-  {Send,Save} = if 
-    Bin == eof -> {Sorted, []};
-    length(Sorted) > 2*?DELAY -> lists:split(?DELAY, Sorted);
-    true -> {[], Sorted}
-  end,
-  MI2 = case video_frame:has_media_info(MI) of
-    true -> MI;
-    false -> video_frame:define_media_info(MI, Sorted)
-  end,
-  {ok, Decoder1#decoder{delayed = Save, media_info = MI2}, Send}.
+init() -> 
+  #decoder{}.
 
 
 media_info(#decoder{media_info = MI}) ->
@@ -100,8 +138,105 @@ media_info(#decoder{media_info = MI}) ->
 
 
 
-init() ->
-  #decoder{}.
+
+decode(Bin, #decoder{} = Decoder) ->
+  {ok, #decoder{sent_media_info = SentMI, media_info = MI} = Decoder1} = decode_ts(Bin, Decoder),
+  {Frames, Decoder2} = flush_frames(Decoder1, Bin == eof),
+  
+  Decoder3 = case SentMI of
+    true -> Decoder2;
+    false ->
+      case video_frame:has_media_info(MI) of
+        true -> Decoder2;
+        false -> 
+          MI2 = video_frame:define_media_info(MI, Frames),
+          Decoder2#decoder{media_info = MI2}
+      end
+  end,
+  {ok, Decoder3, Frames}.
+
+
+
+
+flush_frames(#decoder{video = V, audio = A} = Decoder, true) ->
+  Frames = video_frame:sort(stream_frames(V) ++ stream_frames(A)),
+  {Frames, Decoder};
+
+flush_frames(#decoder{} = Decoder, false) ->
+  flush_frames(Decoder).
+
+
+stream_frames(undefined) -> [];
+stream_frames(#stream{frames = Frames}) -> Frames.
+
+flush_frames(#decoder{video = undefined, audio = undefined} = Decoder) ->
+  {[], Decoder};
+
+flush_frames(#decoder{video = undefined, audio = #stream{frames = Frames} = A} = Decoder) ->
+  {Frames, Decoder#decoder{audio = A#stream{frames = []}}};
+
+flush_frames(#decoder{video = #stream{frames = Frames} = V, audio = undefined} = Decoder) ->
+  {Frames, Decoder#decoder{video = V#stream{frames = []}}};
+
+flush_frames(#decoder{video = #stream{frames = VFrames} = V, 
+                      audio = #stream{frames = AFrames} = A} = Decoder) ->
+  {Frames, VFrames1, AFrames1} = merge_frames(VFrames, AFrames),
+  {Frames, Decoder#decoder{video = V#stream{frames = VFrames1}, audio = A#stream{frames = AFrames1}}}.
+
+
+merge_frames([#video_frame{dts = DTS1}=F|V], [#video_frame{dts = DTS2}|_] = A) when DTS1 =< DTS2 ->
+  {Frames, V1,A1} = merge_frames(V,A),
+  {[F|Frames], V1, A1};
+
+merge_frames([#video_frame{dts = DTS1}|_]=V, [#video_frame{dts = DTS2}=F|A]) when DTS1 > DTS2 ->
+  {Frames, V1,A1} = merge_frames(V,A),
+  {[F|Frames], V1, A1};
+
+merge_frames([], A) -> {[], [], A};
+merge_frames(V, []) -> {[], V, []}.
+
+
+% buffer_frames(Delayed, Frames, _Closing = true) ->
+%   {video_frame:sort(Frames ++ Delayed), []};
+
+% buffer_frames([], [], false) ->
+%   {[], []};
+
+% buffer_frames(Delayed, Frames, false) ->
+%   [#video_frame{content = Content}|_] = Delayed2 = lists:foldl(fun(Frame, Delayed1) ->
+%     merge_sort(Frame, Delayed1)
+%   end, Delayed, Frames),
+%   {Send, Save} = flush_delayed(Delayed2, Content),
+%   {Send, Save}.
+
+
+% merge_sort(#video_frame{dts = DTS1, content = Content1}=F1, [#video_frame{dts = DTS2, content = Content2}|_] = Delayed) 
+%   when DTS1 > DTS2 orelse 
+%   (DTS1 == DTS2 andalso Content1 == audio andalso Content2 == video) ->
+%   [F1|Delayed];
+
+% merge_sort(#video_frame{dts = DTS1}=F1, [#video_frame{dts = DTS2}=F2|Delayed]) 
+%   when DTS1 =< DTS2 ->
+%   [F2|merge_sort(F1, Delayed)];
+
+% merge_sort(F, []) ->
+%   [F].
+
+
+% flush_delayed([#video_frame{content = Content}=F|Delayed], Content) ->
+%   {Send, Save} = flush_delayed(Delayed, Content),
+%   {Send, [F|Save]};
+
+% flush_delayed([], _Content) ->
+%   {[], []};
+
+% flush_delayed([#video_frame{content = Content1}|_] = Delayed, Content) when Content1 =/= Content ->
+%   {lists:reverse(Delayed), []}.
+
+
+
+
+
 
 
 %% TS header
@@ -113,23 +248,28 @@ init() ->
 %% OriginalOrCopy:1, PtsDtsIndicator:2, ESCR:1, ESRate:1, DSM:1, AdditionalCopy:1, CRC:1, Extension:1
 %% 
 
-decode(NewTS, #decoder{ts_buffer = <<16#47, _/binary>> = OldTS} = Decoder, []) when size(NewTS) + size(OldTS) < 188 ->
+decode_ts(NewTS, #decoder{ts_buffer = <<16#47, _/binary>> = OldTS} = Decoder) when size(NewTS) + size(OldTS) < 188 ->
   {ok, Decoder#decoder{ts_buffer = <<OldTS/binary, NewTS/binary>>}, []};
 
-decode(NewTS, #decoder{ts_buffer = <<16#47, _/binary>> = OldTS} = Decoder, []) when size(NewTS) + size(OldTS) >= 188 ->
+decode_ts(NewTS, #decoder{ts_buffer = <<16#47, _/binary>> = OldTS} = Decoder) when size(NewTS) + size(OldTS) >= 188 ->
   ChunkSize = 188 - size(OldTS),
   <<Chunk:ChunkSize/binary, Rest/binary>> = NewTS,
   TS = <<OldTS/binary, Chunk/binary>>,
-  {ok, Decoder1, Frames} = decode(TS, Decoder#decoder{ts_buffer = undefined}, []),
-  decode(Rest, Decoder1, Frames);
+  {ok, Decoder1} = decode_ts(TS, Decoder#decoder{ts_buffer = undefined}),
+  decode_ts(Rest, Decoder1);
 
+decode_ts(<<16#47, _:3, ?PAT_PID:13, _:185/binary, Rest/binary>>, #decoder{media_info = MI} = Decoder) when MI =/= undefined ->
+  decode_ts(Rest, Decoder);
 
-decode(<<16#47, _:3, ?PAT_PID:13, _:185/binary, Rest/binary>> = Packet, #decoder{} = Decoder, Frames) ->
+decode_ts(<<16#47, _:3, ?PAT_PID:13, _:185/binary, Rest/binary>> = Packet, #decoder{} = Decoder) ->
   {pat, [{PMT,_}|_]} = mpegts_psi:psi(ts_payload(Packet)),
-  decode(Rest, Decoder#decoder{pmt = PMT}, Frames);
+  decode_ts(Rest, Decoder#decoder{pmt = PMT});
 
-decode(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>> = Packet, #decoder{pmt = PMT, 
-  media_info = MI} = Decoder, Frames) ->
+decode_ts(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>>, #decoder{media_info = MI, pmt = PMT} = Decoder) when MI =/= undefined ->
+  decode_ts(Rest, Decoder);
+
+decode_ts(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>> = Packet, #decoder{pmt = PMT, 
+  media_info = MI} = Decoder) ->
   {pmt, Descriptors} = mpegts_psi:psi(ts_payload(Packet)),
   #decoder{audio = A, video = V} = Decoder2 = lists:foldl(fun
     (#pmt_entry{pid = Pid, codec = h264}, #decoder{video = #stream{} = V} = Decoder1) -> 
@@ -161,38 +301,37 @@ decode(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>> = Packet, #decoder{pmt 
     _ -> MI
   end,
   MI2 = MI1#media_info{streams = lists:ukeymerge(#stream_info.track_id, MI1#media_info.streams, NewStreams)},
-  decode(Rest, Decoder2#decoder{media_info = MI2}, Frames);
+  decode_ts(Rest, Decoder2#decoder{media_info = MI2});
 
 
-decode(<<16#47, _:1, Start:1, _:1, Pid:13, _:185/binary, Rest/binary>> = Packet, #decoder{} = Decoder, Frames) ->
+decode_ts(<<16#47, _:1, Start:1, _:1, Pid:13, _:185/binary, Rest/binary>> = Packet, #decoder{} = Decoder) ->
   Data = ts_payload(Packet),
-  {Decoder2, NewFrames} = case Decoder of
+  Decoder2 = case Decoder of
     #decoder{video = #stream{pid = Pid} = Stream} ->
-      {Stream1, NewFrames_} = pes_data(Data, Stream, Start),
-      {Decoder#decoder{video = Stream1}, NewFrames_};
+      Stream1 = pes_data(Data, Stream, Start),
+      Decoder#decoder{video = Stream1};
     #decoder{audio = #stream{pid = Pid} = Stream} ->
-      {Stream1, NewFrames_} = pes_data(Data, Stream, Start),
-      {Decoder#decoder{audio = Stream1}, NewFrames_};
+      Stream1 = pes_data(Data, Stream, Start),
+      Decoder#decoder{audio = Stream1};
     #decoder{} ->
-      {Decoder, []}
+      Decoder
   end,
-  decode(Rest, Decoder2, NewFrames ++ Frames);
+  decode_ts(Rest, Decoder2);
 
+decode_ts(<<>>, #decoder{} = Decoder) ->
+  {ok, Decoder};
 
-decode(<<>>, #decoder{} = Decoder, Frames) ->
-  {ok, Decoder, Frames};
+decode_ts(<<16#47, _/binary>> = TS, #decoder{ts_buffer = undefined} = Decoder) when size(TS) < 188 ->
+  {ok, Decoder#decoder{ts_buffer = TS}};
 
-decode(<<16#47, _/binary>> = TS, #decoder{ts_buffer = undefined} = Decoder, Frames) when size(TS) < 188 ->
-  {ok, Decoder#decoder{ts_buffer = TS}, Frames};
+decode_ts(<<C, Bin/binary>>, #decoder{} = Decoder) when C =/= 16#47 ->
+  decode_ts(Bin, Decoder);
 
-% decode(<<_, TS/binary>>, Decoder, Frames) ->
-%   decode(TS, Decoder, Frames);
+decode_ts(eof, #decoder{audio = A, video = V} = Decoder) ->
+  A1 = case A of undefined -> A; _ -> pes_data(eof, A, 0) end,
+  V1 = case V of undefined -> V; _ -> pes_data(eof, V, 0) end,
 
-decode(eof, #decoder{audio = A, video = V} = Decoder, Frames) ->
-  {A1, AFrames} = case A of undefined -> {A, []}; _ -> pes_data(eof, A, 0) end,
-  {V1, VFrames} = case V of undefined -> {V, []}; _ -> pes_data(eof, V, 0) end,
-
-  {ok, Decoder#decoder{audio = A1, video = V1}, AFrames ++ VFrames ++ Frames}.
+  {ok, Decoder#decoder{audio = A1, video = V1}}.
 
 
 
@@ -224,13 +363,13 @@ pes_data(<<1:24, _:32, PtsDts:2, _:6, Len, Header:Len/binary, Data/binary>>, #st
   new_pes_packet(Data, DTS, PTS, Stream);
 
 pes_data(<<1:24, _/binary>> = PES, #stream{pes_header = undefined} = Stream, 1) ->
-  {Stream#stream{pes_header = PES}, []};
+  Stream#stream{pes_header = PES};
 
 pes_data(Data, #stream{switching = {DTS, PTS}} = Stream, 0) ->
   new_pes_packet(Data, DTS, PTS, Stream);
 
 pes_data(Data, #stream{es_buffer = Buffer, switching = false} = Stream, 0) ->
-  {Stream#stream{es_buffer = <<Buffer/binary, Data/binary>>}, []}.
+  Stream#stream{es_buffer = <<Buffer/binary, Data/binary>>}.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -243,20 +382,20 @@ pes_data(Data, #stream{es_buffer = Buffer, switching = false} = Stream, 0) ->
 %% H264
 
 new_pes_packet(NewData, DTS, PTS, #stream{codec = h264, dts = undefined} = Stream) ->
-  {Stream#stream{es_buffer = NewData, dts = DTS, pts = PTS}, []};
+  Stream#stream{es_buffer = NewData, dts = DTS, pts = PTS};
 
-new_pes_packet(eof, _, _, #stream{codec = h264} = Stream) ->
+new_pes_packet(eof, _, _, #stream{codec = h264, frames = Delayed} = Stream) ->
   {Stream1, Frames} = h264_frames(Stream),
-  {Stream1#stream{es_buffer = <<>>}, Frames};
+  Stream1#stream{es_buffer = <<>>, frames = Delayed ++ Frames};
 
-new_pes_packet(NewData, DTS, PTS, #stream{codec = h264, es_buffer = Buffer} = Stream) ->
+new_pes_packet(NewData, DTS, PTS, #stream{codec = h264, es_buffer = Buffer, frames = Delayed} = Stream) ->
   case binary:split(NewData, [<<1:32>>, <<1:24>>]) of
     [Tail,NewBuffer] ->
       % ?debugFmt("close old h264 frame ~B (~p)", [Stream#stream.dts, size(Buffer) + size(Tail)]),
       {Stream1, Frames} = h264_frames(Stream#stream{es_buffer = <<Buffer/binary, Tail/binary>>}),
-      {Stream1#stream{es_buffer = NewBuffer, dts = DTS, pts = PTS, switching = false}, Frames};
+      Stream1#stream{es_buffer = NewBuffer, dts = DTS, pts = PTS, switching = false, frames = Delayed ++ Frames};
     [_] ->
-      {Stream#stream{es_buffer = <<Buffer/binary, NewData/binary>>, switching = {DTS,PTS}}, []}
+      Stream#stream{es_buffer = <<Buffer/binary, NewData/binary>>, switching = {DTS,PTS}}
   end;
 
 
@@ -267,34 +406,34 @@ new_pes_packet(eof, _DTS, _PTS, #stream{dts = DTS, codec = aac, es_buffer = Buff
 
 new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = undefined} = Stream) ->
   {AudioConfig, SampleRate} = aac_config(DTS, Data),
-  {Stream1, Frames} = new_pes_packet(Data, DTS, PTS, Stream#stream{sample_rate = SampleRate}),
-  {Stream1, [AudioConfig|Frames]};
+  Stream1 = #stream{frames = Frames} = new_pes_packet(Data, DTS, PTS, Stream#stream{sample_rate = SampleRate}),
+  Stream1#stream{frames = [AudioConfig|Frames]};
 
 
-new_pes_packet(Data, DTS, PTS, #stream{codec = aac, es_buffer = Old, dts = OldDTS} = Stream) when size(Old) > 0 ->
+new_pes_packet(Data, DTS, PTS, #stream{codec = aac, es_buffer = Old, dts = OldDTS, frames = Delayed} = Stream) when size(Old) > 0 ->
   case aac_frame(OldDTS, <<Old/binary, Data/binary>>) of
     {ok, Frame, Rest} ->
-      {Stream1, Frames} = new_pes_packet(Rest, DTS, PTS, Stream#stream{es_buffer = <<>>}),
-      {Stream1, [Frame|Frames]};
+      Stream1 = #stream{frames = Frames} = new_pes_packet(Rest, DTS, PTS, Stream#stream{es_buffer = <<>>,frames = []}),
+      Stream1#stream{frames = Delayed ++ [Frame|Frames]};
     {more, _} ->
       new_pes_packet(Data, DTS, PTS, Stream#stream{es_buffer = <<>>});
     {error, _} ->
       new_pes_packet(Data, DTS, PTS, Stream#stream{es_buffer = <<>>})
   end;
 
-new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = SampleRate} = Stream) ->
+new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = SampleRate, frames = Delayed} = Stream) ->
   case aac_frame(DTS, Data) of
     {ok, Frame, Rest} ->
-      {Stream1, Frames} = new_pes_packet(Rest, DTS + 1024*90*1000 div SampleRate, PTS, Stream),
-      {Stream1, [Frame|Frames]};
+      Stream1 = #stream{frames = Frames} = new_pes_packet(Rest, DTS + 1024*90*1000 div SampleRate, PTS, Stream#stream{frames = []}),
+      Stream1#stream{frames = Delayed ++ [Frame|Frames]};
     {more, _} ->
-      {Stream#stream{es_buffer = Data, dts = DTS}, []};
+      Stream#stream{es_buffer = Data, dts = DTS};
     {error, _} ->
-      {Stream#stream{es_buffer = <<>>, dts = DTS}, []}
+      Stream#stream{es_buffer = <<>>, dts = DTS}
   end;
 
 new_pes_packet(_, _, _, #stream{} = Stream) ->
-  {Stream#stream{es_buffer = <<>>}, []}.
+  Stream#stream{es_buffer = <<>>}.
 
 
 
@@ -342,11 +481,14 @@ aac_frame(DTS, Data) ->
       Else
   end.
 
+separate_nals(NALs) ->
+  lists:partition(fun(NAL) -> lists:member(h264:type(NAL), [sps,pps]) end, NALs).
+
 
 h264_frames(#stream{dts = DTS, pts = PTS, es_buffer = AnnexB, sent_config = SentConfig} = Stream) ->
   NALs = [NAL || NAL <- binary:split(AnnexB, [<<1:32>>, <<1:24>>], [global]), NAL =/= <<>>, h264:type(NAL) =/= delim],
   NalTypes = [h264:type(NAL) || NAL <- NALs],
-  {ConfigNals, PayloadNals} = lists:partition(fun(NAL) -> lists:member(h264:type(NAL), [sps,pps]) end, NALs),
+  {ConfigNals, PayloadNals} = separate_nals(NALs),
   Config = case ConfigNals of
     [] -> [];
     _ -> [(h264:video_config(ConfigNals))#video_frame{dts = DTS / 90, pts = DTS / 90, track_id = 1}]
@@ -359,17 +501,17 @@ h264_frames(#stream{dts = DTS, pts = PTS, es_buffer = AnnexB, sent_config = Sent
     [#video_frame{
     content = video,
     track_id= 1,
-    body    = iolist_to_binary([[<<(size(NAL)):32>>, NAL] || NAL <- NALs, not lists:member(h264:type(NAL), [sps, pps])]),
+    body    = iolist_to_binary([[<<(size(NAL)):32>>, NAL] || NAL <- PayloadNals]),
     flavor  = if Keyframe -> keyframe; true -> frame end,
     codec   = h264,
     dts     = DTS / 90,
     pts     = PTS / 90
     }]
   end,
-  Frames = Payload ++ case SentConfig of
+  Frames = case SentConfig of
     true -> [];
     false -> Config
-  end,
+  end ++ Payload,
   {Stream#stream{sent_config = SentConfig orelse length(Config) > 0}, Frames}.
 
 

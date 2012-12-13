@@ -416,8 +416,8 @@ test_flu_hds_no_segment() ->
   ?assertMatch({error, {http_code,404}}, Result).
 
 test_answer_404_on_no_file() ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m",[{keepalive,false}]),
-  ?assertMatch({error, {http_code, 404}}, Result).
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m",[{keepalive,false},{no_fail,true}]),
+  ?assertMatch({ok, {_, 404, _, _}}, Result).
 
 test_answer_404_on_no_file_with_auth() ->
   set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:5555/index.html"}]},{root, "../../../wwwroot"}]),

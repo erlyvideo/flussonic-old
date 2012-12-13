@@ -38,19 +38,19 @@ typedef struct {
 
 static ErlDrvData mpegts_drv_start(ErlDrvPort port, char *buff)
 {
-    mpegts* d = (mpegts *)driver_alloc(sizeof(mpegts));
-    bzero(d, sizeof(mpegts));
-    memset(d->counters, 0xFF, PID_COUNT);
-    d->port = port;
-    d->owner = driver_caller(port);
-    set_port_control_flags(port, PORT_CONTROL_FLAG_BINARY);
-    d->size = 2*65536;
-    d->limit = 2*50000;
-    d->timeout = 500;
-    d->buf = (uint8_t *)driver_alloc(d->size);
-    d->len = 0;
-    d->socket = -1;
-    return (ErlDrvData)d;
+  mpegts* d = (mpegts *)driver_alloc(sizeof(mpegts));
+  bzero(d, sizeof(mpegts));
+  memset(d->counters, 0xFF, PID_COUNT);
+  d->port = port;
+  d->owner = driver_caller(port);
+  set_port_control_flags(port, PORT_CONTROL_FLAG_BINARY);
+  d->size = 2*65536;
+  d->limit = 2*50000;
+  d->timeout = 500;
+  d->buf = (uint8_t *)driver_alloc(d->size);
+  d->len = 0;
+  d->socket = -1;
+  return (ErlDrvData)d;
 }
 
 
@@ -110,13 +110,13 @@ static ErlDrvSSizeT mpegts_drv_command(ErlDrvData handle, unsigned int command, 
       int n = 2*1024 * 1024; // 10 seconds buffer
       if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n)) == -1) {
         // deal with failure, or ignore if you can live with the default size
+        driver_failure_posix(d->port, errno);
       }
 
       d->socket = sock;
       flags = fcntl(d->socket, F_GETFL);
       assert(flags >= 0);
       assert(!fcntl(d->socket, F_SETFL, flags | O_NONBLOCK));
-      driver_select(d->port, (ErlDrvEvent)d->socket, DO_READ, 1);
       memcpy(*rbuf, "ok", 2);
       return 2;
     }
@@ -135,7 +135,11 @@ static ErlDrvSSizeT mpegts_drv_command(ErlDrvData handle, unsigned int command, 
       d->packet_count = 0;
       return 4;
     }
-    break;
+    case 5: {
+      driver_select(d->port, (ErlDrvEvent)d->socket, DO_READ, 1);
+      memcpy(*rbuf, "ok", 2);
+      return 2;      
+    }
     default:
     return 0;
   }
@@ -174,6 +178,7 @@ static void flush(mpegts* d) {
   };
   driver_output_term(d->port, reply, sizeof(reply) / sizeof(reply[0]));
   d->len = 0;
+  driver_select(d->port, (ErlDrvEvent)d->socket, DO_READ, 0);
 }
 
 static void mpegts_drv_input(ErlDrvData handle, ErlDrvEvent event)
@@ -186,7 +191,7 @@ static void mpegts_drv_input(ErlDrvData handle, ErlDrvEvent event)
 
   while((s = recvfrom(d->socket, d->buf + d->len, d->size - d->len, 0, (struct sockaddr *)&peer, &peer_len)) > 0) {
     d->len += s;
-    if(d->len > d->limit) {
+    if((d->len > d->limit && (d->len % 188 == 0)) || d->len > (d->limit + d->size) / 2) {
       check_errors(d);
       flush(d);
     } else {

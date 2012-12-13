@@ -431,6 +431,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
   Result = case Proto of
     tshttp -> mpegts:read(URL, []);
     udp -> mpegts:read(URL, []);
+    udp2 -> mpegts:read(URL, []);
     rtsp -> flu_rtsp:read2(Name, URL, Options);
     rtsp2 -> flu_rtsp:read2(Name, URL, Options);
     rtsp1 -> flu_rtsp:read(Name, URL, Options);
@@ -455,12 +456,12 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
         Stream1_
       end, Stream1, Configs),
       {noreply, Stream2};
-    _ ->
+    {error, Error} ->
       if 
         Count =< 10 orelse 
         (Count < 500 andalso Count div 10 == 0) orelse
         Count rem 100 == 0 ->
-      ?ERR("Stream \"~s\" can't open source \"~s\". Retries: ~B/~B", [Name, URL, Count, Stream#stream.retry_limit]);
+      ?ERR("Stream \"~s\" can't open source \"~s\" (~p). Retries: ~B/~B", [Name, URL, Error, Count, Stream#stream.retry_limit]);
       true -> ok end,
       Delay = ((Count rem 30) + 1)*1000,
       erlang:send_after(Delay, self(), reconnect_source),

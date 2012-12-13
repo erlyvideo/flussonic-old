@@ -6,6 +6,15 @@
 -include_lib("erlmedia/include/media_info.hrl").
 
 
+profile() ->
+  mpegts_decoder:module_info(),
+  {ok,Tracer} = fprof:profile(start),
+  fprof:trace([start,{tracer,Tracer}]),
+  mpegts_decoder:bench("../a.ts"),
+  fprof:trace(stop),
+  fprof:analyse([{cols,120}]).
+
+
 bench() ->
 
   Count = 100,
@@ -94,6 +103,21 @@ mpegts_test_() ->
       []
   end,
   Tests.
+
+
+readtest_archive() ->
+  Files = filelib:wildcard("../../../test/files/livestream/*/*/*/*/*/*.ts"),
+  [begin
+    {ok, Frames} = mpegts_decoder:read_file(File),
+    ?assertMatch(Len when Len > 30, length(Frames))
+  end || File <- Files].
+  
+readtest_broken_start() ->
+  {ok, Bin} = file:read_file("../test/fixtures/10-06800.ts"),
+  {ok, Frames} = mpegts_decoder:decode_file(<<"abcdeffghlfref", Bin/binary>>),
+  check_frames(8427325595,8427933998,1,173,8427327828,8427936491,2,318,Frames),
+  ok.
+
 
 
 readtest_cupertino() ->
