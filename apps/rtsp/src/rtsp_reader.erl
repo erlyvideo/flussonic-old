@@ -123,7 +123,7 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
     N + 2
   end, 0, MediaInfo#media_info.streams),
 
-  {ok, PlayCode, PlayHeaders, _} = rtsp_protocol:call(Proto, 'PLAY', []),
+  {ok, PlayCode, PlayHeaders, _} = rtsp_protocol:call(Proto, 'PLAY', [{'Range', <<"npt=0.000-">>}]),
   PlayCode == 200 orelse throw({rtsp, rejected_play, PlayCode}),
   RtpInfo = parse_rtp_info(PlayHeaders),
 

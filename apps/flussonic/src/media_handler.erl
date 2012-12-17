@@ -78,8 +78,13 @@ handle1(Req, Opts) ->
 name_or_pi(Opts, []) ->
   proplists:get_value(name, Opts);
 
-name_or_pi(_Opts, Acc) ->
-  flu:join(lists:reverse(Acc), "/").
+name_or_pi(Opts, Acc) ->
+  Acc1 = lists:reverse(Acc),
+  Acc2 = case proplists:get_value(prefix, Opts) of
+    undefined -> Acc1;
+    Prefix -> [Prefix | Acc1]
+  end,
+  flu:join(Acc2, "/").
 
 lookup_name(Req, Opts) ->
   {PathInfo, _} = cowboy_req:path_info(Req),

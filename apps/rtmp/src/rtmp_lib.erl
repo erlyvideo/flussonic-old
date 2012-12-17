@@ -292,10 +292,13 @@ publish(RTMP, Stream, Path, Type) ->
   },
   rtmp_socket:invoke(RTMP, AMF),
   receive
-    {rtmp, RTMP, #rtmp_message{type = stream_begin}} -> ok;
-    {rtmp, RTMP, disconnect, _} -> throw({rtmp_closed, {publish,Path}})
+    {rtmp, RTMP, #rtmp_message{type = stream_begin, stream_id = Stream}} -> ok;
+    {rtmp, RTMP, disconnect, _} -> throw({rtmp_closed, {publish,Path}});
+    {rtmp, RTMP, #rtmp_message{type = invoke, stream_id = Stream, body = #rtmp_funcall{command = <<"_error">>, args = Args}}} -> 
+      {rtmp_error, {publish,Path}, tl(Args)}
+    % Else -> ?debugFmt("else ~p, ~p",[Else, process_info(self(), messages)]), {rtmp_error, {publish,Path}, Else}
   after
-    30000 -> erlang:error(timeout)
+    10000 -> erlang:error(timeout)
   end.
 
 shared_object_connect(RTMP, Name) ->

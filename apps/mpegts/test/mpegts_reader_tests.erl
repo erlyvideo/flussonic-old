@@ -57,26 +57,36 @@ monotone_read_frames(PrevDTS) ->
 
 
 
-send_udp(<<Chunk:188/binary, Rest/binary>>, UDP) ->
-  gen_udp:send(UDP, {127,0,0,1}, 9090, Chunk),
+send_udp(<<Chunk:1316/binary, Rest/binary>>, UDP) ->
+  gen_udp:send(UDP, Chunk),
   timer:sleep(1),
   send_udp(Rest, UDP);
 
-send_udp(_, UDP) ->
+send_udp(Chunk, UDP) ->
+  gen_udp:send(UDP, Chunk),
   gen_udp:close(UDP),
   ok.
 
 
-read_udp_test1() ->
-  {ok, Bin} = file:read_file("../test/fixtures/fileSequence0.ts"),
-  {ok, Reader} = mpegts_reader:start_link([{consumer,self()},{url, "udp://127.0.0.1:9090"}]),
+udp_unicast_test() ->
+  check_udp("127.0.0.1:9090").
 
+udp_multicast_test() ->
+  check_udp("239.1.2.3:5060").
+
+
+check_udp(URL) ->
+  [Host, Port] = string:tokens(URL, ":"),
+  {ok, Bin} = file:read_file("../test/fixtures/fileSequence0.ts"),
+  {ok, Reader} = mpegts_reader:start_link([{consumer,self()},{url, "udp://" ++ URL}]),
+  ?assertEqual(ok, gen_server:call(Reader, connect)),
 
   proc_lib:spawn_link(fun() ->
     {ok, UDP} = gen_udp:open(0),
+    {ok, Addr} = inet_parse:address(Host),
+    gen_udp:connect(UDP, Addr, list_to_integer(Port)),
     send_udp(Bin, UDP)
   end),
-  ?assertEqual(ok, gen_server:call(Reader, connect)),
   receive
     #media_info{} -> ok;
     #video_frame{} -> error(video_frame_before_media_info)

@@ -99,7 +99,21 @@ test_hls_segment({_,File}) ->
   ok.
 
 test_hds_manifest({_,File}) ->
-  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hds_manifest(File)).
+  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hds_manifest(File)),
+  {ok, Manifest} = flu_file:hds_manifest(File),
+  XML = parsexml:parse(Manifest),
+  {<<"manifest">>, _, Elements} = XML,
+  {_, _, [Bootstrap64]} = lists:keyfind(<<"bootstrapInfo">>, 1, Elements),
+  Bootstrap = base64:decode(Bootstrap64),
+  Atom = mp4:parse_atom(Bootstrap, state),
+  {'Bootstrap', Options, _} = Atom,
+  ?assertEqual(0, proplists:get_value(live,Options)),
+  % Here we check a bug when not duration, but last keyframe time
+  % was sent as a file duration in HDS manifest
+  ?assertMatch(D when D > 60000, proplists:get_value(current_time,Options)),
+  ok.
+
+
 
 
 

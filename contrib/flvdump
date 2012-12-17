@@ -27,11 +27,11 @@ limit(Body, Limit) ->
     _ -> Body
   end.
 
-dump_frame(#video_frame{content = Content, stream_id = StreamId, codec = Codec, flavor = Flavor, dts = DTS, pts = PTS, body = Body, sound = Sound}) ->
+dump_frame(#video_frame{content = Content, stream_id = StreamId, codec = Codec, flavor = Flavor, dts = DTS, pts = PTS, body = Body}) ->
   Info = case Codec of
     _ when Flavor == config -> io_lib:format("~240p", [Body]);
     _ when Content == video -> io_lib:format("~p ctime, ~240p bytes: ~240p", [round(PTS - DTS), size(Body), limit(Body, 20)]);
-    _ when Content == audio -> io_lib:format("~240p", [Sound]);
+    _ when Content == audio -> "";
     _ when Content == metadata -> io_lib:format("~240p", [Body])
   end,
     

@@ -158,6 +158,11 @@ readtest_flunew1() ->
   ok.
 
 
+readtest_empty() ->
+  ?assertEqual({ok, []}, mpegts_decoder:read_file("../test/fixtures/empty.ts")),
+  ok.
+
+
 
 precise_compare_frames1_test() ->
   precise_compare("../../../test/files/livestream/2012/09/27/12/24/23-05875.ts", "example.txt").

@@ -342,7 +342,12 @@ handle_rtmp_message(#rtmp_session{socket = Socket} = State, #rtmp_message{type =
       Recorder ! Frame,
       State;
     #rtmp_stream{} ->
-      ?D({broken_frame_on_empty_stream,Type,StreamId,Timestamp}),
+      case get(broken_frame_count) of undefined -> put(broken_frame_count,0); _-> ok end,
+      put(broken_frame_count, get(broken_frame_count) + 1),
+      case get(broken_frame_count) of
+        Cnt when Cnt < 10 -> ?D({broken_frame_on_empty_stream,Type,StreamId,Timestamp});
+        _ -> error(too_many_broken_frames)
+      end,
       State;
     false ->
       rtmp_socket:status(Socket, StreamId, <<"NetStream.Publish.Failed">>),
@@ -404,22 +409,20 @@ call_function(#rtmp_session{} = State, #rtmp_funcall{} = AMF) ->
   call_function_callback(State, AMF).
 
 
-call_function_callback(Session, #rtmp_funcall{command = Command, args = Args} = AMF) ->
-  try call_function_callback0(Session, AMF)
-  catch
-    Class:Error ->
-      ?debugFmt("Failed RTMP ~p(~p): ~p:~p, ~p", [Command, Args, Class, Error, erlang:get_stacktrace()])
-      % error_logger:error_msg("Failed RTMP ~p(~p): ~p:~p, ~p", [Command, Args, Class, Error, erlang:get_stacktrace()])
-  end.
-
-call_function_callback0(#rtmp_session{module = M} = Session, #rtmp_funcall{} = AMF) ->
-  case M:handle_rtmp_call(Session, AMF) of
+call_function_callback(#rtmp_session{module = M} = Session, #rtmp_funcall{command = Command, args = Args} = AMF) ->
+  try M:handle_rtmp_call(Session, AMF) of
     unhandled ->
       call_default_function(Session, AMF);
     {unhandled, Session1, AMF1} ->
-      call_default_function(Session1, AMF1);  
+      call_default_function(Session1, AMF1);
+    shutdown ->
+      exit(normal);
     #rtmp_session{} = Session1 ->
       Session1
+  catch
+    Class:Error ->
+      ?debugFmt("Failed RTMP ~p(~p): ~p:~p, ~p", [Command, Args, Class, Error, erlang:get_stacktrace()]),
+      Session
   end.
 
 call_default_function(#rtmp_session{module = M} = Session, #rtmp_funcall{command = Command} = AMF) ->

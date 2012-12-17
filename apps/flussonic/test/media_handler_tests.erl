@@ -57,8 +57,8 @@ test_lookup_by_path0(Path1) when is_binary(Path1) ->
   {Options, PathInfo} = try select_route(Routes, binary:split(Path, <<"/">>, [global]))
   catch throw:{no_route_found,PI} -> throw({no_route_found,flu_config:get_config(),Routes,PI})
   end,
-  Req = cowboy_req:new(socket, fake_inet, <<"GET">>, Path, Query, fragment, version,
-    [{<<"x-real-ip">>,<<"127.0.0.1">>}], host, port, buffer, false, undefined),
+  Req = cowboy_req:new(socket, fake_inet, <<"GET">>, Path, Query, <<>>, {1,1},
+    [{<<"x-real-ip">>,<<"127.0.0.1">>}], <<"erlyvideo">>, 9090, <<>>, false, undefined),
 
   media_handler:lookup_name(PathInfo, Options, Req, []).
 
@@ -109,13 +109,13 @@ test_offline_rewrite_playlist() ->
 
 test_live_dvr_playlist() ->
   set_config([{live, "live", [{dvr, <<"test/files">>}]}]),
-  ?assertMatch({{hls_dvr_packetizer, playlist, [<<"test/files">>,1234567,3600]}, _, <<"livestream">>}, 
+  ?assertMatch({{hls_dvr_packetizer, playlist, [<<"test/files">>,1234567,3600]}, _, <<"live/livestream">>}, 
     test_lookup_by_path("/live/livestream/index-1234567-3600.m3u8")).
 
 
 test_offline_live_dvr_ts() ->
   set_config([{live, "live", [{dvr, <<"test/files">>}]}]),
-  ?assertMatch({{dvr_handler, mpeg_file, [<<"test/files">>,1348748644,3600, _]}, [], <<"livestream">>}, 
+  ?assertMatch({{dvr_handler, mpeg_file, [<<"test/files">>,1348748644,3600, _]}, [], <<"live/livestream">>}, 
     test_lookup_by_path("/live/livestream/archive-1348748644-3600.ts")).
 
 

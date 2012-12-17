@@ -209,7 +209,12 @@ Erlyvideo = {
     });
 
     $("#play-tab form button").click(function() {
-      Erlyvideo.play_stream($("#requested-stream-name").val(), $(this).val());
+      var url = $("#requested-stream-name").val();
+      if(url.indexOf("/") == 0) {
+        url = url.substring(1, url.length);
+        $("#requested-stream-name").val(url);
+      }
+      Erlyvideo.play_stream(url, $(this).val());
       return false;
     });
   },

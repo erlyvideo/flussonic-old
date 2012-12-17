@@ -66,10 +66,10 @@ file_manifest(Format, Reader) ->
     MI = MediaInfo#media_info{streams = BitrateStreams},
     Keyframes = flu_file:reduce_keyframes(Format:keyframes(Reader, [{tracks,BitrateTrackIds}])),
 
-    % ?DBG("~B -> ~240p",[VideoId,Keyframes]),
+    % ?DBG("~B ~w -> ~B~n~50p",[round(Duration), BitrateTrackIds,length(Keyframes), Keyframes]),
 
   [io_lib:format("  <bootstrapInfo profile=\"named\" id=\"bootstrap~B\">\n", [VideoId]),
-    base64:encode_to_string(generate_bootstrap(Duration, Keyframes, [])),
+    base64:encode_to_string(generate_bootstrap(Duration, Keyframes, [{duration,Duration}])),
   "\n  </bootstrapInfo>\n",
   io_lib:format("  <media streamId=\"stream~B\" ", [VideoId]),
   io_lib:format(case FirstLanguage of
@@ -87,7 +87,7 @@ file_manifest(Format, Reader) ->
   lists:map(fun(AudioId) ->
     MI = MediaInfo#media_info{streams = [lists:keyfind(AudioId,#stream_info.track_id,Streams)]},
     [io_lib:format("  <bootstrapInfo profile=\"named\" id=\"bootstrap~B\">\n", [AudioId]),
-      base64:encode_to_string(generate_bootstrap(Duration, CommonKeyframes, [])),
+      base64:encode_to_string(generate_bootstrap(Duration, CommonKeyframes, [{duration,Duration}])),
     "\n  </bootstrapInfo>\n",
     io_lib:format("  <media streamId=\"stream~B\" url=\"hds/tracks-~B/\" lang=\"~B\" bootstrapInfoId=\"bootstrap~B\""
       " type=\"audio\" alternate=\"true\" bitrate=\"128\">\n",

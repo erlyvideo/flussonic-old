@@ -110,7 +110,7 @@ static ErlDrvSSizeT mpegts_drv_command(ErlDrvData handle, unsigned int command, 
       int n = 2*1024 * 1024; // 10 seconds buffer
       if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &n, sizeof(n)) == -1) {
         // deal with failure, or ignore if you can live with the default size
-        driver_failure_posix(d->port, errno);
+        // driver_failure_posix(d->port, errno);
       }
 
       d->socket = sock;
@@ -188,6 +188,7 @@ static void mpegts_drv_input(ErlDrvData handle, ErlDrvEvent event)
   socklen_t peer_len;
   ssize_t s;
 
+  assert(d->len < d->size);
 
   while((s = recvfrom(d->socket, d->buf + d->len, d->size - d->len, 0, (struct sockaddr *)&peer, &peer_len)) > 0) {
     d->len += s;
@@ -198,8 +199,19 @@ static void mpegts_drv_input(ErlDrvData handle, ErlDrvEvent event)
       driver_set_timer(d->port, d->timeout);
     }
   }
-  if(errno != EAGAIN) {
-    driver_failure_posix(d->port, errno);    
+  if(s < 0 && errno != EAGAIN) {
+    // driver_failure_posix(d->port, errno);    
+    // driver_failure_atom(d->port, "failed_udp_read");
+    // ErlDrvTermData reply[] = {
+    //   ERL_DRV_ATOM, driver_mk_atom("mpegts_closed"),
+    //   ERL_DRV_PORT, driver_mk_port(d->port),
+    //   ERL_DRV_INT, errno,
+    //   ERL_DRV_TUPLE, 3
+    // };
+
+    // driver_output_term(d->port, reply, sizeof(reply) / sizeof(reply[0]));
+    // fprintf(stderr, "Failed read: %d, %d, %d\r\n", s, errno, d->len);
+    // d->len = 0;
   }
   
 }

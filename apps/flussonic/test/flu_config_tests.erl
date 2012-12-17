@@ -55,7 +55,7 @@ global_sessions_test_() ->
 
 parse_route_test_() ->
   [
-    ?_assertMatch([{[<<"live">>,<<"injest">>, '...'], media_handler, _}], 
+    ?_assertMatch([{[<<"live">>,<<"injest">>, '...'], media_handler, [{prefix, <<"live/injest">>}|_]}], 
       flu_config:parse_routes([{live, <<"live/injest">>, []}])),
     ?_assertMatch([{[<<"vod">>,<<"mp4">>,'...'], media_handler, [{module,flu_file},{root,<<"/movies">>}]}],
       flu_config:parse_routes([{file, <<"vod/mp4">>, <<"/movies">>, []}]))

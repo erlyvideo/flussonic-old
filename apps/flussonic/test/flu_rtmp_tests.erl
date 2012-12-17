@@ -57,6 +57,7 @@ setup_publish() ->
 setup_publish(Options) ->
   init_all(),
 
+  set_config([{live,"live"}]),
   Env = flu_config:get_config(),
   Auth = case proplists:get_value(auth, Options) of
     undefined -> 
@@ -74,8 +75,8 @@ setup_publish(Options) ->
   % flussonic_sup:stop_stream(StreamName),
   {ok, RTMP} = rtmp_lib:connect("rtmp://localhost:1938/live"),
   Stream = rtmp_lib:createStream(RTMP),
-  rtmp_lib:publish(RTMP, Stream, <<StreamName/binary, Auth/binary>>),
-  #env{rtmp = RTMP, stream=Stream, name = StreamName, env=Env}.
+  ok = rtmp_lib:publish(RTMP, Stream, <<StreamName/binary, Auth/binary>>),
+  #env{rtmp = RTMP, stream=Stream, name = <<"live/", StreamName/binary>>, env=Env}.
 
 
 set_config(Env) ->
@@ -215,20 +216,21 @@ rtmp_session_test_() ->
     init_all(),
     Modules = [fake_rtmp, flu_config],
     meck:new(Modules, [{passthrough,true}]),
-    meck:expect(fake_rtmp, create_client, fun(Socket) ->
-      {ok, Sess} = supervisor:start_child(rtmp_session_sup, [fake_rtmp]),
-      rtmp_session:set_socket(Sess, Socket),
-      {ok, Sess}
-    end),
-    meck:expect(fake_rtmp, init, fun(Session) -> {ok, Session} end),
-    meck:expect(fake_rtmp, handle_control, fun(_Msg, Session) -> {ok, Session} end),
-    meck:expect(fake_rtmp, handle_rtmp_call, fun(Session, #rtmp_funcall{command = Command} = AMF) ->
-      fake_rtmp:Command(Session, AMF)
-    end),
-    meck:expect(fake_rtmp, connect, fun(Session, AMF) -> {unhandled, Session, AMF} end),
-    meck:expect(fake_rtmp, createStream, fun(Session, AMF) -> {unhandled, Session, AMF} end),
-    {ok, RTMP} = rtmp_socket:start_server(5556,fake_rtmp,fake_rtmp,[]),
-    unlink(RTMP),
+    % meck:expect(fake_rtmp, create_client, fun(Socket) ->
+    %   {ok, Sess} = supervisor:start_child(rtmp_session_sup, [fake_rtmp]),
+    %   rtmp_session:set_socket(Sess, Socket),
+    %   {ok, Sess}
+    % end),
+    % meck:expect(fake_rtmp, init, fun(Session) -> {ok, Session} end),
+    % meck:expect(fake_rtmp, handle_control, fun(_Msg, Session) -> {ok, Session} end),
+    % meck:expect(fake_rtmp, handle_rtmp_call, fun(Session, #rtmp_funcall{command = Command} = AMF) ->
+    %   fake_rtmp:Command(Session, AMF)
+    % end),
+    % meck:expect(fake_rtmp, connect, fun(Session, AMF) -> {unhandled, Session, AMF} end),
+    % meck:expect(fake_rtmp, createStream, fun(Session, AMF) -> {unhandled, Session, AMF} end),
+    % {ok, RTMP} = rtmp_socket:start_server(5556,fake_rtmp,fake_rtmp,[]),
+    % unlink(RTMP),
+    RTMP = rtmp,
     {RTMP, Modules}
   end,
   fun({_RTMP, Modules}) ->
@@ -236,7 +238,8 @@ rtmp_session_test_() ->
     meck:unload(Modules)
   end,
   [
-    fun test_publish_catch_dvr/0
+    {"test_publish_catch_dvr", fun test_publish_catch_dvr/0}
+    ,{"test_refuse_non_application_publish", fun test_refuse_non_application_publish/0}
   ]}.
 
 
@@ -250,18 +253,33 @@ test_publish_catch_dvr() ->
     Self ! {publish, Session, AMF},
     Session 
   end),
-  {ok, RTMP} = rtmp_lib:connect("rtmp://localhost:5556/livedvr"),
+  ?assertEqual(undefined, flu_stream:find(<<"livedvr/stream0">>)),
+  {ok, RTMP} = rtmp_lib:connect("rtmp://localhost:1938/livedvr"),
   Stream = rtmp_lib:createStream(RTMP),
-  rtmp_lib:publish(RTMP, Stream, <<"stream0">>),
-  receive
-    {publish, Session, _AMF} ->
-      ?assertEqual([{dvr,"movies"}], flu_rtmp:publish_options(Session))
-  after
-    1000 -> ?assert(false)
-  end,
+  ok = rtmp_lib:publish(RTMP, Stream, <<"stream0">>),
+
+  ?assertMatch({ok, Pid} when is_pid(Pid), flu_stream:find(<<"livedvr/stream0">>)),
+  [{<<"livedvr/stream0">>, Attrs}] = gen_tracker:list(flu_streams),
+  ?assertEqual(true, proplists:get_value(dvr, Attrs)),
+
   erlang:exit(RTMP, shutdown),
   ok.
 
+
+test_refuse_non_application_publish() ->
+  meck:expect(flu_config, get_config, fun() -> [{live, <<"live">>, []}] end),
+  Self = self(),
+  meck:expect(fake_rtmp, publish, fun(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name|_]} = AMF) ->
+    Socket = rtmp_session:get(Session, socket),
+    rtmp_lib:notify_publish_start(Socket, StreamId, 0, Name),
+    Self ! {publish, Session, AMF},
+    Session 
+  end),
+  {ok, RTMP} = rtmp_lib:connect("rtmp://localhost:1938/livedvr"),
+  Stream = rtmp_lib:createStream(RTMP),
+  ?assertMatch({rtmp_error, {publish,<<"stream0">>}, _}, rtmp_lib:publish(RTMP, Stream, <<"stream0">>)),
+  erlang:exit(RTMP, shutdown),
+  ok.
 
 
 

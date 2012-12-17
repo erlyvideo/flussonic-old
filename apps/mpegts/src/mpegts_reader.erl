@@ -134,6 +134,7 @@ handle_info({udp, Socket, _IP, _InPortNo, Bin}, #reader{counters = Counters, url
   Data = iolist_to_binary([Bin|fetch_udp(Socket)]),
   % Counters2 = validate_mpegts(Data, Counters, URL),
   Counters2 = Counters,
+  inet:setopts(Socket, [{active,once}]),
   handle_info({input_data, Socket, Data}, Reader#reader{counters = Counters2});
 
 handle_info({mpegts_udp, Socket, Data}, #reader{counters = Counters, url = _URL} = Reader) ->
@@ -248,6 +249,7 @@ connect_udp(URL) ->
         true -> inet:setopts(Socket,[{add_membership,{Addr,{0,0,0,0}}}]);
         false -> ok
       end,
+      inet:setopts(Socket, [{active,once}]),
       process_flag(priority, high),
       {ok, Socket};
     udp2 ->

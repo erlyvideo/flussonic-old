@@ -37,7 +37,6 @@
 
 
 -export([clients/0]).
--export([publish_options/1]).
 
 clients() ->
   case erlang:whereis(rtmp_session_sup) of
@@ -329,14 +328,6 @@ play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _St
   Session1.
 
 
-publish_options(Session) ->
-  Prefix = rtmp_session:get_field(Session, app),
-  Env = flu_config:get_config(),
-  case [Entry || {live,Pref,_Options} = Entry <- Env, Pref == Prefix] of
-    [{live, Prefix, Opts}] -> Opts;
-    [] -> []
-  end.
-
 
 publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, false|_]} = _AMF) ->
   Stream = rtmp_session:get_stream(StreamId, Session),
@@ -344,9 +335,29 @@ publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, false|_]} = _
   erlang:exit(Pid),
   rtmp_session:set_stream(rtmp_stream:set(Stream, pid, undefined), Session);
 
-publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _AMF) ->
-  Options = publish_options(Session),
-  {match,[StreamName]} = re:run(Name,"([^?]+)\\?*",[{capture,all_but_first,binary}]),
+publish(Session, AMF) ->
+  try publish0(Session, AMF)
+  catch
+    throw:{fail, Args} ->
+      RTMP = rtmp_session:get(Session, socket),
+      rtmp_lib:fail(RTMP, AMF#rtmp_funcall{args = [null|Args]}),
+      throw(shutdown)     
+  end.
+
+
+publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _AMF) ->
+  Prefix = rtmp_session:get_field(Session, app),
+  Env = flu_config:get_config(),
+
+  Options = case [Entry || {live,Pref,_Options} = Entry <- Env, Pref == Prefix] of
+    [{live, Prefix, Opts}] -> Opts;
+    [] ->
+      ?ERR("Tried to publish to invalid RTMP app ~s from addr ~p", [Prefix, rtmp_session:get(Session, addr)]),
+      throw({fail, [403, <<Prefix/binary, "/", Name/binary>>, <<"no_application">>]})
+  end,
+
+  {match,[StreamName1]} = re:run(Name,"([^?]+)\\?*",[{capture,all_but_first,binary}]),
+  StreamName = <<Prefix/binary, "/", StreamName1/binary>>,
   Env = flu_config:get_config(),
   
   case proplists:get_value(publish_password, Env) of
@@ -363,12 +374,12 @@ publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _
           ok;
         _ ->
           error_logger:error_msg("Publish denied, wrong password: ~p, ~p~n", [UserLogin, UserPassword]),
-          throw(reject)
+          throw({fail, [403, StreamName, <<"wrong_login_password">>]})
       end
   end,
 
   {ok, Recorder} = flu_stream:autostart(StreamName, [{clients_timeout,false},{static,false}|Options]),
-  gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,rtmp_session:get_field(Session,app)}]),
+  gen_tracker:setattr(flu_streams, StreamName, []),
   flu_stream:set_source(Recorder, self()),
   
   {ok, Proxy} = flussonic_sup:start_stream_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder]}),

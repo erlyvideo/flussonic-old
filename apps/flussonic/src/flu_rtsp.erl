@@ -48,7 +48,7 @@ read2(Stream, URL, Options) ->
   try rtsp_reader:media_info(RTSP) of
     {ok, MediaInfo} -> {ok, RTSP, MediaInfo}
   catch
-    exit:{normal,_} -> undefined
+    exit:{normal,Reason} -> {error, Reason}
   end.
 
 

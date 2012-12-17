@@ -142,7 +142,7 @@ parse_routes([]) -> [];
 
 parse_routes([{live, Prefix, Opts}|Env]) ->
   Tokens = tokens(Prefix),
-  [{Tokens ++ ['...'], media_handler, merge(Opts, [{autostart,false},{dynamic,true},{module,flu_stream}])}
+  [{Tokens ++ ['...'], media_handler, [{prefix, Prefix}|merge(Opts, [{autostart,false},{dynamic,true},{module,flu_stream}])]}
   |parse_routes(Env)];
 
 parse_routes([{stream, Path, URL, Options}|Env]) ->
