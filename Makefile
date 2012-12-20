@@ -110,7 +110,7 @@ package:
 	mkdir -p tmproot/opt/flussonic/apps/flussonic/priv/
 	cp -f priv/mmap-squeeze64.so tmproot/opt/flussonic/apps/flussonic/priv/mmap.so
 	mkdir -p tmproot/opt/flussonic/apps/mpegts/priv/
-	cp -f priv/mpegts_udp-squeeze64.so tmproot/opt/flussonic/apps/flussonic/priv/mpegts_udp.so
+	cp -f priv/mpegts_udp-squeeze64.so tmproot/opt/flussonic/apps/mpegts/priv/mpegts_udp.so
 	rm -rf tmproot/opt/flussonic/deps/proper*
 	rm -rf tmproot/opt/flussonic/apps/ffmpeg
 	rm -rf tmproot/opt/flussonic/apps/mpegts/contrib/build_table.rb tmproot/opt/flussonic/apps/rtsp/priv/* tmproot/opt/flussonic/deps/*/test
