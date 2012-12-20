@@ -15,7 +15,7 @@ parse_playlist_file_test() ->
     sequence = 0,
     type = vod,
     entries = [
-      #m3u8_entry{duration = 4000, number = 0, url = <<"hls/segment1.ts">>},
+      #m3u8_entry{duration = 4000, offset = 2455, utc = 1355825859, number = 0, url = <<"hls/segment1.ts">>},
       #m3u8_entry{duration = 4000, number = 1, url = <<"hls/segment2.ts">>}
     ]
   }, parse("file")).
@@ -42,7 +42,7 @@ parse_playlist_event_test() ->
 
 parse_playlist_server1_test() ->
   ?assertMatch(#m3u8_playlist{
-    sequence = 0,
+    sequence = undefined,
     type = live,
     entries = [
       #m3u8_entry{number = 0, url = <<"priv/bunny.mp4">>},
@@ -52,7 +52,7 @@ parse_playlist_server1_test() ->
 
 parse_playlist_server2_test() ->
   ?assertMatch(#m3u8_playlist{
-    sequence = 0,
+    sequence = undefined,
     type = live,
     entries = [
       #m3u8_entry{number = 0, url = <<"ort">>, duration = 20000},

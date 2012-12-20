@@ -3,6 +3,12 @@ backend www {
 	.port = "8080";
 }
 
+sub vcl_pipe {
+	if (req.http.upgrade) {
+		set bereq.http.upgrade = req.http.upgrade;
+	}
+}
+
 sub vcl_recv {
 	set req.backend = www;
 
@@ -22,6 +28,10 @@ sub vcl_recv {
 	
 	if (req.url ~ "(\.m3u8|\.f4m|bootstrap)$") {
 		set req.hash_always_miss = true;
+	}
+
+	if (req.http.Upgrade ~ "(?i)websocket") {
+		return (pipe);
 	}
 	
 	return (lookup);

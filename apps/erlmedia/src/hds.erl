@@ -142,9 +142,9 @@ stream_manifest(#media_info{streams = _Streams, duration = Duration} = MediaInfo
   AlternativeAudio = [],
 
   M1 = [
-  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
-  "<manifest xmlns=\"http://ns.adobe.com/f4m/1.0\">\n",
-  "  <id>livestream</id>\n",
+  "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+  "<manifest xmlns=\"http://ns.adobe.com/f4m/1.0\">\n"
+  "  <id>livestream</id>\n"
   % "<dvrInfo beginOffset=\"0\" endOffset=\"0\" />\n",
   "  <streamType>", StreamType,"</streamType>\n",
   "  <duration>", io_lib:format("~p", [round(Duration / 1000)]), "</duration>\n",

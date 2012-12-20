@@ -100,18 +100,25 @@ read_playlist([<<"#EXT-X-PLAYLIST-TYPE:",Type_/binary>>|Lines], #m3u8_playlist{}
   end,
   read_playlist(Lines, Playlist#m3u8_playlist{type = Type}, Number);
 
+read_playlist([<<"#EXT-X-MEDIA:", _/binary>>|_] = Lines, #m3u8_playlist{} = Playlist, undefined) ->
+  read_playlist(Lines, Playlist, 0);
+
+read_playlist([<<"#EXT-X-MEDIA:", Media/binary>>|Lines], #m3u8_playlist{entries = Entries} = Playlist, Number) ->
+  read_playlist(Lines, Playlist#m3u8_playlist{entries = [parse_x_media(Media,Number)|Entries]}, Number+1);
+
+
 read_playlist([<<"#EXTINF:",_/binary>>|_] = Lines, #m3u8_playlist{} = Playlist, undefined) ->
-  read_playlist(Lines, Playlist#m3u8_playlist{sequence = 0}, 0);
+  read_playlist(Lines, Playlist, 0);
 
 read_playlist([<<"#EXTINF:",Duration/binary>>|Lines], #m3u8_playlist{} = Playlist, Number) ->
-  SegDuration = round(to_f(Duration)*1000),
+  SegDuration = to_i_1000(Duration),
   read_entry(Lines, Playlist, #m3u8_entry{duration = SegDuration, number = Number});
 
 read_playlist([<<"#", _/binary>>|Lines], Playlist, Number) ->
   read_playlist(Lines, Playlist, Number);
 
 read_playlist([_URL|_] = Lines, #m3u8_playlist{} = Playlist, undefined) ->
-  read_playlist(Lines, #m3u8_playlist{sequence = 0} = Playlist, 0);
+  read_playlist(Lines, Playlist, 0);
 
 read_playlist([URL|Lines], #m3u8_playlist{entries = Entries} = Playlist, Number) ->
   read_playlist(Lines, Playlist#m3u8_playlist{entries = [#m3u8_entry{url = URL, number = Number}|Entries]}, Number+1);
@@ -129,6 +136,25 @@ read_entry([URL|Lines], #m3u8_playlist{entries = Entries} = Playlist, #m3u8_entr
 
 read_entry([], Playlist, #m3u8_entry{number = N}) ->
   read_playlist([], Playlist, N).
+
+
+
+parse_x_media(Media, Number) when is_binary(Media), is_integer(Number) ->
+  Attrs1 = [binary:split(A, <<"=">>) || A <- binary:split(Media, <<",">>, [global])],
+  Attrs2 = [{K,unquote(V)} || [K,V] <- Attrs1],
+  Attrs = Attrs2,
+  #m3u8_entry{
+    number = Number
+    ,url = proplists:get_value(<<"URI">>, Attrs)
+    ,duration = to_i_1000(proplists:get_value(<<"DURATION">>, Attrs))
+    ,offset = to_i_1000(proplists:get_value(<<"OFFSET">>, Attrs))
+    ,utc = to_i(proplists:get_value(<<"UTC">>, Attrs))
+  }.
+
+
+
+unquote(<<"\"", V/binary>>) -> re:replace(V, "^(.*)\"$", "\\1", [{return,binary}]);
+unquote(V) -> V.
 
 
 
@@ -184,6 +210,11 @@ prepend_base_url(<<"http://",_/binary>> = URL, _BaseUrl) -> URL;
 prepend_base_url(URL, BaseUrl) -> <<BaseUrl/binary, "/", URL/binary>>.
 
 
+to_i_1000(undefined) -> undefined;
+to_i_1000(Bin) -> round(to_f(Bin)*1000).
+
+
+to_i(undefined) -> undefined;
 to_i(Bin) when is_binary(Bin) -> list_to_integer(binary_to_list(Bin)).
 
 to_f(String) ->
