@@ -86,8 +86,8 @@ Erlyvideo = {
   Total file clients: {{total_file}}<br/> \
   </p>\
   <table class='table'> \
-    <thead><tr><th class='first'>Name</th><th>Play</th><th width='70'>Clients</th> \
-    <th width='70'>Lifetime</th><th width='70'>DTS Delay</th></tr></thead> \
+    <thead><tr><th class='first'>Name</th><th>Play</th><th width='65'>Clients</th> \
+    <th width='65'>Lifetime</th><th width='65'>DTS Delay</th><th width='70'>Retry count</th></tr></thead> \
     <tbody> \
     {{#streams}}<tr id=\"stream-{{name}}\" playprefix=\"{{play_prefix}}\">\
       <td class='first'>\
@@ -102,6 +102,7 @@ Erlyvideo = {
       <td>{{client_count}}</td> \
       <td>{{lifetime}}</td> \
       <td>{{ts_delay}}</td> \
+      <td>{{retry_count}}</td> \
     </tr>{{/streams}} \
     </tbody></table>",
   

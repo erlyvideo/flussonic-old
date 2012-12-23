@@ -35,6 +35,8 @@
 -include("../include/mp4.hrl").
 -include("../include/srt.hrl").
 -include("../include/video_frame.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -include("log.hrl").
 
 -export([ftyp/2, moov/2, mvhd/2, trak/2, tkhd/2, mdia/2, mdhd/2, stbl/2, stsd/2, esds/2, avcC/2]).
@@ -226,7 +228,8 @@ open(Reader, Options) ->
   {_T1, {ok, Mp4Media}} = timer:tc(fun() -> read_header(Reader) end),
   #mp4_media{tracks = Tracks} = Mp4Media1 = read_srt_files(Mp4Media, proplists:get_value(url, Options)),
   {_T2, Index} = timer:tc(fun() -> build_index(Tracks) end),
-  % ?D({mp4_init, {read_header,T1},{build_index,T2}}),
+  % Index = <<>>,
+  % ?D({mp4_init, {read_header,_T1},{build_index,_T2}}),
   {ok, Mp4Media1#mp4_media{index = Index, reader = Reader, tracks = list_to_tuple([T#mp4_track{index_info = []} || T <- Tracks])}}.
 
 get_coverart(Reader) ->
@@ -703,7 +706,11 @@ dref(<<0:32, _Count:32, Atom/binary>> = _Dref, Mp4Track) ->
 
 % Sample table box
 stbl(Atom, Mp4Track) ->
-  parse_atom(Atom, Mp4Track).
+  _T1 = erlang:now(),
+  R = parse_atom(Atom, Mp4Track),
+  _T2 = erlang:now(),
+  % ?D({stbl, timer:now_diff(T2,T1)}),
+  R.
 
 % Sample description
 stsd(<<0:8, _Flags:3/binary, _EntryCount:32, EntryData/binary>>, Mp4Track) ->
@@ -875,6 +882,7 @@ mp4_read_tag(<<TagId, Data/binary>>) ->
 %%
 stsz(<<_Version:8, _Flags:24, 0:32, SampleCount:32, SampleSizeData/binary>>, Mp4Track) -> % case for different sizes
   size(SampleSizeData) == SampleCount*4 orelse erlang:error({broken_stsz,SampleCount,size(SampleSizeData)}),
+  % ?D({stsz, SampleCount}),
   Mp4Track#mp4_track{sample_sizes = [Size || <<Size:32>> <= SampleSizeData]};
   
 stsz(<<_Version:8, _Flags:24, Size:32, _SampleCount:32>>, Mp4Track) ->
@@ -896,6 +904,7 @@ stts(<<0:8, _Flags:3/binary, EntryCount:32, Rest/binary>>, Mp4Track) ->
   size(Rest) == EntryCount*8 orelse erlang:error({invalid_stts,EntryCount,size(Rest)}),
   DTSInfo = [{Count,Duration} || <<Count:32, Duration:32>> <= Rest],
   % Timestamps = fill_stts(DTSInfo),
+  % ?D({stts,EntryCount}),
   Mp4Track#mp4_track{sample_dts = DTSInfo}.
   
 % fill_stts([{Count,Duration}|DTSInfo]) ->
@@ -915,14 +924,10 @@ stts(<<0:8, _Flags:3/binary, EntryCount:32, Rest/binary>>, Mp4Track) ->
 %%%%%%%%%%%%%%%%%%%%% STSS atom %%%%%%%%%%%%%%%%%%%
 % List of keyframes
 %
-stss(<<0:8, _Flags:3/binary, SampleCount:32, Samples/binary>>, Mp4Track) ->
-  read_stss(Samples, SampleCount, Mp4Track).
-
-read_stss(_, 0, #mp4_track{keyframes = Keyframes} = Mp4Track) ->
-  Mp4Track#mp4_track{keyframes = lists:reverse(Keyframes)};
-
-read_stss(<<Sample:32, Rest/binary>>, EntryCount, #mp4_track{keyframes = Keyframes} = Mp4Track) ->
-  read_stss(Rest, EntryCount - 1, Mp4Track#mp4_track{keyframes = [Sample-1|Keyframes]}).
+stss(<<0:8, _Flags:3/binary, KFCount:32, KeyframeData/binary>>, Mp4Track) ->
+  size(KeyframeData) == KFCount*4 orelse erlang:error({invalid_stss,KFCount, size(KeyframeData)}),
+  % ?D({stss, KFCount}),
+  Mp4Track#mp4_track{keyframes = [Number - 1 || <<Number:32>> <= KeyframeData]}.
 
 
 
@@ -953,14 +958,9 @@ fill_ctts(Count, Offset, Info, Acc) ->
 % Samples per chunk
 %%
 stsc(<<0:8, _Flags:3/binary, EntryCount:32, Rest/binary>>, Mp4Track) ->
-  read_stsc(Rest, EntryCount, Mp4Track).
+  size(Rest) == EntryCount*12 orelse erlang:error({invalid_stsc,EntryCount,size(Rest)}),
+  Mp4Track#mp4_track{chunk_sizes = [{ChunkId - 1, SamplesPerChunk} || <<ChunkId:32, SamplesPerChunk:32, _SampleId:32>> <= Rest]}.
 
-
-read_stsc(_, 0, #mp4_track{chunk_sizes = ChunkSizes} = Mp4Track) ->
-  Mp4Track#mp4_track{chunk_sizes = lists:reverse(ChunkSizes)};
-
-read_stsc(<<ChunkId:32, SamplesPerChunk:32, _SampleId:32, Rest/binary>>, EntryCount, #mp4_track{chunk_sizes = ChunkSizes} = Mp4Track) ->
-  read_stsc(Rest, EntryCount - 1, Mp4Track#mp4_track{chunk_sizes = [{ChunkId - 1, SamplesPerChunk}|ChunkSizes]}).
 
 
 
@@ -973,14 +973,10 @@ stco(<<0:8, _Flags:3/binary, OffsetCount:32, Offsets/binary>>, Mp4Track) ->
   Mp4Track#mp4_track{chunk_offsets = [Offset || <<Offset:32>> <= Offsets]}.
 
 co64(<<0:8, _Flags:3/binary, OffsetCount:32, Offsets/binary>>, Mp4Track) ->
+  size(Offsets) == OffsetCount*8 orelse erlang:error({invalid_co64,OffsetCount,size(Offsets)}),
   % ?D({co64,OffsetCount}),
-  read_co64(Offsets, OffsetCount, Mp4Track).
+  Mp4Track#mp4_track{chunk_offsets = [Offset || <<Offset:64>> <= Offsets]}.
 
-read_co64(<<>>, 0, #mp4_track{chunk_offsets = ChunkOffsets} = Mp4Track) ->
-  Mp4Track#mp4_track{chunk_offsets = lists:reverse(ChunkOffsets)};
-
-read_co64(<<Offset:64, Rest/binary>>, OffsetCount, #mp4_track{chunk_offsets = ChunkOffsets} = Mp4Track) ->
-  read_co64(Rest, OffsetCount - 1, Mp4Track#mp4_track{chunk_offsets = [Offset | ChunkOffsets]}).
 
 
 
@@ -1086,7 +1082,6 @@ build_index(Tracks) when is_tuple(Tracks) ->
 %%
 %% Tests
 %%
--include_lib("eunit/include/eunit.hrl").
 
 % fill_track_test() ->
 %   ?assertEqual(<<1:1, 300:63, 0:64, 0.0:64/float, 0.0:64/float, 0:1, 10:63, 300:64, 25.0:64/float, 25.0:64/float>>,

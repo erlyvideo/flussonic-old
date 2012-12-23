@@ -93,7 +93,10 @@ init([Options]) ->
   erlang:monitor(process, Consumer),
   self() ! connect,
   URL = proplists:get_value(url, Options),
-  Dump = proplists:get_value(dump_rtsp, Options, true),
+  Dump = case proplists:get_value(log_error, Options) of
+    false -> false;
+    _ -> proplists:get_value(dump_rtsp, Options, true)
+  end,
   GetParameter = proplists:get_value(get_parameter, Options, true),
   {ok, #rtsp{consumer = Consumer, url = URL, dump = Dump, get_parameter = GetParameter}}.
 

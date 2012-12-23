@@ -35,7 +35,7 @@
 -export([reply/2, reply/3, fail/2]).
 -export([notify_publish_start/4]).
 
--export([call/4]).
+-export([call/4, sync_call/4]).
 
 -define(RTMP_WINDOW_SIZE, 2500000).
 -define(FMS_VERSION, "4,0,0,1121").

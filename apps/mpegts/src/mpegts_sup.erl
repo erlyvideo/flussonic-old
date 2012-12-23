@@ -25,7 +25,7 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 -behaviour(supervisor).
 
--export([start_reader/1, start_file_reader/2]).
+-export([start_reader/2, start_file_reader/2]).
 
 -export([init/1, start/0, stop/0, start/2, stop/1, start_link/0]).
 
@@ -51,22 +51,16 @@ stop(_S) ->
 start_link() ->
   supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_reader(Consumer) ->
-  supervisor:start_child(mpegts_reader_sup, [Consumer]).
+start_reader(Name, Options) ->
+  supervisor:start_child(mpegts_reader_sup, {Name,
+    {mpegts_reader,start_link,[Options]},
+    temporary,2000,worker,[]}).
 
 start_file_reader(Path, Options) ->
   supervisor:start_child(mpegts_file_reader_sup, [Path, Options]).
 
 init([mpegts_reader]) ->
-  {ok, {{simple_one_for_one, ?MAX_RESTART, ?MAX_TIME}, [
-    {   undefined,                               % Id       = internal id
-    {mpegts_reader,start_link,[]},                  % StartFun = {M, F, A}
-    temporary,                               % Restart  = permanent | transient | temporary
-    2000,                                    % Shutdown = brutal_kill | int() >= 0 | infinity
-    worker,                                  % Type     = worker | supervisor
-    []                                       % Modules  = [Module] | dynamic
-    }
-  ]}};
+  {ok, {{one_for_one, ?MAX_RESTART, ?MAX_TIME}, []}};
 
 init([mpegts_file_reader]) ->
   {ok, {{simple_one_for_one, ?MAX_RESTART, ?MAX_TIME}, [

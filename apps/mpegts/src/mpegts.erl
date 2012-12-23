@@ -57,7 +57,9 @@
 
   
 read(URL, Options) ->
-  {ok, Reader} = mpegts_sup:start_reader([{consumer,proplists:get_value(consumer,Options,self())},{url, URL}|Options]),
+  Name = {proplists:get_value(name, Options), URL},
+  Consumer = proplists:get_value(consumer,Options,self()),
+  {ok, Reader} = mpegts_sup:start_reader(Name, [{url,URL},{consumer,Consumer}|Options]),
   case (catch gen_server:call(Reader, connect)) of
     ok -> {ok, Reader};
     {error, _} = Error -> Error;

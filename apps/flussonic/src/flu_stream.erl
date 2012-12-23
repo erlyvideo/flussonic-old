@@ -53,7 +53,7 @@
 -define(SOURCE_TIMEOUT, 20000).
 
 list() ->
-  [{Name, stream_info(Name, Attrs)} || {Name, Attrs} <- gen_tracker:list(flu_streams)].
+  lists:sort([{Name, stream_info(Name, Attrs)} || {Name, Attrs} <- gen_tracker:list(flu_streams)]).
 
 json_list() ->
   Streams = [[{name,Name}|parse_attr(Attr)] || {Name,Attr} <- list()],
@@ -61,7 +61,7 @@ json_list() ->
   [{streams,Streams},{version, list_to_binary(Vsn)}].
 
 white_keys() ->
-  [dvr, hls, hds, last_dts, lifetime, name, type, ts_delay, client_count, play_prefix].
+  [dvr, hls, hds, last_dts, lifetime, name, type, ts_delay, client_count, play_prefix, retry_count].
 
 parse_attr(Attr) ->
   [{K,V} || {K,V} <- Attr, (is_binary(V) orelse is_number(V) orelse V == true orelse V == false) andalso lists:member(K,white_keys())].
@@ -428,12 +428,15 @@ handle_info(reconnect_source, #stream{retry_count = Count, retry_limit = Limit, 
 
 handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL1, retry_count = Count, options = Options} = Stream) ->
   {Proto, URL} = detect_proto(URL1),
+  LogError = Count =< 10 orelse 
+        (Count < 500 andalso Count div 10 == 0) orelse
+        Count rem 100 == 0,
   Result = case Proto of
-    tshttp -> mpegts:read(URL, []);
-    udp -> mpegts:read(URL, []);
-    udp2 -> mpegts:read(URL, []);
-    rtsp -> flu_rtsp:read2(Name, URL, Options);
-    rtsp2 -> flu_rtsp:read2(Name, URL, Options);
+    tshttp -> mpegts:read(URL, [{name,Name}]);
+    udp -> mpegts:read(URL, [{name,Name}]);
+    udp2 -> mpegts:read(URL, [{name,Name}]);
+    rtsp -> flu_rtsp:read2(Name, URL, [{log_error,LogError}|Options]);
+    rtsp2 -> flu_rtsp:read2(Name, URL, [{log_error,LogError}|Options]);
     rtsp1 -> flu_rtsp:read(Name, URL, Options);
     hls -> hls:read(URL, Options);
     file -> file_source:read(URL, Options);
@@ -457,14 +460,12 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
       end, Stream1, Configs),
       {noreply, Stream2};
     {error, Error} ->
-      if 
-        Count =< 10 orelse 
-        (Count < 500 andalso Count div 10 == 0) orelse
-        Count rem 100 == 0 ->
+      if LogError ->
       ?ERR("Stream \"~s\" can't open source \"~s\" (~p). Retries: ~B/~B", [Name, URL, Error, Count, Stream#stream.retry_limit]);
       true -> ok end,
       Delay = ((Count rem 30) + 1)*1000,
       erlang:send_after(Delay, self(), reconnect_source),
+      gen_tracker:setattr(flu_streams, Name, [{retry_count,Count+1}]),
       {noreply, Stream#stream{retry_count = Count+1}}
   end;
 
@@ -484,6 +485,7 @@ handle_info({'DOWN', _, process, Source, _Reason},
     Count rem 100 == 0 ->  
   ?DBG("stream \"~s\" lost source \"~s\". Retry count ~p/~p", [Name, URL, Count, Limit]);
   true -> ok end,
+  gen_tracker:setattr(flu_streams, Name, [{retry_count,Count+1}]),
   {noreply, Stream#stream{source = undefined, ts_delta = undefined, retry_count = Count + 1}};
 
 handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = OldCheckTimer,
@@ -533,7 +535,8 @@ handle_info({'DOWN', _, process, Pid, _Reason} = Message, #stream{clients = Clie
   end,
   {noreply, Stream1};
 
-handle_info(#video_frame{} = Frame, #stream{retry_count = Count} = Stream) when Count > 0 ->
+handle_info(#video_frame{} = Frame, #stream{retry_count = Count, name = Name} = Stream) when Count > 0 ->
+  gen_tracker:setattr(flu_streams, Name, [{retry_count,0}]),
   handle_info(Frame, Stream#stream{retry_count = 0});
   
 handle_info(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, clients = Clients} = Stream) ->

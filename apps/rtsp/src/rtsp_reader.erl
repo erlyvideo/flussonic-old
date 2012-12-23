@@ -70,7 +70,7 @@ terminate(_,#rtsp{}) ->
   ok.
 
 
-try_read(#rtsp{url = URL} = RTSP) ->
+try_read(#rtsp{options = Options, url = URL} = RTSP) ->
   try try_read0(RTSP)
   catch
     throw:{rtsp, exit, normal} ->
@@ -78,7 +78,10 @@ try_read(#rtsp{url = URL} = RTSP) ->
     throw:{rtsp, restart, RTSP1} ->
       try_read(RTSP1);
     throw:{rtsp, Error, Reason} ->
-      ?ERR("Failed to read from \"~s\": ~p:~240p", [URL, Error, Reason]),
+      case proplists:get_value(log_error, Options) of
+        false -> ok;
+        _ -> ?ERR("Failed to read from \"~s\": ~p:~240p", [URL, Error, Reason])
+      end,
       throw({stop, normal, RTSP})
   end.
 

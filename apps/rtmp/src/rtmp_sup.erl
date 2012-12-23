@@ -27,7 +27,7 @@
 
 -behaviour(supervisor).
 
--export([init/1,start_link/0, start_rtmp_socket/1]).
+-export([init/1,start_link/0, start_rtmp_client/2]).
 -export([start_shared_object/2, start_rtmp_session/2]).
 
 %%--------------------------------------------------------------------
@@ -39,7 +39,8 @@
 start_link() ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_rtmp_socket(Type) -> supervisor:start_child(rtmp_socket_sup, [Type]).
+start_rtmp_client(HostPort, Options) -> 
+  supervisor:start_child(rtmp_client_sup, [HostPort, Options]).
 
 -spec start_rtmp_session(RTMPSocket::pid(), Callback::atom()) -> {'error',_} | {'ok',pid()}.
 start_rtmp_session(RTMPSocket, Callback) ->
@@ -67,20 +68,11 @@ init([shared_object]) ->
     }
   };
 
-init([rtmp_socket]) ->
-  {ok,
-    {{simple_one_for_one, 5, 60},
-      [
-        {   undefined,                               % Id       = internal id
-            {rtmp_socket,start_link,[]},             % StartFun = {M, F, A}
-            temporary,                               % Restart  = permanent | transient | temporary
-            2000,                                    % Shutdown = brutal_kill | int() >= 0 | infinity
-            worker,                                  % Type     = worker | supervisor
-            []                            % Modules  = [Module] | dynamic
-        }
-      ]
-    }
-  };
+init([rtmp_client]) ->
+  {ok, {{simple_one_for_one, 5, 60}, [
+    {undefined, {rtmp_socket,start_client,[]},
+    temporary, 2000, worker,[]}
+  ]}};
 
 init([rtmp_session]) ->
   {ok,
@@ -99,8 +91,8 @@ init([rtmp_session]) ->
 
 init([]) ->
   Supervisors = [
-    {rtmp_socket_sup,
-      {supervisor,start_link,[{local, rtmp_socket_sup}, ?MODULE, [rtmp_socket]]},
+    {rtmp_client_sup,
+      {supervisor,start_link,[{local, rtmp_client_sup}, ?MODULE, [rtmp_client]]},
       permanent,                               % Restart  = permanent | transient | temporary
       infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
       supervisor,                              % Type     = worker | supervisor

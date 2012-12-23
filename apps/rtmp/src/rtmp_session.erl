@@ -165,7 +165,6 @@ send(Session, Message) ->
 %%-------------------------------------------------------------------------
 handle_call({socket_ready, RTMP}, _From, State) ->
   erlang:monitor(process, RTMP),
-  (catch ems_network_lag_monitor:watch(RTMP)),
   % rtmp_socket:setopts(RTMP, [{debug,true}]),
   {reply, ok, State#rtmp_session{socket = RTMP}};
 

@@ -57,8 +57,11 @@ static ErlDrvData mpegts_drv_start(ErlDrvPort port, char *buff)
 static void mpegts_drv_stop(ErlDrvData handle)
 {
   mpegts* d = (mpegts *)handle;
-  driver_select(d->port, (ErlDrvEvent)d->socket, DO_READ, 0);
-  close(d->socket);
+  if(d->socket != -1) {
+    driver_select(d->port, (ErlDrvEvent)d->socket, DO_READ, 0);
+    close(d->socket);
+  }
+  d->socket = -1;
   // driver_free(d->buf);
   // driver_free(handle);
 }
@@ -79,7 +82,14 @@ static ErlDrvSSizeT mpegts_drv_command(ErlDrvData handle, unsigned int command, 
       memcpy(&port, buf, 2);
       // fprintf(stderr, "Connecting to port %d\r\n", port);
       sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-      
+            
+      int reuse = 1;
+      if( setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0 ) {
+        driver_failure_posix(d->port, errno);
+        close(sock);
+        return 0;
+      }
+
       bzero(&si, sizeof(si));
       si.sin_family = AF_INET;
       si.sin_port = port;
@@ -88,8 +98,8 @@ static ErlDrvSSizeT mpegts_drv_command(ErlDrvData handle, unsigned int command, 
         memcpy(&si.sin_addr.s_addr, buf+2, 4);
       }
       if(bind(sock, (struct sockaddr *)&si, sizeof(si)) == -1) {
-        fprintf(stderr, "Invalid bind to %d\r\n", ntohs(port));
         driver_failure_posix(d->port, errno);
+        close(sock);
         return 0;
         // memcpy(*rbuf, "error", 5);
         // return 5;
@@ -103,6 +113,8 @@ static ErlDrvSSizeT mpegts_drv_command(ErlDrvData handle, unsigned int command, 
         if (setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
           perror("multicast join error\n");
           driver_failure_posix(d->port, errno);
+          close(sock);
+          d->socket = -1;
           return 0;
         }
       }
