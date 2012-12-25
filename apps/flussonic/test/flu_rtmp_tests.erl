@@ -30,7 +30,6 @@ mp3_frame(DTS) ->
 
 
 init_all() ->
-  error_logger:delete_report_handler(error_logger_tty_h),
   stop_all(),
   ok = application:start(ranch),
   ok = application:start(gen_tracker),
@@ -44,11 +43,13 @@ init_all() ->
 
 
 stop_all() ->
+  error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(gen_tracker),
   application:stop(flussonic),
   application:stop(rtmp),
   application:stop(cowboy),
   application:stop(ranch),
+  error_logger:add_report_handler(error_logger_tty_h),
   ok.
 
 setup_publish() ->
@@ -203,7 +204,7 @@ play_rejected_test_() ->
 test_forbidden_password() ->
   meck:expect(flu_session, timeout, fun() -> 200 end),
   application:set_env(flussonic, config, [{stream, <<"ort">>, <<"null">>, [{sessions, "http://127.0.0.5/"}]}]),
-  ?assertThrow({rtmp_error,{play,<<"ort">>}, [403.0|_]},rtmp_lib:play("rtmp://127.0.0.1:1938/live/ort", [{timeout,500}])),
+  ?assertMatch({error,[403.0|_]}, rtmp_lib:play("rtmp://127.0.0.1:1938/live/ort", [{timeout,500}])),
   ok.
 
 

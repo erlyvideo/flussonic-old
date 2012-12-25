@@ -107,7 +107,10 @@ handle_info({read_burst, StreamId, Fragment, BurstCount}, Session) ->
       ReadFun = fun(Key) -> Format:read_frame(Reader, Key) end,
       {Duration, Acc} = accumulate_frames(ReadFun, Id, undefined, 0, [], StreamId, StopDTS),
       RTMP = rtmp_session:get(Session, socket),
-      {rtmp, Socket} = rtmp_socket:get_socket(RTMP),
+      {rtmp, Socket} = try rtmp_socket:get_socket(RTMP)
+      catch
+        exit:{noproc, _} -> throw({stop, normal, Session})
+      end,
       Bin = iolist_to_binary(Acc),
       put(sent_bytes, get(sent_bytes) + size(Bin)),
       gen_tcp:send(Socket, Bin),
@@ -245,7 +248,9 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
         Token_ -> Token_
       end,
       is_binary(Token) orelse throw({fail, [403, <<"no_token_passed">>]}),
-      Identity = [{name,StreamName1},{ip, to_b(rtmp_session:get(Session, addr))},{token,Token}],
+      Ip = to_b(rtmp_session:get(Session, addr)),
+      is_binary(Ip) orelse error({bad_ip, Ip, Session}),
+      Identity = [{name,StreamName1},{ip, Ip},{token,Token}],
       Referer = rtmp_session:get_field(Session, pageUrl),
       case flu_session:verify(URL, Identity, [{pid,self()},{referer,Referer},{type,<<"rtmp">>}|Options]) of
         {ok, StreamName1_} -> StreamName1_;
@@ -341,7 +346,7 @@ publish(Session, AMF) ->
     throw:{fail, Args} ->
       RTMP = rtmp_session:get(Session, socket),
       rtmp_lib:fail(RTMP, AMF#rtmp_funcall{args = [null|Args]}),
-      throw(shutdown)     
+      throw(shutdown)
   end.
 
 

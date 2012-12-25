@@ -11,9 +11,14 @@ Erlyvideo = {
   osmf_player: function(element, url) {
     var width = 640;
     var height = 480;
-    if(url[0] != "/") url = "/" + url;
+    
+    if(url.indexOf("http://") != 0) {
+      if(url[0] != "/") url = "/" + url;
+      url = "http://"+window.location.host+url;
+    }
+    if(!url.endsWith(".f4m")) url = url + "/manifest.f4m?session="+((new Date()).getTime())
   	var flashvars = {
-  		src : "http://"+window.location.host+url + "/manifest.f4m?session="+((new Date()).getTime()),
+  		src : url,
       // javascriptCallbackFunction: "onJavaScriptBridgeCreated",
   		autoPlay: true
   	};

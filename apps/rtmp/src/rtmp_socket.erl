@@ -217,7 +217,11 @@ notify_video(RTMP, StreamId, DTS) ->
   gen_server:call(RTMP, {notify_video, StreamId, DTS}).
 
 close(Socket) ->
-  gen_server:call(Socket, stop).
+  try gen_server:call(Socket, stop)
+  catch
+    exit:{noproc,_} -> ok
+  end.
+
   
 
 %% @spec (RTMP::pid(), Options::[{Key, Value}]|{Key, Value}) -> ok
@@ -357,7 +361,8 @@ invoke(RTMP, #rtmp_funcall{stream_id = StreamId, id = InvokeId} = AMF) ->
 
 
 
-
+handle_call(stop, _From, State) ->
+  {stop, normal, ok, State};
 
 handle_call(next_invoke_id, _From, #rtmp_socket{out_invoke_id = Id} = Socket) ->
   {reply, Id, Socket#rtmp_socket{out_invoke_id = Id + 1}, ?RTMP_TIMEOUT};
@@ -419,9 +424,6 @@ handle_info(#rtmp_message{} = Message, State) ->
   {noreply, State2, ?RTMP_TIMEOUT};
 
 handle_info({'DOWN', _, process, _Client, _Reason}, State) ->
-  {stop, normal, State};
-
-handle_info(stop, State) ->
   {stop, normal, State};
 
 handle_info(timeout, #rtmp_socket{pinged = false} = State) ->
@@ -619,6 +621,7 @@ send_data(#rtmp_socket{socket = Socket, key_out = KeyOut} = State, Message) ->
         {error, timeout} -> flush_all(),
           ?ERR("RTMP client from ~p is exiting due to slow connection", [State#rtmp_socket.address]),
           throw({stop, normal, NewState1});
+        {error, closed} -> throw({stop, normal, NewState1});
         {error, Else} -> flush_all(), throw({stop, {network_error,Else}, NewState1})
       end;
     is_pid(Socket) ->

@@ -4,18 +4,24 @@
 
 
 rtmp_server_test_() ->
-  {foreach, 
+  {setup, 
   fun() ->
-    % error_logger:delete_report_handler(error_logger_tty_h),
     application:start(crypto),
     application:start(ranch),
-    ok = application:start(rtmp),
+    application:start(rtmp),
     ok
   end,
   fun(_) ->
-    application:stop(rtmp)
+    error_logger:delete_report_handler(error_logger_tty_h),
+    application:stop(rtmp),
+    ok
   end,
-  [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports), lists:prefix("test_", atom_to_list(F))]
+  [{foreach, fun() -> ok end, 
+  fun(_) -> 
+    rtmp_socket:stop_server(test_rtmp)
+  end,
+    [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports), lists:prefix("test_", atom_to_list(F))]
+  }]
   }.
 
 
@@ -31,3 +37,4 @@ test_funcall() ->
   {ok, Socket} = rtmp_socket:connect("rtmp://localhost:4555/"),
   ?assertEqual([6.0], rtmp_lib:sync_call(Socket, 0, test_call, [5])),
   ok.
+

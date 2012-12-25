@@ -428,9 +428,7 @@ handle_info(reconnect_source, #stream{retry_count = Count, retry_limit = Limit, 
 
 handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL1, retry_count = Count, options = Options} = Stream) ->
   {Proto, URL} = detect_proto(URL1),
-  LogError = Count =< 10 orelse 
-        (Count < 500 andalso Count div 10 == 0) orelse
-        Count rem 100 == 0,
+  LogError = will_log_error(Count),
   Result = case Proto of
     tshttp -> mpegts:read(URL, [{name,Name}]);
     udp -> mpegts:read(URL, [{name,Name}]);
@@ -479,10 +477,8 @@ handle_info({'DOWN', _, process, Source, _Reason},
   Delay = ((Count rem 30) + 1)*1000,
   erlang:send_after(Delay, self(), reconnect_source),
   
-  if 
-    Count =< 10 orelse 
-    (Count < 500 andalso Count div 10 == 0) orelse
-    Count rem 100 == 0 ->  
+  LogError = will_log_error(Count),
+  if LogError ->  
   ?DBG("stream \"~s\" lost source \"~s\". Retry count ~p/~p", [Name, URL, Count, Limit]);
   true -> ok end,
   gen_tracker:setattr(flu_streams, Name, [{retry_count,Count+1}]),
@@ -508,7 +504,9 @@ handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = O
     {stop, normal, Stream};
   is_number(SourceTimeout) andalso SourceDelta >= UsingSourceTimeout andalso is_pid(Source) ->
     erlang:exit(Source, shutdown),
-    ?DBG("stream \"~s\" is killing source \"~s\" because of timeout ~B > ~B", [Name, URL, SourceDelta, Count*SourceTimeout]),
+    case will_log_error(Count) of true ->
+    ?DBG("stream \"~s\" is killing source \"~s\" because of timeout ~B > ~B", [Name, URL, SourceDelta, Count*SourceTimeout]);
+    false -> ok end,
     erlang:exit(Source, kill),
     {noreply, Stream#stream{check_timer = CheckTimer}};
   is_number(SourceTimeout) andalso SourceDelta >= SourceTimeout andalso not Static ->
@@ -566,6 +564,13 @@ handle_info(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, cli
 handle_info(Message, #stream{} = Stream) ->
   Stream1 = pass_message(Message, Stream),
   {noreply, Stream1}.
+
+
+
+will_log_error(Count) ->
+  Count =< 10 orelse 
+  (Count < 500 andalso Count div 10 == 0) orelse
+  Count rem 100 == 0.
 
 
 pass_message(Message, Stream) ->

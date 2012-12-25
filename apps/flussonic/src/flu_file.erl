@@ -194,6 +194,9 @@ init([Path, Options]) ->
     _ when Root =/= undefined -> binary_to_list(iolist_to_binary([Root, "/", Path]));
     _ -> Path
   end,
+
+  put(name, {flu_file,URL}),
+
   Access = case re:run(URL, "http://") of
     nomatch -> flu:default_file_access();
     _ -> http_file

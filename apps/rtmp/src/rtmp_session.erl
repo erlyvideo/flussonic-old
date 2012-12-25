@@ -163,10 +163,18 @@ send(Session, Message) ->
 %%          {stop, Reason, Reply, NewStateData}
 %% @private
 %%-------------------------------------------------------------------------
-handle_call({socket_ready, RTMP}, _From, State) ->
+handle_call({socket_ready, RTMP}, From, State) ->
   erlang:monitor(process, RTMP),
-  % rtmp_socket:setopts(RTMP, [{debug,true}]),
-  {reply, ok, State#rtmp_session{socket = RTMP}};
+  gen_server:reply(From, ok),
+
+  rtmp_socket:setopts(RTMP, [{active, once}]),
+  {address, {IP, Port}} = rtmp_socket:getopts(RTMP, address),
+  Addr = case IP of
+    undefined -> "0.0.0.0";
+    _ -> lists:flatten(io_lib:format("~p.~p.~p.~p", erlang:tuple_to_list(IP)))
+  end,
+  {noreply, State#rtmp_session{addr = Addr, port = Port, socket = RTMP}};
+
 
 handle_call({get_field, Field}, _From, State) ->
   {reply, get_field(State, Field), State};
@@ -209,15 +217,6 @@ handle_info({rtmp, Socket, #rtmp_message{} = Message}, State) ->
   % io:format("messages=~p,memory=~p~n", [Messages, Memory]),
   rtmp_socket:setopts(Socket, [{active, once}]),
   {noreply, State2};
-
-handle_info({rtmp, Socket, connected}, State) ->
-  rtmp_socket:setopts(Socket, [{active, once}]),
-  {address, {IP, Port}} = rtmp_socket:getopts(Socket, address),
-  Addr = case IP of
-    undefined -> "0.0.0.0";
-    _ -> lists:flatten(io_lib:format("~p.~p.~p.~p", erlang:tuple_to_list(IP)))
-  end,
-  {noreply, State#rtmp_session{addr = Addr, port = Port}};
 
 handle_info({rtmp, _Socket, timeout}, #rtmp_session{module = M} = State) ->
   {ok, State1} = M:handle_control(timeout, State),
