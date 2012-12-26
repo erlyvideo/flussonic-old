@@ -30,7 +30,7 @@ case $1 in
     ((i = i+1))
     sleep 1
   done 
-  [ -f "a.pid" ] && echo "done" || (echo "failed"; exit 1)
+  [ -f "/var/run/flussonic.pid" ] && echo "done" || (echo "failed"; exit 1)
   ;;
 "stop")
   echo "Stopping flussonic"
