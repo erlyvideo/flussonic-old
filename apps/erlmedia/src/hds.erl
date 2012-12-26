@@ -109,7 +109,8 @@ lang_frag_duration() ->
   10000.
 
 stream_bootstrap(Keyframes, Options) -> 
-  BootStrap = generate_bootstrap(proplists:get_value(duration,Options,0),Keyframes,Options ++ [{type,live}]),
+  BootStrap = generate_bootstrap(proplists:get_value(duration,Options),Keyframes,Options ++ [{type,live}]),
+  % mp4:dump(BootStrap),
   {ok,iolist_to_binary(BootStrap)}.
 
 stream_manifest(Format,Reader,Options) when is_atom(Format) ->
@@ -182,7 +183,10 @@ generate_bootstrap(Duration, [{_Time, _Id}|_] = Keyframes, Options) ->
   generate_bootstrap(Duration, [Time || {Time,_} <- Keyframes], Options);
 
 generate_bootstrap(Duration, Keyframes,Options) ->
-  CurrentMediaTime = proplists:get_value(duration, Options, lists:last(Keyframes)),
+  CurrentMediaTime = case proplists:get_value(type, Options) of
+    live -> lists:last(Keyframes);
+    _ -> proplists:get_value(duration, Options, Duration)
+  end,
   Bin = mp4_writer:mp4_serialize([
   {abst, [abst_info(CurrentMediaTime, Options),
     <<1>>,
@@ -225,6 +229,7 @@ afrt_segments_info_init(Duration, Keyframes,Options) ->
   afrt_segments_info(Duration, Keyframes, StartFragment, []).
 
 afrt_segments_info(Duration, [DTS], I, Acc) ->
+  Duration > DTS orelse error({afrt, Duration, DTS}),
   lists:reverse([<<I:32, (round(DTS)):64, (trunc(Duration-DTS)):32>>|Acc]);
 
 afrt_segments_info(Duration, [DTS1,DTS2|Keyframes], I, Acc) ->

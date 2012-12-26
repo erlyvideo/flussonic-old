@@ -117,6 +117,7 @@ get(Stream, Key, Timeout) ->
         undefined -> undefined
       end;
     Value ->
+      % gen_tracker:setattr(flu_streams, Stream, [{last_access_at, os:timestamp()}]),
       Value
   end.
 
@@ -276,7 +277,7 @@ set_options(#stream{options = Options, name = Name, url = URL1, source = Source1
       {URL2, undefined}
   end,
   Stream1 = set_timeouts(Stream),
-  Dump = proplists:get_value(dump, Options) =/= undefined,
+  Dump = proplists:get_value(dump, Options),
   Stream2 = configure_packetizers(Stream1),
   gen_tracker:setattr(flu_streams, Name, [{url,URL}]),
   Stream2#stream{url = URL, source = Source, dump_frames = Dump}.
@@ -383,6 +384,10 @@ handle_call({get, Key}, _From, #stream{name = Name} = Stream) ->
   Now = os:timestamp(),
   gen_tracker:setattr(flu_streams, Name, [{last_access_at, Now}]),
   {reply, Reply, Stream#stream{last_access_at = Now}};
+
+handle_call(#video_frame{} = Frame, _From, #stream{} = Stream) ->
+  {noreply, Stream1} = handle_input_frame(Frame, Stream),
+  {reply, ok, Stream1};
 
 handle_call(_Call,_From,State) ->
   {stop,{unknown_call, _Call},State}.
@@ -533,22 +538,10 @@ handle_info({'DOWN', _, process, Pid, _Reason} = Message, #stream{clients = Clie
   end,
   {noreply, Stream1};
 
-handle_info(#video_frame{} = Frame, #stream{retry_count = Count, name = Name} = Stream) when Count > 0 ->
-  gen_tracker:setattr(flu_streams, Name, [{retry_count,0}]),
-  handle_info(Frame, Stream#stream{retry_count = 0});
-  
-handle_info(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, clients = Clients} = Stream) ->
-  if Dump ->
-    ?D({frame, Name, Frame#video_frame.codec, Frame#video_frame.flavor, Frame#video_frame.track_id, round(Frame#video_frame.dts), round(Frame#video_frame.pts)});
-    true -> ok
-  end,
-  {reply, Frame1, Stream2} = flu_stream_frame:handle_frame(Frame, Stream),
-  Stream3 = pass_message(Frame1, Stream2),
-  Frame2 = Frame1#video_frame{stream_id = self()},
-  
-  [Pid ! Frame2 || {Pid, _} <- Clients],
-  set_last_dts(Stream3#stream.last_dts, Stream3#stream.last_dts_at),
-  {noreply, Stream3};
+handle_info(#video_frame{} = Frame, #stream{} = Stream) ->
+  {noreply, Stream1} = handle_input_frame(Frame, Stream),
+  {noreply, Stream1};
+
 
 % handle_info(next_second, #stream{last_dts = DTS, ts_delta = Delta} = Stream) when DTS =/= undefined andalso Delta =/= undefined ->
 %   {_, _, Microsecond} = Now = erlang:now(),
@@ -564,6 +557,39 @@ handle_info(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, cli
 handle_info(Message, #stream{} = Stream) ->
   Stream1 = pass_message(Message, Stream),
   {noreply, Stream1}.
+
+
+
+
+
+
+
+
+
+
+
+handle_input_frame(#video_frame{} = Frame, #stream{retry_count = Count, name = Name} = Stream) when Count > 0 ->
+  gen_tracker:setattr(flu_streams, Name, [{retry_count,0}]),
+  handle_input_frame(Frame, Stream#stream{retry_count = 0});
+  
+handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, clients = Clients} = Stream) ->
+  case Dump of
+    true -> ?D({frame, Name, Frame#video_frame.codec, Frame#video_frame.flavor, Frame#video_frame.track_id, round(Frame#video_frame.dts), round(Frame#video_frame.pts)});
+    _ -> ok
+  end,
+  {reply, Frame1, Stream2} = flu_stream_frame:handle_frame(Frame, Stream),
+  Stream3 = pass_message(Frame1, Stream2),
+  Frame2 = Frame1#video_frame{stream_id = self()},
+  
+  [Pid ! Frame2 || {Pid, _} <- Clients],
+  set_last_dts(Stream3#stream.last_dts, Stream3#stream.last_dts_at),
+  {noreply, Stream3}.
+
+
+
+
+
+
 
 
 

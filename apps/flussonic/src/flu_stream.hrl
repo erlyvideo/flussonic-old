@@ -21,5 +21,6 @@
   rtmp,
   clients = [],
   gop = undefined,
+  gop_start = undefined,
   check_timer
 }).

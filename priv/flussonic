@@ -24,8 +24,13 @@ case $1 in
   export RUN_ERL_LOG_MAXSIZE=10000000
   rm -rf /var/run/flussonic/*
   run_erl -daemon /var/run/flussonic/ /var/log/flussonic "exec $0 launch"
-  while [ ! -e /var/run/flussonic.pid ] ; do sleep 1; echo -n "."; done
-  echo ""
+  i=0
+  while ((i < 100)) && [ ! -f "/var/run/flussonic.pid" ] ; do 
+    echo -n "."
+    ((i = i+1))
+    sleep 1
+  done 
+  [ -f "a.pid" ] && echo "done" || (echo "failed"; exit 1)
   ;;
 "stop")
   echo "Stopping flussonic"
@@ -39,10 +44,14 @@ case $1 in
   $0 launch
   ;;
 "launch")
-  cd $FLUDIR
+  [ -e $FLUDIR ] && cd $FLUDIR
   export ERL_LIBS=apps:deps
   export PID_PATH="/var/run/flussonic.pid"
-  CMD="erl +K true +A 16 +a 2048 -name flussonic@127.0.0.1 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
+  SBT=""
+  if [ `uname` == "Linux" ]; then
+    SBT="+sbt s"
+  fi
+  CMD="erl +K true +A 16 +a 2048 ${SBT} -name flussonic@127.0.0.1 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
   exec $CMD
   ;;
 "reload")

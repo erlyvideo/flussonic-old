@@ -48,7 +48,8 @@ handle_info({gop, GOP}, #hds{media_info = MediaInfo} = HDS) when MediaInfo =/= u
   GOP1 = filter_flv_frames(GOP),
   HDS1 = create_new_fragment(GOP1, HDS),
   HDS2 = delete_old_fragment(HDS1),
-  HDS3 = regenerate_bootstrap(HDS2),
+  #video_frame{dts = Duration} = lists:last(GOP),
+  HDS3 = regenerate_bootstrap(HDS2, Duration),
   {noreply, HDS3};
   
 handle_info(_Else, State) ->
@@ -90,10 +91,10 @@ delete_old_fragment(#hds{segment = Segment, fragments_count = FragmentsCount, fr
   end,
   HDS#hds{fragments = NewFragments}.
 
-regenerate_bootstrap(#hds{fragments = Fragments, options = Options, name = Name, media_info = MediaInfo} = HDS) ->
+regenerate_bootstrap(#hds{fragments = Fragments, options = Options, name = Name, media_info = MediaInfo} = HDS, Duration) ->
   #fragment{number = FirstNumber} = queue:get(Fragments),
   Timestamps = [D || #fragment{dts = D} <- queue:to_list(Fragments)],
-  {ok,Bootstrap} = hds:stream_bootstrap(Timestamps,[{start_fragment, FirstNumber}|Options]),
+  {ok,Bootstrap} = hds:stream_bootstrap(Timestamps,[{start_fragment, FirstNumber},{duration,Duration}|Options]),
   flu_stream_data:set(Name,bootstrap,Bootstrap),
   % erlang:put(bootstrap,Bootstrap),
   {ok,Manifest} = hds:stream_manifest(MediaInfo#media_info{duration=0}, [{stream_type,live}|Options]),

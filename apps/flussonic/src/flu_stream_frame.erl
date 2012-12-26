@@ -112,12 +112,17 @@ check_dts_wallclock(#video_frame{dts = DTS} = Frame, Media) ->
   end,
   {Frame, Media}.
 
-store_gop(#video_frame{flavor = keyframe} = F, #stream{gop = GOP} = Stream) when GOP == undefined orelse length(GOP) > 150 ->
+store_gop(#video_frame{flavor = keyframe, dts = DTS} = F, #stream{gop = GOP, gop_start = GopStart, dump_frames = Dump} = Stream) when 
+  GOP == undefined orelse (DTS - GopStart >= 6000) ->
+  case Dump of
+    true -> ?DBG("gop ~.2f - ~.2f = ~.2f", [GopStart, DTS, DTS - GopStart]);
+    _ -> ok
+  end,
   Stream1 = case GOP of
     undefined -> Stream;
     _ -> flu_stream:pass_message({gop, lists:reverse(GOP)}, Stream)
   end,
-  {F, Stream1#stream{gop = [F]}};
+  {F, Stream1#stream{gop = [F], gop_start = DTS}};
 
 store_gop(#video_frame{} = F, #stream{gop = GOP} = Stream) when is_list(GOP) ->
   {F, Stream#stream{gop = [F|GOP]}};

@@ -16,7 +16,7 @@ Erlyvideo = {
       if(url[0] != "/") url = "/" + url;
       url = "http://"+window.location.host+url;
     }
-    if(!url.endsWith(".f4m")) url = url + "/manifest.f4m?session="+((new Date()).getTime())
+    if(url.indexOf(".f4m") == -1) url = url + "/manifest.f4m?session="+((new Date()).getTime())
   	var flashvars = {
   		src : url,
       // javascriptCallbackFunction: "onJavaScriptBridgeCreated",

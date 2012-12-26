@@ -158,7 +158,7 @@ handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = D
         end
       end,
       case Sent1 of
-        true -> [Consumer ! Frame || Frame <- Frames];
+        true -> [gen_server:call(Consumer, Frame) || Frame <- Frames];
         false -> ok
       end,
       {noreply, Reader#reader{decoder = Decoder2, sent_media_info = Sent1}}

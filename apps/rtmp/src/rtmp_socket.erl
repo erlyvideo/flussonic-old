@@ -219,7 +219,7 @@ notify_video(RTMP, StreamId, DTS) ->
 close(Socket) ->
   try gen_server:call(Socket, stop)
   catch
-    exit:{noproc,_} -> ok
+    exit:_ -> ok
   end.
 
   
