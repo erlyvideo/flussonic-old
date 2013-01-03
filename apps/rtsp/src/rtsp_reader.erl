@@ -47,7 +47,7 @@ handle_info(#video_frame{codec = Codec} = Frame, #rtsp{consumer = Consumer} = RT
   Codec == h264 orelse Codec == aac orelse Codec == mp3 ->
   % #video_frame{content = Content, codec = Codec, flavor = Flavor, dts = DTS} = Frame,
   % io:format("~6s ~4s ~10s ~B~n", [Content, Codec, Flavor, round(DTS)]),
-  Consumer ! Frame,
+  gen_server:call(Consumer, Frame),
   {noreply, RTSP};
 
 handle_info(#video_frame{}, #rtsp{} = RTSP) ->

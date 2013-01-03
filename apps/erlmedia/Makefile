@@ -7,7 +7,7 @@ clean:
 	@rm -f erl_crash.dump
 
 test:
-	@ERL_LIBS=..:../../deps ./rebar eunit -v
+	ERL_LIBS=..:../../deps ./rebar eunit -v
 
 
 .PHONY: test

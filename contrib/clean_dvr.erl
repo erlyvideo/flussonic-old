@@ -30,12 +30,15 @@ days(Path, [Day|Days]) ->
   hours(P, list(P)),
   days(Path, Days).
 
+
+hours(Path, empty) -> remove_r(Path);
 hours(_Path, []) -> ok;
 hours(Path, [Hour|Hours]) ->
   P = <<Path/binary, "/", Hour/binary>>,
   minutes(P, list(P)),
   hours(Path, Hours).
 
+minutes(Path, empty) -> remove_r(Path);
 minutes(_Path, []) -> ok;
 minutes(Path, [Minute|Minutes]) ->
   P = <<Path/binary, "/", Minute/binary>>,

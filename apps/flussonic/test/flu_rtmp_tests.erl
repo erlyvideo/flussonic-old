@@ -49,6 +49,7 @@ stop_all() ->
   application:stop(rtmp),
   application:stop(cowboy),
   application:stop(ranch),
+  application:stop(inets),
   error_logger:add_report_handler(error_logger_tty_h),
   ok.
 
@@ -58,13 +59,16 @@ setup_publish() ->
 setup_publish(Options) ->
   init_all(),
 
-  set_config([{live,"live"}]),
+  set_config([{live,"live"},{live, "secure", [{password, "passw0rt"}]}]),
   Env = flu_config:get_config(),
   Auth = case proplists:get_value(auth, Options) of
     undefined -> 
       Env1 = lists:keydelete(publish_password, 1, Env),
       application:set_env(flussonic, config, Env1),
-      <<>>;
+      case proplists:get_value(password, Options) of
+        undefined -> <<>>;
+        Password -> <<"?password=", (list_to_binary(Password))/binary>>
+      end;
     A ->
       [Login,Password] = string:tokens(A, ":"),
       Env1 = lists:keystore(publish_password, 1, Env, {publish_password, A}),
@@ -110,7 +114,7 @@ flu_rtmp_test_() ->
     {with, [fun(R) -> publish(h264_mp3, R) end]}
   ]}.
 
-publish_with_password_test_() ->
+publish_with_global_password_test_() ->
   {setup,
   fun() -> setup_publish([{auth, "l0gin:passw"}]) end,
   fun teardown_publish/1,
@@ -118,19 +122,47 @@ publish_with_password_test_() ->
     fun(R) -> publish(h264_aac, R) end
   ]}}.
   
+publish_with_stream_level_password_test_() ->
+  {foreach,
+  fun() -> init_all() end,
+  fun(_) -> stop_all() end,
+  [
+    {"test_stream_level_password_publish_ok", fun test_stream_level_password_publish_ok/0}
+    ,{"test_stream_level_password_publish_rejected", fun test_stream_level_password_publish_rejected/0}
+  ]
+  }.
+
+test_stream_level_password_publish_ok() ->
+  set_config([{live,"live"},{live, "secure", [{password, "passw0rt"}]}]),
+  {ok, RTMP} = rtmp_lib:connect("rtmp://localhost:1938/live"),
+  Stream = rtmp_lib:createStream(RTMP),
+  Result = rtmp_lib:publish(RTMP, Stream, <<"teststream1?password=passw0rt">>),
+  ?assertEqual(ok, Result),
+  ok.
+
+test_stream_level_password_publish_rejected() ->
+  set_config([{live,"live"},{live, "secure", [{password, "passw0rt"}]}]),
+  {ok, RTMP} = rtmp_lib:connect("rtmp://localhost:1938/secure"),
+  Stream = rtmp_lib:createStream(RTMP),
+  Result = rtmp_lib:publish(RTMP, Stream, <<"teststream1">>),
+  ?assertMatch({rtmp_error, _, _}, Result),
+  ok.
+
+
 
 h264_aac_frames() ->
   {ok, F} = file:open("../../../priv/bunny.mp4", [binary,read,raw]),
   {ok, R} = mp4_reader:init({file,F},[]),
-  Frames = read_frames(R, undefined),
+  Configs = video_frame:config_frames(mp4_reader:media_info(R)),
+  Frames = Configs ++ read_frames(R, 1),
   file:close(F),
   Frames.
 
-read_frames(R, Key) ->
-  case mp4_reader:read_frame(R, Key) of
-    #video_frame{next_id = Next} = F ->
-      [F|read_frames(R, Next)];
-    eof ->
+read_frames(R, N) ->
+  case mp4_reader:read_gop(R, N) of
+    {ok, Gop} ->
+      Gop ++ read_frames(R, N+1);
+    {error, _} ->
       []
   end.
 
@@ -405,28 +437,28 @@ test_clients_count_on_rtmp_file() ->
 
 
 
-rtmp_source_test_() ->
-  {foreach,
-  fun setup_source/0,
-  fun teardown_source/1, [
-    {"test_play_flu_publish_proxy", fun test_play_flu_publish_proxy/0}
-  ]}.
+% rtmp_source_test_() ->
+%   {foreach,
+%   fun setup_source/0,
+%   fun teardown_source/1, [
+%     {"test_play_flu_publish_proxy", fun test_play_flu_publish_proxy/0}
+%   ]}.
 
-setup_source() ->
-  init_all(),
-  {ok,Pid} = flu_stream:autostart(<<"chan0">>, []),
-  Pid ! h264_aac_media_info(),
-  ok.
+% setup_source() ->
+%   init_all(),
+%   {ok,Pid} = flu_stream:autostart(<<"chan0">>, []),
+%   Pid ! h264_aac_media_info(),
+%   ok.
 
-teardown_source(_) ->
-  stop_all().
+% teardown_source(_) ->
+%   stop_all().
 
 
-test_play_flu_publish_proxy() ->
-  set_config([{rewrite, "chan0", "dev/null"}]),
-  {ok, Proxy1} = flu_publish_proxy:init(["rtmp://127.0.0.1:1938/live/chan0", self(), []]),
-  {noreply, Proxy2} = flu_publish_proxy:handle_info(init, Proxy1),
-  flu_publish_proxy:terminate(normal, Proxy2).
+% test_play_flu_publish_proxy() ->
+%   set_config([{rewrite, "chan0", "dev/null"}]),
+%   {ok, Proxy1} = flu_publish_proxy:init(["rtmp://127.0.0.1:1938/live/chan0", self(), []]),
+%   {noreply, Proxy2} = flu_publish_proxy:handle_info(init, Proxy1),
+%   flu_publish_proxy:terminate(normal, Proxy2).
 
 
 

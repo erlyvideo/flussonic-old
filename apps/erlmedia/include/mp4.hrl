@@ -5,6 +5,7 @@
 
 -record(mp4_media, {
   file,
+  handler = mp4,
   file_type,
   timescale,
   duration,
@@ -34,6 +35,8 @@
   language,
   frames,
   number,
+  sample_count,
+  total_bytes,
   index_info = [],
   sample_sizes = [],
   sample_dts = [],
@@ -41,6 +44,7 @@
   sample_composition = [],
   keyframes = [],
   chunk_offsets = [],
+  offset_size = 4,
   chunk_sizes = [],
   elst
 }).

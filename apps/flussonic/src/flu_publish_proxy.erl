@@ -7,14 +7,14 @@
 -include("log.hrl").
 
 -export([start_link/2, start_link/3]).
--export([init/1, handle_info/2, terminate/2]).
+-export([init/1, handle_info/2, handle_call/3, terminate/2]).
 
 
 start_link(RTMP, Stream) ->
-  gen_server:start_link(?MODULE, [RTMP, Stream, []], []).
+  start_link(RTMP, Stream, []).
 
 start_link(RTMP, Stream, Options) ->
-  gen_server:start_link(?MODULE, [RTMP, Stream, Options], []).
+  proc_lib:start_link(?MODULE, init, [[RTMP, Stream, Options]]).
 
 -record(proxy, {
   rtmp,
@@ -35,12 +35,10 @@ start_link(RTMP, Stream, Options) ->
 -define(START_FRAMES, 5).
 
 init([StartSpec, Stream, Options]) ->
-  put(flu_name, publish_proxy),
-  self() ! init,
+  proc_lib:init_ack({ok, self()}),
+  put(flu_name, {publish_proxy, Stream}),
   erlang:monitor(process, Stream),
-  {ok, #proxy{start_spec = StartSpec, stream = Stream, options = Options}}.
 
-handle_info(init, #proxy{start_spec = StartSpec, options = Options} = Proxy) ->
   RTMP = if
     is_pid(StartSpec) ->
       erlang:monitor(process, StartSpec),
@@ -52,7 +50,7 @@ handle_info(init, #proxy{start_spec = StartSpec, options = Options} = Proxy) ->
           Pid;
         {error, Error} ->
           ?ERR("Failed to connect to upstream: ~p", [Error]),
-          throw({stop, normal, Proxy})
+          {error, Error}
       end;
     is_list(StartSpec) orelse is_binary(StartSpec) ->
       case rtmp_lib:play(StartSpec, Options) of
@@ -61,12 +59,24 @@ handle_info(init, #proxy{start_spec = StartSpec, options = Options} = Proxy) ->
           Pid;
         {error, Error} ->
           ?ERR("Failed to connect to \"~s\": ~p", [StartSpec, Error]),
-          throw({stop, normal, Proxy})
+          {error, Error}
       end;
     StartSpec == undefined ->
       undefined
   end,
-  {noreply, Proxy#proxy{rtmp = RTMP}};
+  case RTMP of
+    {error, _} = StartError ->
+      StartError;
+    _ ->
+      gen_server:enter_loop(?MODULE, [], #proxy{rtmp = RTMP, options = Options, stream = Stream})
+  end.
+
+
+
+handle_call(#video_frame{} = Frame, _From, #proxy{} = Proxy) ->
+  Proxy1 = handle_frame(Frame, Proxy),
+  {reply, ok, Proxy1}.
+
 
 handle_info({set_source, RTMP}, #proxy{rtmp = undefined} = Proxy) ->
   erlang:monitor(process, RTMP),
@@ -119,7 +129,7 @@ handle_info({'DOWN', _, _, _, _}, #proxy{} = Proxy) ->
 handle_frame(#video_frame{} = Frame, #proxy{} = Proxy) ->
   Frame1 = rewrite_track_id(Frame),
   Proxy1 = #proxy{delayed = Delayed} = handle_frame1(Frame1, Proxy),
-  if length(Delayed) > ?LIMIT -> throw({stop, too_much_delayed_frames, Proxy1#proxy{delayed = []}});
+  if length(Delayed) > ?LIMIT -> throw({stop, too_much_delayed_frames, Proxy1#proxy{delayed = length(Delayed)}});
     true -> Proxy1
   end.
 

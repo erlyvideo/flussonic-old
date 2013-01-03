@@ -101,17 +101,22 @@ handle_info({read_burst, StreamId, Fragment, BurstCount}, Session) ->
   flush_burst_timer(Session),
   Stream = rtmp_session:get_stream(StreamId, Session),
   Media = rtmp_stream:get(Stream, pid),
-  case flu_file:get(Media, {hds_segment, Fragment}) of
-    {ok, {Format,Reader,Id,StopDTS}} ->
+  case flu_file:read_gop(Media, Fragment) of
+    {ok, Gop} ->
       {noreply, Session1} = rtmp_session:handle_info({ems_stream, StreamId, burst_start}, Session),
-      ReadFun = fun(Key) -> Format:read_frame(Reader, Key) end,
-      {Duration, Acc} = accumulate_frames(ReadFun, Id, undefined, 0, [], StreamId, StopDTS),
+
+      Acc = [begin
+        FlvFrameGen = flv:rtmp_tag_generator(Frame),
+        FlvFrameGen(0, StreamId)
+      end || Frame <- Gop],
+      Bin = iolist_to_binary(Acc),
+      Duration = (lists:last(Gop))#video_frame.dts - (hd(Gop))#video_frame.dts,
+
       RTMP = rtmp_session:get(Session, socket),
       {rtmp, Socket} = try rtmp_socket:get_socket(RTMP)
       catch
-        exit:{noproc, _} -> throw({stop, normal, Session})
+        exit:{_, _} -> throw({stop, normal, Session})
       end,
-      Bin = iolist_to_binary(Acc),
       put(sent_bytes, get(sent_bytes) + size(Bin)),
       gen_tcp:send(Socket, Bin),
       {noreply, Session2} = rtmp_session:handle_info({ems_stream, StreamId, burst_stop}, Session1),
@@ -133,17 +138,6 @@ handle_info(_Info, State) ->
   ?D({_Info}),
   {noreply, State}.
   
-accumulate_frames(ReadFun, Id, MinDTS, MaxDTS, Acc, StreamId, StopDTS) ->
-  case ReadFun(Id) of
-    eof -> {MaxDTS - MinDTS, lists:reverse(Acc)};
-    #video_frame{dts = DTS} when DTS >= StopDTS -> 
-      {if MaxDTS == undefined orelse MinDTS == undefined -> 20; true -> MaxDTS - MinDTS end, lists:reverse(Acc)};
-    #video_frame{next_id = Next, dts = DTS} = Frame ->
-      FlvFrameGen = flv:rtmp_tag_generator(Frame),
-      Min = case MinDTS of undefined -> DTS; _ -> MinDTS end,
-      accumulate_frames(ReadFun, Next, Min, DTS, [FlvFrameGen(0, StreamId)|Acc], StreamId, StopDTS)
-  end.
-
 
 
 handle_rtmp_call(Session, AMF) ->
@@ -364,24 +358,36 @@ publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = 
   {match,[StreamName1]} = re:run(Name,"([^?]+)\\?*",[{capture,all_but_first,binary}]),
   StreamName = <<Prefix/binary, "/", StreamName1/binary>>,
   Env = flu_config:get_config(),
-  
-  case proplists:get_value(publish_password, Env) of
-    undefined ->
-      ok;
-    PasswordSpec ->
-      [Login,Password] = string:tokens(PasswordSpec, ":"),
-      {_RawName, Args} = http_uri2:parse_path_query(Name),
 
-      UserLogin = proplists:get_value("login", Args),
-      UserPassword = proplists:get_value("password", Args),
-      case {UserLogin, UserPassword} of
-        {Login, Password} -> 
+  {_RawName, Args} = http_uri2:parse_path_query(Name),
+  
+  case proplists:get_value(password, Options) of
+    RequiredPassword when RequiredPassword =/= undefined ->
+      case proplists:get_value("password", Args) of
+        RequiredPassword -> ok;
+        WrongPassword ->
+          error_logger:error_msg("Publish denied, wrong password: ~p~n", [WrongPassword]),
+          throw({fail, [403, StreamName, <<"wrong_password">>]})
+      end;
+    undefined -> 
+      case proplists:get_value(publish_password, Env) of
+        undefined ->
           ok;
-        _ ->
-          error_logger:error_msg("Publish denied, wrong password: ~p, ~p~n", [UserLogin, UserPassword]),
-          throw({fail, [403, StreamName, <<"wrong_login_password">>]})
+        PasswordSpec ->
+          [Login,Password] = string:tokens(PasswordSpec, ":"),
+
+          UserLogin = proplists:get_value("login", Args),
+          UserPassword = proplists:get_value("password", Args),
+          case {UserLogin, UserPassword} of
+            {Login, Password} -> 
+              ok;
+            _ ->
+              error_logger:error_msg("Publish denied, wrong password: ~p, ~p~n", [UserLogin, UserPassword]),
+              throw({fail, [403, StreamName, <<"wrong_login_password">>]})
+          end
       end
   end,
+
 
   {ok, Recorder} = flu_stream:autostart(StreamName, [{clients_timeout,false},{static,false}|Options]),
   gen_tracker:setattr(flu_streams, StreamName, []),

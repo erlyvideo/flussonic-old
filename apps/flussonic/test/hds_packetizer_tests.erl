@@ -44,7 +44,7 @@ test_terminate() ->
 
 test_gop_with_empty_media_info() ->
   {ok, HDS1} = hds_packetizer:init([{name,<<"stream1">>}]),
-  {noreply, _HDS2} = hds_packetizer:handle_info({gop, gop()}, HDS1),
+  {noreply, _HDS2} = hds_packetizer:handle_info({gop, gop(2)}, HDS1),
   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, hds_manifest)),
   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, {hds_segment, 1, 1})),
   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, bootstrap)),
@@ -55,7 +55,7 @@ test_gop_with_empty_media_info() ->
 test_gop_with_media_info() ->
   {ok, HDS1} = hds_packetizer:init([{name,<<"stream1">>}]),
   {noreply, HDS2} = hds_packetizer:handle_info(media_info(), HDS1),
-  Gop = gop(),
+  Gop = gop(2),
   {noreply, _HDS3} = hds_packetizer:handle_info({gop, Gop}, HDS2),
 
   ?assertMatch({ok, Fragment} when is_binary(Fragment),
@@ -73,7 +73,7 @@ test_gop_with_media_info() ->
   % ?debugFmt("~nframes: ",[]),
   % [?debugFmt("~4s ~8s ~B", [Codec, Flavor, round(DTS)]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS} <- Frames],
   GopLen = length(Gop),
-  ?assertEqual(GopLen, length(Frames)),
+  ?assertEqual(GopLen, length(Frames)-2),
 
   ok.
 
@@ -94,28 +94,12 @@ media_info() ->
   file:close(F),
   MediaInfo.  
 
-
-gop() ->
+gop(N) ->
   {ok, F} = file:open("../../../priv/bunny.mp4",[read,binary,raw]),
   {ok, R} = mp4_reader:init({file,F},[]),
-  Gop = gop(R, true, undefined),
+  {ok, Gop} = mp4_reader:read_gop(R, N),
   file:close(F),
   Gop.
-
-gop(R, First, Key) ->
-  case mp4_reader:read_frame(R, Key) of
-    #video_frame{flavor = keyframe} when not First ->
-      [];
-    #video_frame{flavor = keyframe, next_id = Next} = F when First ->
-      [F|gop(R,false,Next)];
-    #video_frame{next_id = Next} = F ->
-      [F|gop(R,First,Next)]
-  end.
-
-
-
-
-
 
 
 

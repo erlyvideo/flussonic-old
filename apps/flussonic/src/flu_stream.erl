@@ -327,7 +327,10 @@ configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, 
     false -> shutdown_packetizer(HLS1), {blank_packetizer, undefined};
     _ -> init_if_required(HLS1, hls_dvr_packetizer, Options)
   end,
-  HDS = init_if_required(HDS1, hds_packetizer, Options),
+  HDS = case proplists:get_value(hds, Options) of
+    false -> shutdown_packetizer(HDS1), {blank_packetizer, undefined};
+    _ -> init_if_required(HDS1, hds_packetizer, Options)
+  end,
   % ?D({configuring,Options, proplists:get_value(dvr,Options)}),
   UDP = case proplists:get_value(udp, Options) of
     undefined -> shutdown_packetizer(UDP1), {blank_packetizer, undefined};
@@ -363,7 +366,8 @@ handle_call({subscribe, Pid}, _From, #stream{clients = Clients} = Stream) ->
   [Pid ! C#video_frame{stream_id = self()} || C <- configs(Stream)],
   {reply, {ok, Ref}, Stream#stream{clients = [{Pid,Ref}|Clients]}};
 
-handle_call({set_source, Source}, _From, #stream{source = undefined} = Stream) ->
+handle_call({set_source, Source}, _From, #stream{source = OldSource} = Stream) ->
+  OldSource == undefined orelse error({reusing_source,Stream#stream.name,OldSource,Source}),
   erlang:monitor(process, Source),
   {reply, ok, Stream#stream{source = Source}};
 

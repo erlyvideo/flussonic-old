@@ -6,24 +6,24 @@
 
 
 
-udp_packetizet_test_() ->
+udp_packetizer_test_() ->
   {foreach,
   fun() ->
-    error_logger:delete_report_handler(error_logger_tty_h),
-    application:stop(ranch),
-    application:stop(gen_tracker),
-    application:stop(flussonic),
     ok = application:start(ranch),
     ok = application:start(gen_tracker),
     ok = application:start(flussonic),
     gen_tracker_sup:start_tracker(flu_streams)
   end,
   fun(_) ->
+    error_logger:delete_report_handler(error_logger_tty_h),
     application:stop(ranch),
     application:stop(gen_tracker),
-    application:stop(flussonic)
+    application:stop(flussonic),
+    application:stop(inets),
+    error_logger:add_report_handler(error_logger_tty_h),
+    ok
   end, [
-    fun test_packetizer/0
+    {"test_packetizer", fun test_packetizer/0}
   ]}.
 
 
@@ -31,20 +31,19 @@ frames() ->
   {ok, File} = file:open("../../../priv/bunny.mp4", [binary,read,raw]),
   {ok, R} = mp4_reader:init({file,File},[]),
   MI = mp4_reader:media_info(R),
-  Frames1 = read_frames(R, undefined),
+  Configs = video_frame:config_frames(MI),
+  Frames1 = read_frames(R, 1),
   Frames2 = lists:flatmap(fun
-    (#video_frame{flavor = keyframe} = F) -> [MI,F];
+    (#video_frame{flavor = keyframe} = F) -> [MI]++Configs++[F];
     (#video_frame{} = F) -> [F]
   end, Frames1),
   file:close(File),
   {ok, MI, Frames2}.
 
 read_frames(R, Key) ->
-  case mp4_reader:read_frame(R, Key) of
-    #video_frame{next_id = Next} = F ->
-      [F|read_frames(R, Next)];
-    eof ->
-      []
+  case mp4_reader:read_gop(R, Key) of
+    {ok, Gop} -> Gop ++ read_frames(R, Key + 1);
+    {error, _} -> []
   end.
 
 listen_multicast(Port) ->
@@ -57,7 +56,7 @@ test_packetizer() ->
   {ok, _MI, Frames} = frames(),
   Port = crypto:rand_uniform(5000, 10000),
   {ok, Sock} = listen_multicast(Port),
-  {ok, S} = flu_stream:autostart(<<"livestream">>, [{udp, "udp://239.0.0.1:"++integer_to_list(Port) }]),
+  {ok, S} = flu_stream:autostart(<<"livestream">>, [{udp, "udp://239.0.0.1:"++integer_to_list(Port) },{hds,false},{hls,false}]),
   link(S),
   [S ! F || F <- Frames],
 

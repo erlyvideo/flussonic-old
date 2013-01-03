@@ -26,11 +26,10 @@
 
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([start_link/2, autostart/2, media_info/1]).
--export([hds_manifest/1, hds_segment/2, hds_lang_segment/3,  hds_segment/3]).
--export([hls_segment/3, hls_segment/4, hls_segment/2, hls_mbr_playlist/1, hls_playlist/1, hls_playlist/2]).
+-export([hds_manifest/1, hds_segment/2, hds_segment/4, hds_segment/3]).
+-export([hls_segment/2, hls_segment/3, hls_segment/4, hls_mbr_playlist/1, hls_playlist/1, hls_playlist/2]).
 -export([get/2]).
--export([read_frame/2, keyframes/1]).
--export([reduce_keyframes/1]).
+-export([read_gop/3, read_gop/2, keyframes/1]).
 -include("log.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
@@ -86,105 +85,80 @@ keyframes(File) -> get(File, keyframes).
 
 hds_manifest(File) -> get(File, hds_manifest).
 
-hds_segment(File, Fragment) -> 
-  case get(File, {hds_segment, Fragment}) of
-    {ok, {Format, Reader, Id, StopDTS}} ->
-      Reply = hds:segment(Format, Reader, Id, [{stop_dts, StopDTS}]),
-      Reply;
-    {error, Error} ->
-      {error, Error}
-  end.
 
-segment_info(File, Fragment, Tracks) ->
-  case get(File, reader) of
-    {ok, {Format, Reader}} ->
-      % Need to determine if this audio-only track or has video
-      #media_info{streams = Streams1} = Format:media_info(Reader),
-      Streams = [S || #stream_info{track_id = Id} = S <- Streams1, lists:member(Id,Tracks)],
-      HasVideo = [S || #stream_info{content = video} = S <- Streams] =/= [],
+% segment_info(File, Fragment, Tracks) ->
+%   case get(File, reader) of
+%     {ok, {Format, Reader}} ->
+%       % Need to determine if this audio-only track or has video
+%       #media_info{streams = Streams1} = Format:media_info(Reader),
+%       Streams = [S || #stream_info{track_id = Id} = S <- Streams1, lists:member(Id,Tracks)],
+%       HasVideo = [S || #stream_info{content = video} = S <- Streams] =/= [],
 
-      Keyframes = case HasVideo of
-        true -> flu_file:reduce_keyframes(Format:keyframes(Reader, [{tracks,Tracks}]));
-        false -> [{T, Id#frame_id{tracks = Tracks}} || {T,#frame_id{} = Id} <- flu_file:reduce_keyframes(Format:keyframes(Reader))]
-      end,
-      {_DTS,Id}=lists:nth(Fragment,Keyframes),
-      StopDts = if length(Keyframes) >= Fragment + 1 ->
-        {S, _} = lists:nth(Fragment+1, Keyframes), S;
-        true -> 0 
-      end,
-      Options = case HasVideo of
-        true -> [];
-        false -> [{no_metadata,true},{hardstop,true}]
-      end,
-      {ok, {Format, Reader, Id, StopDts, Options}};
-    {error, _} = Error ->
-      Error
-  end.
-
-hds_segment(File, Fragment, Tracks) ->
-  case segment_info(File, Fragment, Tracks) of
-    {ok, {Format, Reader, Id, StopDts, Options}} ->
-      Reply = hds:segment(Format, Reader, Id, [{stop_dts, StopDts},{tracks,Tracks}|Options]),
-      Reply;
-    {error, Error} ->
-      {error, Error}
-  end.
+%       Keyframes = case HasVideo of
+%         true -> flu_file:reduce_keyframes(Format:keyframes(Reader, [{tracks,Tracks}]));
+%         false -> [{T, Id#frame_id{tracks = Tracks}} || {T,#frame_id{} = Id} <- flu_file:reduce_keyframes(Format:keyframes(Reader))]
+%       end,
+%       {_DTS,Id}=lists:nth(Fragment,Keyframes),
+%       StopDts = if length(Keyframes) >= Fragment + 1 ->
+%         {S, _} = lists:nth(Fragment+1, Keyframes), S;
+%         true -> 0 
+%       end,
+%       Options = case HasVideo of
+%         true -> [];
+%         false -> [{no_metadata,true},{hardstop,true}]
+%       end,
+%       {ok, {Format, Reader, Id, StopDts, Options}};
+%     {error, _} = Error ->
+%       Error
+%   end.
 
 
-hds_lang_segment(File, Lang_, Fragment) -> 
-  % case get(File, reader) of
-    % {ok, {Format, Reader}} ->
-    %   Lang = list_to_integer(binary_to_list(Lang_)),
-    %   StartDTS = Fragment * hds:lang_frag_duration(),
-    %   StopDTS = (Fragment+1) * hds:lang_frag_duration(),
-    %   {Id, _} = Format:seek(Reader, StartDTS, [{language,Lang},{bitrate,false}]),
-    %   Reply = hds:segment(Format, Reader, Id, [{stop_dts, StopDTS},{hardstop,true}]),
-    %   Reply;
-  case get(File, {hds_segment, Fragment}) of
-    {ok, {Format = mp4_reader, Reader, #frame_id{} = Id, StopDTS}} ->
-      Lang = list_to_integer(binary_to_list(Lang_)),
-      Reply = hds:segment(Format, Reader, Id#frame_id{tracks = [Lang]}, [{no_metadata,true},{stop_dts, StopDTS},{hardstop,true}]),
-      Reply;
-    {error, Error} ->
-      {error, Error}
-  end.
+hds_segment(Name, Root, Fragment, Tracks) ->
+  {ok, File} = autostart(Name, [{root,Root}]),
+  hds_segment(File, Fragment, Tracks).
+
+hds_segment(File, Fragment) ->
+  hds_segment(File, Fragment, undefined).
+
+hds_segment(File, Fragment, Tracks) when is_pid(File) ->
+  gen_server:call(File, {hds_segment, Fragment, Tracks});
+
+hds_segment(Name, Fragment, Tracks) ->
+  {ok, File} = autostart(Name, []),
+  hds_segment(File, Fragment, Tracks).
+
+
+
 
 hls_playlist(File) -> get(File, hls_playlist).
 hls_playlist(File, Tracks) -> get(File, {hls_playlist, Tracks}).
 
 hls_mbr_playlist(File) -> get(File, hls_mbr_playlist).
 
-hls_segment(Name, Root, Segment) ->
-  {ok, File} = autostart(Name, [{root,Root}]),
-  hls_segment(File, Segment).
-
-hls_segment(File,Segment) ->
-  case get(File, {hls_segment,Segment}) of
-    {ok, {Format, Reader, Id1, StopDTS}} ->
-      Id = case Id1 of
-        #frame_id{} -> Id1#frame_id{tracks = mp4_reader:tracks_for(Reader, [{language,all}])};
-        _ -> Id1
-      end,
-      {ok, hls:segment(Format,Reader,Id,StopDTS)};
-    {error, Error} ->
-      {error, Error}
-  end.
 
 
 hls_segment(Name, Root, Segment, Tracks) ->
   {ok, File} = autostart(Name, [{root,Root}]),
-  case segment_info(File, Segment, Tracks) of
-    {ok, {Format, Reader, Id, StopDts, _Options}} ->
-      Reply = hls:segment(Format, Reader, Id, [{stop_dts,StopDts},{tracks,Tracks}]),
-      {ok, Reply};
-    {error, Error} ->
-      {error, Error}
-  end.
+  hls_segment(File, Segment, Tracks).
+
+
+hls_segment(File, Segment) ->
+  hls_segment(File, Segment, undefined).
+
+hls_segment(File, Segment, Tracks) when is_pid(File) ->
+  gen_server:call(File, {hls_segment, Segment, Tracks});
+
+hls_segment(Name, Root, Fragment) when is_binary(Name), is_integer(Fragment) ->
+  {ok, File} = autostart(Name, [{root,Root}]),
+  hls_segment(File, Fragment).
 
 
 
-read_frame(File, Id) ->
-  gen_server:call(File, {read_frame, Id}).
+read_gop(File, Id) ->
+  read_gop(File, Id, [1,2]).
+
+read_gop(File, Id, Tracks) ->
+  gen_server:call(File, {read_gop, Id, Tracks}).
   
 
 init([Path, Options]) ->
@@ -246,13 +220,35 @@ handle_call(hds_manifest, _From, #state{hds_manifest = undefined, format = Forma
 handle_call(hds_manifest, _From, #state{hds_manifest = HdsManifest, timeout = Timeout} = State) ->
   {reply, {ok, HdsManifest}, State, Timeout};
 
-handle_call({read_frame, Id}, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
-  Frame = Format:read_frame(Reader, Id),
-  {reply, Frame, State, Timeout};
+handle_call({read_gop, Id, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
+  Gop = Format:read_gop(Reader, Id, Tracks),
+  {reply, Gop, State, Timeout};
 
 handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Timeout} = State) when
   (Fragment =< 0 orelse Fragment > length(Keyframes)) andalso (Type == hls_segment orelse Type == hds_segment) ->
   {reply, {error, no_segment}, State, Timeout};  
+
+handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI} = State) ->
+  Gop = case Format:read_gop(Reader, Fragment, Tracks) of
+    {ok, Gop_} -> Gop_;
+    {error, _} = Error -> throw({reply, Error, State, Timeout})
+  end,
+  {ok, Segment} = hds:segment(Gop, MI, [{tracks,Tracks}]),
+  {reply, {ok, Segment}, State, Timeout};
+
+
+handle_call({hls_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI} = State) ->
+  Gop = case Format:read_gop(Reader, Fragment, Tracks) of
+    {ok, Gop_} -> Gop_;
+    {error, _} = Error -> throw({reply, Error, State, Timeout})
+  end,
+  HasVideo = case Gop of
+    [#video_frame{content = video}|_] -> true;
+    _ -> false
+  end,
+  Segment = hls:segment(Gop, MI, [{tracks,Tracks},{no_metadata,not HasVideo}]),
+  {reply, {ok, iolist_to_binary(Segment)}, State, Timeout};
+
 
 handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Timeout, format = Format, reader = Reader} = State) 
   when Type == hls_segment orelse Type == hds_segment ->
@@ -307,7 +303,7 @@ open(#state{disk_path = Path, requested_path = Path1, access = Access, format = 
         #media_info{streams = Streams} when length(Streams) > 0 -> ok;
         _ -> throw({stop, {invalid_media_info, MediaInfo}, {return, 500, "Invalid media_info in file"}, State})
       end,
-      Keyframes = reduce_keyframes(Format:keyframes(Reader)),
+      Keyframes = video_frame:reduce_keyframes(Format:keyframes(Reader)),
       
       MPEGTS = mpegts:init([{interleave,3}]),
       MPEGTS1 = mpegts:encode(MPEGTS, MediaInfo),
@@ -323,16 +319,6 @@ open(#state{disk_path = Path, requested_path = Path1, access = Access, format = 
 
 open(State) ->
   State.
-
--define(MIN_DTS_STEP, 3000).
-
-reduce_keyframes(Keyframes) ->
-  {Keyframes1, _} = lists:mapfoldl(fun
-    ({DTS,Id}, PrevDTS) when DTS - PrevDTS >= ?MIN_DTS_STEP -> {{DTS, Id}, DTS};
-    (_, PrevDTS) -> {undefined, PrevDTS}
-  end, -2*?MIN_DTS_STEP, Keyframes),
-  Keyframes2 = [{DTS, Id} || {DTS, Id} <- Keyframes1],
-  Keyframes2.
 
 
 
