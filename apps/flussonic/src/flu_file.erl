@@ -91,33 +91,6 @@ hds_manifest(File) ->
   R.
 
 
-% segment_info(File, Fragment, Tracks) ->
-%   case get(File, reader) of
-%     {ok, {Format, Reader}} ->
-%       % Need to determine if this audio-only track or has video
-%       #media_info{streams = Streams1} = Format:media_info(Reader),
-%       Streams = [S || #stream_info{track_id = Id} = S <- Streams1, lists:member(Id,Tracks)],
-%       HasVideo = [S || #stream_info{content = video} = S <- Streams] =/= [],
-
-%       Keyframes = case HasVideo of
-%         true -> flu_file:reduce_keyframes(Format:keyframes(Reader, [{tracks,Tracks}]));
-%         false -> [{T, Id#frame_id{tracks = Tracks}} || {T,#frame_id{} = Id} <- flu_file:reduce_keyframes(Format:keyframes(Reader))]
-%       end,
-%       {_DTS,Id}=lists:nth(Fragment,Keyframes),
-%       StopDts = if length(Keyframes) >= Fragment + 1 ->
-%         {S, _} = lists:nth(Fragment+1, Keyframes), S;
-%         true -> 0 
-%       end,
-%       Options = case HasVideo of
-%         true -> [];
-%         false -> [{no_metadata,true},{hardstop,true}]
-%       end,
-%       {ok, {Format, Reader, Id, StopDts, Options}};
-%     {error, _} = Error ->
-%       Error
-%   end.
-
-
 hds_segment(Name, Root, Fragment, Tracks) ->
   {ok, File} = autostart(Name, [{root,Root}]),
   hds_segment(File, Fragment, Tracks).
@@ -247,7 +220,11 @@ handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, fo
     {ok, Gop_} -> Gop_;
     {error, _} = Error -> throw({reply, Error, State, Timeout})
   end,
-  {ok, Segment} = hds:segment(Gop, MI, [{tracks,Tracks}]),
+  HasVideo = case Gop of
+    [#video_frame{content = video}|_] -> true;
+    _ -> false
+  end,
+  {ok, Segment} = hds:segment(Gop, MI, [{tracks,Tracks},{no_metadata,not HasVideo}]),
   {reply, {ok, Segment}, State, Timeout};
 
 
@@ -256,11 +233,7 @@ handle_call({hls_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, fo
     {ok, Gop_} -> Gop_;
     {error, _} = Error -> throw({reply, Error, State, Timeout})
   end,
-  HasVideo = case Gop of
-    [#video_frame{content = video}|_] -> true;
-    _ -> false
-  end,
-  Segment = hls:segment(Gop, MI, [{tracks,Tracks},{no_metadata,not HasVideo}]),
+  Segment = hls:segment(Gop, MI, [{tracks,Tracks}]),
   {reply, {ok, iolist_to_binary(Segment)}, State, Timeout};
 
 

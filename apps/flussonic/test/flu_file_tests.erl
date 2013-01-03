@@ -15,6 +15,7 @@ flu_file_test_() ->
   CommonTests =   [
     {with, [fun test_hds_manifest/1]}
     ,{with, [fun test_hds_segment/1]}
+    ,{with, [fun test_hds_lang_segment/1]}
     ,{with, [fun test_hds_missing_segment/1]}
   ],
   Tests = case file:read_file_info("../../hls") of
@@ -73,8 +74,8 @@ test_hds_segment({_,File}) ->
 
 test_hds_lang_segment({_,File}) ->
   ?assertMatch({ok, <<_Size:32, "mdat", _FLV/binary>>}, flu_file:hds_segment(File, 4, [2])),
-  {ok, <<_Size:32, "mdat", FLV/binary>>} = flu_file:hds_segment(File, 4, [2]),
-  Frames = flv:read_all_frames(FLV),
+  {ok, HDS} = flu_file:hds_segment(File, 4, [2]),
+  Frames = flv:read_all_frames(HDS),
   ?assertMatch(_ when length(Frames) > 10, Frames),
 
   Audio = [Frame || #video_frame{content = audio, flavor = frame} = Frame <- Frames],

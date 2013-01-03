@@ -72,6 +72,7 @@ start() ->
   start([]).
   
 start(_Options) ->
+  catch erlang:system_flag(scheduler_bind_type, spread),
   application:start(compiler),
   application:load(lager),
   application:set_env(lager,handlers,[{lager_console_backend,info}]),

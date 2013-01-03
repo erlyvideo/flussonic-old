@@ -48,9 +48,10 @@ case $1 in
   export ERL_LIBS=apps:deps
   export PID_PATH="/var/run/flussonic.pid"
   SBT=""
-  if [ `uname` == "Linux" ]; then
-    SBT="+sbt s"
-  fi
+  # This option is disabled unless Rickard makes +sbt flag non-failable
+  # if [ `uname` == "Linux" ]; then
+  #   SBT="+sbt s"
+  # fi
   CMD="erl +K true +A 16 +a 2048 ${SBT} -name flussonic@127.0.0.1 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
   exec $CMD
   ;;
