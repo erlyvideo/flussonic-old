@@ -238,11 +238,13 @@ open(Reader, _Options) ->
 
 
 
+keyframes(_Media, []) ->
+  {error, no_keyframes};
 
 keyframes(#mp4_media{tracks = Tracks} = Media, [TrackId|TrackIds]) ->
   case element(TrackId, Tracks) of
     #mp4_track{content = video, track_id = TrackId, keyframes = Keyframes} -> Keyframes;
-    #mp4_track{content = C} -> ?D({wrong, TrackId, C}), keyframes(Media, TrackIds)
+    #mp4_track{} -> keyframes(Media, TrackIds)
   end.
 
 
@@ -776,9 +778,11 @@ lookup_audio_dts(STTS, StartDTS, EndDTS) ->
   lookup_adts(STTS, StartDTS, EndDTS, 0, 0).
 
 lookup_adts(<<Count:32, Duration:32, STTS/binary>>, StartDTS, EndDTS, DTS, FirstId) when Count*Duration + DTS < StartDTS ->
+  % ?D({skip_adts,DTS,Count,Duration,StartDTS}),
   lookup_adts(STTS, StartDTS, EndDTS, DTS + Count*Duration, FirstId + Count);
 
 lookup_adts(<<Count:32, Duration:32, STTS/binary>>, StartDTS, EndDTS, DTS, FirstId) ->
+  % ?D({work_adts,Count,Duration,StartDTS,EndDTS}),
   Before = if 
     (StartDTS - DTS) rem Duration == 0 -> (StartDTS - DTS) div Duration;
     true -> ((StartDTS - DTS) div Duration) + 1
@@ -786,7 +790,7 @@ lookup_adts(<<Count:32, Duration:32, STTS/binary>>, StartDTS, EndDTS, DTS, First
   Start = Before + FirstId,
   RealStartDTS = Before*Duration + DTS,
   if DTS + Count*Duration < EndDTS ->
-    OurTimestamps = lists:seq(RealStartDTS, DTS + Count*Duration, Duration),
+    OurTimestamps = lists:seq(RealStartDTS, DTS + (Count-1)*Duration, Duration),
     {_, End, NextTimestamps} = lookup_adts(STTS, DTS + Count*Duration, EndDTS, DTS + Count*Duration, FirstId + Count),
     {Start, End, OurTimestamps ++ NextTimestamps};
   true ->
@@ -928,6 +932,7 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
 
   {AStart, AEnd, TSList} = lookup_audio_dts(ATimestamps, round(VStartDTS*AScale/1000), round(VEndDTS*AScale/1000)),
   AOffsets = lookup_offsets(A, AStart, AEnd),
+  length(TSList) == length(AOffsets) orelse error({bad_audio,length(TSList), length(AOffsets)}),
   AFrames1 = collect_frames(TSList, undefined, AOffsets, audio, ACodec, A_, AScale),
   AFrames = [F#video_frame{body = unok(Module:pread(Device, Offset,Size))} || #video_frame{body = {Offset,Size}} = F <- AFrames1],
   {ok, video_frame:sort(VideoFrames ++ AFrames)}.
@@ -998,7 +1003,7 @@ collect_frames([TS|TSList], Compositions, [OffsetAndSize|Offsets], Content, Code
 
 
 lookup_offsets(#mp4_track{chunk_sizes = ChunkSizes, chunk_offsets = ChunkOffsets, offset_size = OffsetSize, sample_sizes = SampleSizes} = _T, Start, End) ->
-  % if _T#mp4_track.codec == aac -> ?D(ChunkSizes); true -> ok end,
+  % if _T#mp4_track.codec == aac -> ?D({Start, End, ChunkSizes}); true -> ok end,
   lookup_offsets(ChunkSizes, {ChunkOffsets, OffsetSize}, SampleSizes, Start, End).
 
 lookup_offsets([#chunk{last_id = Last} = _C|ChunkSizes], ChunkOffsets, SampleSizes, Start, End) when Start > Last ->

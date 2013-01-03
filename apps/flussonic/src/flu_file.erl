@@ -79,11 +79,16 @@ get(File, Key) when is_binary(File) ->
   end;
 
 get(File, Key) ->
-  gen_server:call(File, Key).
+  R = gen_server:call(File, Key),
+  R.
 
-keyframes(File) -> get(File, keyframes).
+keyframes(File) -> 
+  R = get(File, keyframes),
+  R.
 
-hds_manifest(File) -> get(File, hds_manifest).
+hds_manifest(File) -> 
+  R = get(File, hds_manifest),
+  R.
 
 
 % segment_info(File, Fragment, Tracks) ->
@@ -121,7 +126,8 @@ hds_segment(File, Fragment) ->
   hds_segment(File, Fragment, undefined).
 
 hds_segment(File, Fragment, Tracks) when is_pid(File) ->
-  gen_server:call(File, {hds_segment, Fragment, Tracks});
+  R = gen_server:call(File, {hds_segment, Fragment, Tracks}),
+  R;
 
 hds_segment(Name, Fragment, Tracks) ->
   {ok, File} = autostart(Name, []),
@@ -130,10 +136,17 @@ hds_segment(Name, Fragment, Tracks) ->
 
 
 
-hls_playlist(File) -> get(File, hls_playlist).
-hls_playlist(File, Tracks) -> get(File, {hls_playlist, Tracks}).
+hls_playlist(File) -> 
+  R = get(File, hls_playlist),
+  R.
 
-hls_mbr_playlist(File) -> get(File, hls_mbr_playlist).
+hls_playlist(File, Tracks) -> 
+  R = get(File, {hls_playlist, Tracks}),
+  R.
+
+hls_mbr_playlist(File) -> 
+  R = get(File, hls_mbr_playlist),
+  R.
 
 
 
@@ -158,7 +171,8 @@ read_gop(File, Id) ->
   read_gop(File, Id, [1,2]).
 
 read_gop(File, Id, Tracks) ->
-  gen_server:call(File, {read_gop, Id, Tracks}).
+  R = gen_server:call(File, {read_gop, Id, Tracks}),
+  R.
   
 
 init([Path, Options]) ->
