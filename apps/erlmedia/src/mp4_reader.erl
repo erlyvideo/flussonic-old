@@ -24,7 +24,6 @@
 -module(mp4_reader).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--behaviour(gen_format).
 -include("../include/video_frame.hrl").
 -include("../include/mp4.hrl").
 -include("../include/aac.hrl").

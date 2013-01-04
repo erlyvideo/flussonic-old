@@ -29,7 +29,6 @@
 -include_lib("kernel/include/file.hrl").
 
 
--behaviour(gen_format).
 -export([init/2, read_frame/2, media_info/1, properties/1, seek/3, can_open_file/1, write_frame/2]).
 
 -record(mp3_media, {
