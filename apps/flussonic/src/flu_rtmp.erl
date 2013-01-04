@@ -65,7 +65,7 @@ clients0() ->
   [Client || Client <- Clients, Client =/= undefined].
 
 play_url(Name, URL, Options) ->
-  RTMPOptions = proplists:get_value(rtmp, Options, []),
+  RTMPOptions = proplists:get_value(rtmp_play, Options, []),
   {ok, Proxy} = flussonic_sup:start_stream_helper(Name, publish_proxy, {flu_publish_proxy, start_link, [URL, self(), RTMPOptions]}),
   {ok, Proxy}.
   

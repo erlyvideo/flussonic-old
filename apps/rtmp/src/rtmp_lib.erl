@@ -205,13 +205,18 @@ app_path(URL) ->
 
 invoke_rtmp_play(RTMP, URL, Options) ->
   rtmp_socket:setopts(RTMP, [{active, true},{url,URL}]),
-  connect(RTMP, Options),
-  {_App, Path} = app_path(URL),
-  ?D({"Connected to RTMP source", URL, _App, Path}),
-  Stream = rtmp_lib:createStream(RTMP),
-  case play(RTMP, Stream, Path) of
-    ok -> {ok, RTMP, Stream};
-    {error, _} = Error -> rtmp_socket:close(RTMP), Error
+  case connect(RTMP, Options) of
+    {ok, RTMP} ->
+      {_App, Path} = app_path(URL),
+      ?D({"Connected to RTMP source", URL, _App, Path}),
+      Stream = rtmp_lib:createStream(RTMP),
+      case play(RTMP, Stream, Path) of
+        ok -> {ok, RTMP, Stream};
+        {error, _} = Error -> rtmp_socket:close(RTMP), Error
+      end;
+    {error, _} = Error ->
+      rtmp_socket:close(RTMP),
+      Error
   end.
 
 
@@ -233,6 +238,8 @@ wait_for_play_reply(RTMP, Stream, InvokeId) ->
       #rtmp_message{type = invoke, stream_id = Stream, body = #rtmp_funcall{command = <<"onStatus">>, args = [null, {object, Info}]}}} ->
       case proplists:get_value(code, Info) of
         <<"NetStream.Play.Reset">> ->
+          wait_for_play_reply(RTMP, Stream, InvokeId);
+        <<"NetStream.Play.PublishNotify">> ->
           wait_for_play_reply(RTMP, Stream, InvokeId);
         <<"NetStream.Play.Start">> ->
           ok;

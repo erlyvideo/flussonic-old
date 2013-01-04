@@ -15,22 +15,17 @@
 
 -export([verify/3]).
 
+-export([backend_request/3]).
+
 
 -export([timeout/0]).
 
-% -record(session, {
-%   id,
-%   expire,
-%   path,
-%   name,
-%   options = []
-% }).
+
+backend_request(URL, Identity, Options) when is_list(Identity), is_list(Options) ->
+  Reply = auth_http_backend:verify(URL, Identity, Options),
+  Reply.
 
 
-
-
-merge(List1, List2) ->
-  lists:ukeymerge(1, lists:ukeysort(1,List1), lists:ukeysort(1, List2) ).
 
 verify(URL, Identity, Options) when is_list(URL) ->
   verify(list_to_binary(URL), Identity, Options);
@@ -61,9 +56,29 @@ verify(URL, Identity, Options) ->
       TotalClients = lists:sum([Count || {_,Count} <- Stats]),
       ClientsInfo = [{stream_clients,StreamClients},{total_clients,TotalClients}],
 
-      case auth_http_backend:verify(URL, Identity, ClientsInfo ++ RequestType ++ Options) of
+      case flu_session:backend_request(URL, Identity, ClientsInfo ++ RequestType ++ Options) of
         {error,  {_Code,ErrMsg}, Opts1} -> {new_or_update(Identity, Opts1 ++ Options), ErrMsg};
-        {ok, Name1, Opts1} -> {new_or_update(Identity, merge([{name,Name1}], Opts1 ++ Options)), "cached_positive"}
+        {ok, Opts1} ->
+          UserId = proplists:get_value(user_id, Opts1),
+          case proplists:get_value(unique, Opts1) of
+            true when is_number(UserId) ->
+              ExistingSessions = ets:select(flu_session:table(), 
+                ets:fun2ms(fun(#session{user_id = UID, access = granted} = E) when UID == UserId -> E end)),
+              OurId = session_id(Identity),
+              [begin
+                ets:update_element(flu_session:table(), Id, {#session.access, denied}),
+                case Pid of
+                  undefined -> ok;
+                  _ -> 
+                    gen_server:call(?MODULE, {unregister, Ref}),
+                    erlang:exit(Pid, duplicated_user_id)
+                end
+              end || 
+              #session{session_id = Id, pid = Pid, ref = Ref} <- ExistingSessions, Id =/= OurId];
+            _ ->
+              ok
+          end,
+          {new_or_update(Identity, Opts1 ++ Options), "cached_positive"}
       end;
     R -> {R, "cached_negative"}
   end,
@@ -84,7 +99,7 @@ timeout() ->
 
 clients() ->
   Now = flu:now_ms(),
-  Sessions = ets:select(flu_session:table(), ets:fun2ms(fun(#session{flag = granted} = E) -> E end)),
+  Sessions = ets:select(flu_session:table(), ets:fun2ms(fun(#session{access = granted} = E) -> E end)),
   [[{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type}] || #session{ip = IP, name = Name, created_at = StartAt, type = Type} <- Sessions].
 
 list() ->
@@ -125,7 +140,7 @@ find_session(Identity) ->
   end.
 
 new_or_update(Identity, Opts) ->
-  Flag    = proplists:get_value(access, Opts, denied),
+  Access    = proplists:get_value(access, Opts, denied),
   AuthTime  = proplists:get_value(auth_time, Opts, 30000),
   DeleteTime  = proplists:get_value(delete_time, Opts, 30000),
   Pid     = proplists:get_value(pid, Opts),
@@ -147,7 +162,7 @@ new_or_update(Identity, Opts) ->
       {#session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
       bytes_sent = 0, pid = Pid, ref = Ref, user_id = UserId, type = proplists:get_value(type, Opts, <<"http">>)}, true}
   end,
-  Session = OldSession#session{auth_time = AuthTime, delete_time = DeleteTime, last_access_time = Now, flag = Flag},
+  Session = OldSession#session{auth_time = AuthTime, delete_time = DeleteTime, last_access_time = Now, access = Access},
   ets:insert(flu_session:table(), Session),
 
   case New of
@@ -156,9 +171,9 @@ new_or_update(Identity, Opts) ->
   end,
   Session.
 
-update_session(#session{session_id = SessionId, flag = Flag}) ->
+update_session(#session{session_id = SessionId, access = Access}) ->
   ets:update_element(flu_session:table(), SessionId, {#session.last_access_time, flu:now_ms()}),
-  Flag.
+  Access.
 
 delete_session(Session) ->
   ets:delete_object(flu_session:table(), Session),

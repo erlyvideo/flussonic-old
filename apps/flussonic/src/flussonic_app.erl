@@ -40,10 +40,6 @@ start(_StartType, _StartArgs) ->
 	gen_tracker_sup:start_tracker(flu_streams),
   % flu_session:start(),
   
-  % sync:go(),
-  inets:start(),
-  inets:start(httpc, [{profile,auth}]),
-  httpc:set_options([{max_sessions,20},{max_keep_alive_length,100}]),
   {ok, Pid} = flussonic_sup:start_link(),
   {ok, Pid}.
   

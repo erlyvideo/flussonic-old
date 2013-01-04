@@ -176,8 +176,13 @@ init_client(ServerSpec, Options) ->
 init_client0(ServerSpec, Options) ->
   {_, Consumer} = lists:keyfind(consumer, 1, Options),
   erlang:monitor(process, Consumer),
-  {match, [Host, Port_]} = re:run(ServerSpec, "rtmp://(.+):(\\d+)", [{capture,all_but_first,list}]),
-  Port = list_to_integer(Port_),
+  {Host, Port} = case re:run(ServerSpec, "rtmp://([^:]+):(\\d+)/", [{capture,all_but_first,list}]) of
+    {match, [Host_, Port_]} ->
+      {Host_, list_to_integer(Port_)};
+    nomatch ->
+      {match, [Host_]} = re:run(ServerSpec, "rtmp://([^/]+)/", [{capture,all_but_first,list}]),
+      {Host_, 1935}
+  end,
   Timeout = proplists:get_value(timeout, Options, 10000),
   {ok, Socket} = case gen_tcp:connect(Host, Port, [binary, {active, false}, {packet, raw}], Timeout) of
     {ok, Sock} -> {ok, Sock};

@@ -26,13 +26,13 @@ start_link(RTMP, Stream, Options) ->
   delayed = []
 }).
 
--define(VIDEO, 200).
--define(AUDIO, 201).
--define(META, 202).
+-define(VIDEO, 1).
+-define(AUDIO, 2).
+-define(META, 3).
 
 -define(LIMIT, 100).
 
--define(START_FRAMES, 5).
+-define(START_FRAMES, 25).
 
 init([StartSpec, Stream, Options]) ->
   proc_lib:init_ack({ok, self()}),
@@ -113,6 +113,12 @@ handle_info({rtmp, _RTMP, #rtmp_message{type = Type}}, Proxy) when Type == burst
 handle_info({rtmp, _RTMP, #rtmp_message{type = metadata}}, Proxy) ->
   {noreply, Proxy};
 
+handle_info({rtmp, _RTMP, #rtmp_message{type = ping}}, Proxy) ->
+  {noreply, Proxy};
+
+handle_info({rtmp, _RTMP, #rtmp_message{type = stream_begin}}, Proxy) ->
+  {noreply, Proxy};
+
 handle_info({rtmp, _RTMP, disconnect, _}, Proxy) ->
   {stop, normal, Proxy};
 
@@ -190,7 +196,7 @@ handle_frame1({metadata, Meta1, Frame}, #proxy{media_info = undefined, delayed =
 handle_frame1(#video_frame{} = Frame, #proxy{media_info = MI1, delaying = true, delayed = Delayed, stream = Stream} = Proxy) ->
 
   MI2 = video_frame:define_media_info(MI1, Frame),
-  Delaying = not video_frame:has_media_info(MI2) orelse length(Delayed) =< ?START_FRAMES,
+  Delaying = length(MI2#media_info.streams) < 2 andalso length(Delayed) =< ?START_FRAMES,
   
   Delayed1 = Delayed ++ [Frame],
   case Delaying of

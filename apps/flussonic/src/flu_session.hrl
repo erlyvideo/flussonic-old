@@ -1,10 +1,10 @@
 -record(session, {
-  session_id,
-  token,
-  ip,
-  name,
-  user_id,
-  flag,
+  session_id :: binary(),
+  token :: binary(),
+  ip :: binary(),
+  name :: binary(),
+  user_id = undefined :: undefined | integer(),
+  access = denied :: granted | denied,
   type, %  :: <<"hds">>|<<"hls">>|<<"http">>
   created_at,
   auth_time,

@@ -6,12 +6,15 @@ require 'thin'
 require 'net/http'
 
 
-Sessions = {}
+Tokens = {}
 
 class MainPage
   def call(env)
-    session = rand(100000000).to_s
-    Sessions[session] = Time.now + 60
+    query = Rack::Utils.parse_query(env["QUERY_STRING"])
+    token = query["token"] || rand(100000000).to_s
+    path = query["path"] || "securevod/bunny.mp4"
+    streamer = query["streamer"] || "localhost:8080"
+    Tokens[token] ||= Time.now + 60
     body = <<-EOF
 <html>
 <head>
@@ -30,9 +33,9 @@ class MainPage
 
 <script type="text/javascript">
 
-function player(element, session) {
+function player(element, token) {
 var flashvars = {
-  src : "http://localhost:8080/securevod/bunny.mp4/manifest.f4m?session="+session,
+  src : "http://#{streamer}/#{path}/manifest.f4m?token="+token,
   autoPlay: true
 };
 var paramObj = {allowScriptAccess : "always", allowFullScreen : "true", allowNetworking : "all"};
@@ -41,8 +44,8 @@ swfobject.embedSWF("http://localhost:8080/flu/StrobeMediaPlayback.swf", element,
 
 }
 
-player("video1", "#{session}");
-player("video2", "invalid");
+player("video1", "#{token}");
+// player("video2", "invalid");
 </script>
 </body>
 </html>
@@ -56,18 +59,18 @@ class AuthPage
     query = Rack::Utils.parse_query(env["QUERY_STRING"])
     token = query["token"]
     return [403, {}, ["no token\n"]] if !token
-    expire_at = Sessions[token]
+    expire_at = Tokens[token]
 
     if !expire_at
       return [403, {}, ["session not found\n"]]
     end
 
     if expire_at < Time.now
-      Sessions.delete(token)
+      Tokens.delete(token)
       return [403, {}, ["session expired\n"]]
     end
 
-    [200, {"X-AuthDuration" => "4000"}, ["accepted\n"]]
+    [200, {"X-AuthDuration" => "4000", "X-Unique" => "true", "X-UserId" => "5"}, ["accepted\n"]]
   end
 end
 

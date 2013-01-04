@@ -61,6 +61,11 @@ test_play_ok_file() ->
   {ok, RTMP, _StreamId} = rtmp_lib:play("rtmp://localhost:4555/rtmpapp/file.mp4"),
   {ok, RTMP}.
 
+test_play_forbidden_app() ->
+  rtmp_socket:start_server(4555, test_rtmp, rtmp_test_client, [[]]),
+  ?assertMatch({error, _}, rtmp_lib:play("rtmp://localhost:4555/app/file.mp4")),
+  ok.
+
 test_play_failed() ->
   rtmp_socket:start_server(4555, test_rtmp, rtmp_test_client, [[]]),
   ?assertMatch({error, _}, rtmp_lib:play("rtmp://localhost:4555/rtmpapp/cam0")),

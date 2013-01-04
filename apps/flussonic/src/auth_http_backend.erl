@@ -25,20 +25,33 @@ verify(URL, Identity, Options) when is_list(URL) ->
 verify(URL, Identity, Options) when is_binary(URL) ->
   Query = [ [to_s(K), "=", to_s(V), "&"] || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V) orelse is_atom(V) orelse is_integer(V)],
   RequestURL = lists:flatten([binary_to_list(URL), "?", Query]),
+  case whereis(httpc_auth) of
+    undefined ->
+      inets:start(),
+      inets:start(httpc, [{profile,auth}]),
+      httpc:set_options([{max_sessions,20},{max_keep_alive_length,100}]);
+    _ ->
+      ok
+  end,
   case httpc:request(get, {RequestURL, []}, [{connect_timeout, flu_session:timeout()},{timeout, flu_session:timeout()},{autoredirect,false}],
     [], auth) of
     {ok, {{_,Code,_}, Headers, _Body}} ->
       AuthDuration = to_i(proplists:get_value("x-authduration", Headers, 30))*1000,
       DeleteTime = lists:max([AuthDuration, 10000]),
+      UniqueUid = case proplists:get_value("x-unique", Headers) of
+        "true" -> [{unique,true}];
+        _ -> []
+      end,
+      UserId = to_i(proplists:get_value("x-userid", Headers)),
       Opts0_ = [{auth_time,AuthDuration},{delete_time,DeleteTime},
-        {user_id,to_i(proplists:get_value("x-userid", Headers))}],
-      ?DBG("Backend auth request \"~s\": ~B code, duration: ~B", [RequestURL, Code, AuthDuration]),
+        {user_id,UserId}] ++ UniqueUid,
+      ?DBG("Backend auth request \"~s\": ~B code, duration: ~B, user_id: ~p, unique: ~p", 
+        [RequestURL, Code, AuthDuration, UserId, proplists:get_value(unique,UniqueUid, false)]),
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
       % Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),
-      Name = proplists:get_value(name, Identity),
       case Code of
-        200 -> {ok,    Name, merge([{access, granted}],Opts0)};
-        302 -> {ok,    Name, merge([{access, granted}],Opts0)};
+        200 -> {ok,    merge([{access, granted}],Opts0)};
+        302 -> {ok,    merge([{access, granted}],Opts0)};
         403 -> {error, {403, "backend_denied"},  merge([{access, denied}], Opts0)};
         _ ->   {error, {403, io_lib:format("backend_code: ~B", [Code])},  merge([{access, denied}], Opts0)}
       end;

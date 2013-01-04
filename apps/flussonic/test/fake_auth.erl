@@ -12,7 +12,10 @@ handle(Req, _) ->
 terminate(_,_) -> ok.
 
 start_http() ->
-  Dispatch = [{'_', [{['...'], fake_auth, []}]}],
+  application:start(crypto),
+  application:start(ranch),
+  application:start(cowboy),
+  Dispatch = [{'_', [{[<<"auth">>], fake_auth, []}]}],
   {ok, Pid} = cowboy:start_http(fake_http, 1, [{port, 6070}],
     [{dispatch, Dispatch}]),
   {ok, Pid}.
