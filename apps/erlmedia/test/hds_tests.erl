@@ -44,3 +44,11 @@ read_lang_gop_test() ->
   ?assertEqual(15744, lists:last(Ats)),
 
   ok.
+
+
+flv_manifest_test() ->
+  {ok, F} = file:open("../../../priv/bunny.flv", [read,binary,raw]),
+  {ok, R} = flv_reader:init({file,F}, []),
+  {ok, Manifest} = hds:file_manifest(flv_reader, R),
+  ?assertMatch(_ when is_binary(Manifest), Manifest),
+  file:close(F).

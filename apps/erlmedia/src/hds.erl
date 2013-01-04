@@ -68,7 +68,10 @@ file_manifest(Format, Reader) ->
     [] -> "url=\"hds/tracks-~B/\" ";
     _ -> "url=\"hds/tracks-~B,~B/\" "
   end, [VideoId|FirstLanguage]),
-  io_lib:format("bitrate=\"~B\" bootstrapInfoId=\"bootstrap~B\">\n", [Bitrate div 1000, VideoId]),
+  case Bitrate of undefined -> ""; _ ->
+    io_lib:format("bitrate=\"~B\" ", [Bitrate div 1000])
+  end,
+  io_lib:format("bootstrapInfoId=\"bootstrap~B\">\n", [VideoId]),
   "    <metadata>\n",
     metadata(MI),
   "\n    </metadata>\n",

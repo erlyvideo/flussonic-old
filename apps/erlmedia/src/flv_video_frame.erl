@@ -93,7 +93,7 @@ tag_to_video_frame(#flv_audio_tag{codec = Codec, rate = _Rate, bitsize = _Size, 
                % sound = {Channels, Size, Rate},
                pts = 0,
                dts = 0,
-               track_id = 200,
+               track_id = 2,
                body = Body};
 
 
@@ -103,7 +103,7 @@ tag_to_video_frame(#flv_video_tag{codec = Codec, flavor = Flavor, composition_ti
                codec = Codec,
                pts = CTime,
                dts = 0,
-               track_id = 201,
+               track_id = 1,
                body = Body};
 
 
