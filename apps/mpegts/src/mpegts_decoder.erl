@@ -96,6 +96,7 @@ decode_file(Bin) ->
   dts,
   pts,
   sample_rate,
+  private,
   es_buffer = [],
   sent_config = false,
   switching = false,
@@ -482,13 +483,29 @@ separate_nals(NALs) ->
   lists:partition(fun(NAL) -> lists:member(h264:type(NAL), [sps,pps]) end, NALs).
 
 
-h264_frames(#stream{dts = DTS, pts = PTS, es_buffer = AnnexB, sent_config = SentConfig} = Stream) ->
+h264_frames(#stream{dts = DTS, pts = PTS, es_buffer = AnnexB, sent_config = SentConfig, private = Private0} = Stream) ->
   NALs = [NAL || NAL <- binary:split(iolist_to_binary(lists:reverse(AnnexB)), [<<1:32>>, <<1:24>>], [global]), NAL =/= <<>>, h264:type(NAL) =/= delim],
   NalTypes = [h264:type(NAL) || NAL <- NALs],
   {ConfigNals, PayloadNals} = separate_nals(NALs),
-  Config = case ConfigNals of
-    [] -> [];
-    _ -> [(h264:video_config(ConfigNals))#video_frame{dts = DTS / 90, pts = DTS / 90, track_id = 1}]
+  {Config, Private2} = case ConfigNals of
+    [] -> {[], Private0};
+    _ -> case h264:video_config(ConfigNals) of
+      #video_frame{} = C ->
+        {[C#video_frame{dts = DTS / 90, pts = DTS / 90, track_id = 1}], Private0};
+      undefined ->
+        Private1 = if
+          Private0 == undefined -> [];
+          is_list(Private0) -> Private0
+        end,
+        ConfigNals1 = ConfigNals ++ Private1,
+        case h264:video_config(ConfigNals1) of
+          #video_frame{body = Cfg} = C ->
+            {_, ConfigNals2} = h264:unpack_config(Cfg),
+            {[C#video_frame{dts = DTS / 90, pts = DTS / 90, track_id = 1}], ConfigNals2};
+          undefined ->
+            {[], ConfigNals1}
+        end
+    end
   end,
   Keyframe = lists:member(idr, NalTypes),
   Payload = case PayloadNals of

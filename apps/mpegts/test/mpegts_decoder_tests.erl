@@ -155,6 +155,13 @@ readtest_flunew1() ->
   ok.
 
 
+readtest_ellinika() ->
+  {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/ellinika.ts"),
+  check_frames(5447916992,5448791783,1,244,5447918585,5448792185,2,456,Frames),
+  ok.
+
+
+
 readtest_empty() ->
   ?assertEqual({ok, []}, mpegts_decoder:read_file("../test/fixtures/empty.ts")),
   ok.
