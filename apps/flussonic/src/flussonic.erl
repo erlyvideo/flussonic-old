@@ -26,6 +26,7 @@
 
 
 -export([start/0, main/1]).
+-export([shutdown/1]).
 
 main(["-h"]) ->
   io:format(
@@ -72,6 +73,15 @@ start() ->
   start([]).
   
 start(_Options) ->
+  case erl_epmd:port_please(flussonic, "localhost") of
+    noport ->
+      start_distribution();
+    {port, _Port, _Version} ->
+      error_logger:info_msg("Old instance of flussonic exists, shutdown it~n"),
+      stop_old_instance(),
+      start_distribution()
+  end,
+
   catch erlang:system_flag(scheduler_bind_type, spread),
   application:start(compiler),
   application:load(lager),
@@ -101,6 +111,27 @@ start(_Options) ->
   flussonic_app:load_config(),
   write_pid(),
   ok.
+
+
+stop_old_instance() ->
+  net_kernel:start(['flussonic1@127.0.0.1', longnames]),
+  rpc:call('flussonic@127.0.0.1', flussonic, shutdown, [os:getpid()]),
+  case erl_epmd:port_please(flussonic, "localhost") of
+    noport -> ok;
+    _ -> rpc:call('flussonic@127.0.0.1', erlang, halt, [0])
+  end,
+  net_kernel:stop(),
+  ok.
+
+start_distribution() ->
+  net_kernel:start(['flussonic@127.0.0.1', longnames]).
+
+
+
+
+shutdown(Pid) ->
+  lager:info("Shutdown instance with pid ~p because new instance with pid ~p is launched", [os:getpid(), Pid]),
+  erlang:halt(0).
 
 
 

@@ -52,7 +52,7 @@ case $1 in
   # if [ `uname` == "Linux" ]; then
   #   SBT="+sbt s"
   # fi
-  CMD="erl +K true +A 16 +a 2048 ${SBT} -name flussonic@127.0.0.1 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
+  CMD="erl +K true +A 16 +a 2048 ${SBT} -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
   exec $CMD
   ;;
 "reload")
