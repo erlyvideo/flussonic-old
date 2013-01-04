@@ -94,15 +94,12 @@ check_frames(VideoStart,VideoEnd,VideoTrackId,VideoCount,AudioStart,_AudioEnd,Au
 %   ok.
 
 mpegts_test_() ->
-  Tests = case file:read_file_info("../test/fixtures") of
+  case file:read_file_info("../test/fixtures") of
     {ok, _} ->
-      TestFunctions = [F || {F,0} <- ?MODULE:module_info(exports),
-      lists:prefix("readtest_", atom_to_list(F))],
-      [{atom_to_list(F), fun ?MODULE:F/0} || F <- TestFunctions];
-    {error, _} ->
-      []
-  end,
-  Tests.
+      [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
+      lists:prefix("readtest_", atom_to_list(F))];
+    {error, _} -> []
+  end.
 
 
 readtest_archive() ->
@@ -163,11 +160,19 @@ readtest_empty() ->
   ok.
 
 
+precise_compare_test_() ->
+  case file:read_file_info("../test/fixtures") of
+    {ok, _} ->
+      [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
+      lists:prefix("presice_test_", atom_to_list(F))];
+    {error, _} -> []
+  end.
 
-precise_compare_frames1_test() ->
+
+precise_test_1() ->
   precise_compare("../../../test/files/livestream/2012/09/27/12/24/23-05875.ts", "example.txt").
 
-precise_compare_frames2_test() ->
+precise_test_2() ->
   precise_compare("../../../test/files/livestream/2012/09/27/12/24/57-06000.ts", "example2.txt").
 
 

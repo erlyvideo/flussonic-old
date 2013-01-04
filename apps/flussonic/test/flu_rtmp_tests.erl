@@ -270,9 +270,11 @@ rtmp_session_test_() ->
     stop_all(),
     meck:unload(Modules)
   end,
-  [
-    {"test_publish_catch_dvr", fun test_publish_catch_dvr/0}
-    ,{"test_refuse_non_application_publish", fun test_refuse_non_application_publish/0}
+  [case code:load_file(dvr) of
+    {error, nofile} -> [];
+    _ -> [{"test_publish_catch_dvr", fun test_publish_catch_dvr/0}]
+    end ++
+    [{"test_refuse_non_application_publish", fun test_refuse_non_application_publish/0}]
   ]}.
 
 

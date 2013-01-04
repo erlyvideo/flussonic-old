@@ -12,9 +12,8 @@
 
 
 read_http_test_() ->
-  {setup, 
+  TestSpec = {setup, 
     fun() ->
-      error_logger:delete_report_handler(error_logger_tty_h),
       inets:start(),
       inets:start(httpd,[
         {server_root,"../test"},
@@ -25,13 +24,21 @@ read_http_test_() ->
       ])
   end, 
   fun({ok,Pid}) ->
-    inets:stop(httpd,Pid)
-  end,[
-  {"test_have_media_info", fun test_have_media_info/0}
-  ]}.
+    error_logger:delete_report_handler(error_logger_tty_h),    
+    inets:stop(httpd,Pid),
+    application:stop(inets),
+    error_logger:add_report_handler(error_logger_tty_h),
+    ok
+  end, [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
+      lists:prefix("httptest_", atom_to_list(F))]},
+
+  case file:read_file_info("../test/fixtures") of
+    {ok, _} -> TestSpec;
+    {error, _} -> []
+  end.
 
 
-test_have_media_info() ->
+httptest_have_media_info() ->
   {ok, Reader} = mpegts_reader:start_link([{consumer,self()},{url, "http://127.0.0.1:9090/fileSequence0.ts"}]),
   erlang:monitor(process, Reader),
   ?assertEqual(ok, gen_server:call(Reader, connect)),
@@ -42,17 +49,25 @@ test_have_media_info() ->
   after
     500 -> error(timeout_media_info)
   end,
-  monotone_read_frames(0),
+  monotone_read_frames(),
   ok.
 
 
-monotone_read_frames(PrevDTS) ->
+monotone_read_frames() -> monotone_read_frames(0, 0).
+
+monotone_read_frames(PrevDTS, Count) ->
   receive
     #video_frame{dts = DTS} -> 
       ?assertMatch(Delta when Delta >= 0, round(DTS - PrevDTS)),
-      monotone_read_frames(DTS)
+      monotone_read_frames(DTS, Count + 1);
+    {'$gen_call', From, #video_frame{dts = DTS}} ->
+      ?assertMatch(Delta when Delta >= 0, round(DTS - PrevDTS)),
+      gen_server:reply(From, ok),
+      monotone_read_frames(DTS, Count + 1);
+    Else ->
+      ?assertEqual(a, Else)
   after
-    100 -> ok
+    100 -> Count > 40 orelse error(not_enough_monotone_frames)
   end.
 
 
@@ -68,10 +83,18 @@ send_udp(Chunk, UDP) ->
   ok.
 
 
-udp_unicast_test() ->
+udp_test_() ->
+  case file:read_file_info("../test/fixtures") of
+    {ok, _} ->
+      [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
+      lists:prefix("udptest_", atom_to_list(F))];
+    {error, _} -> []
+  end.
+
+udptest_unicast() ->
   check_udp("127.0.0.1:9090").
 
-udp_multicast_test() ->
+udptest_multicast() ->
   check_udp("239.1.2.3:5060").
 
 
@@ -93,7 +116,7 @@ check_udp(URL) ->
   after
     500 -> error(timeout)
   end,
-  monotone_read_frames(0),
+  monotone_read_frames(),
   ok.
 
 

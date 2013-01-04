@@ -3,16 +3,24 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+udp_test_() ->
+  case file:read_file_info("../test/fixtures") of
+    {ok, _} ->
+      [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
+      lists:prefix("test_", atom_to_list(F))];
+    {error, _} -> []
+  end.
 
-unicast_test() ->
-  run_test(5079, []).
+
+test_unicast() ->
+  run_suite(5079, []).
 
 
-multicast_test() ->
-  run_test(5078, [{multicast_ttl,4},{ip,{239,5,4,2}}]).
+test_multicast() ->
+  run_suite(5078, [{multicast_ttl,4},{ip,{239,5,4,2}}]).
 
 
-run_test(Port, Options) ->
+run_suite(Port, Options) ->
   Self = self(),
   Addr = proplists:get_value(ip, Options, {127,0,0,1}),
   {ok, Out} = gen_udp:open(0, [binary]),
