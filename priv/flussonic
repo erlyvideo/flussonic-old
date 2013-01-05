@@ -9,6 +9,8 @@
 ### END INIT INFO
 
 FLUDIR=/opt/flussonic
+PIDFILE=/var/run/flussonic/pid
+COOKIEFILE=/etc/flussonic/cookie
 
 [ -f /etc/default/flussonic ] && . /etc/default/flussonic
 
@@ -17,27 +19,32 @@ FLUDIR=/opt/flussonic
 
 case $1 in
 "start")
-  echo -n "Starting flussonic "
+  PID=`cat $PIDFILE 2>/dev/null`
+  if [ "$PID" != "" ] ; then
+    if kill $PID >/dev/null 2>&1 ; then
+      echo "Killing old flussonic instance with pid $PID"
+    fi
+  fi
+  echo -n "Starting flussonic: "
   mkdir -p /var/log/flussonic
   mkdir -p /var/run/flussonic
   export RUN_ERL_LOG_GENERATIONS=100
   export RUN_ERL_LOG_MAXSIZE=10000000
-  rm -rf /var/run/flussonic/*
   run_erl -daemon /var/run/flussonic/ /var/log/flussonic "exec $0 launch"
   i=0
-  while ((i < 100)) && [ ! -f "/var/run/flussonic.pid" ] ; do 
+  while ((i < 100)) && [ ! -f "$PIDFILE" ] ; do 
     echo -n "."
     ((i = i+1))
     sleep 1
   done 
-  [ -f "/var/run/flussonic.pid" ] && echo "done" || (echo "failed"; exit 1)
+  [ -f "$PIDFILE" ] && echo "done" || (echo "failed"; exit 1)
   ;;
 "stop")
   echo "Stopping flussonic"
-  echo -e "init:stop().\n" > /var/run/flussonic/erlang.pipe.1.w
-  sleep 1
-  kill `cat /var/run/flussonic.pid`
-  rm -rf /var/run/flussonic/*
+  COOKIE=`cat $COOKIEFILE`
+  echo `erl_call -a 'erlang halt' -n flussonic@127.0.0.1 -c "$COOKIE"`
+  PID=`cat $PIDFILE 2>/dev/null`
+  [ "$PID" != "" ] && kill $PID >/dev/null 2>&1
   ;;
 "run")
   echo "Running"
@@ -46,17 +53,23 @@ case $1 in
 "launch")
   [ -e $FLUDIR ] && cd $FLUDIR
   export ERL_LIBS=apps:deps
-  export PID_PATH="/var/run/flussonic.pid"
+  export PIDFILE
   SBT=""
   # This option is disabled unless Rickard makes +sbt flag non-failable
   # if [ `uname` == "Linux" ]; then
   #   SBT="+sbt s"
   # fi
-  CMD="erl +K true +A 16 +a 2048 ${SBT} -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
+  if [ ! -f $COOKIEFILE ] ; then
+    date | md5sum | awk '{print $1}' > $COOKIEFILE
+    chmod 0600 $COOKIEFILE
+  fi
+  COOKIE=`cat $COOKIEFILE`
+  CMD="erl +K true +A 16 +a 2048 ${SBT} -name flussonic@127.0.0.1 -setcookie $COOKIE -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
   exec $CMD
   ;;
 "reload")
-  echo -e "flu:reconf().\n" > /var/run/flussonic/erlang.pipe.1.w
+  COOKIE=`cat $COOKIEFILE`
+  echo `erl_call -a 'flu reconf' -n flussonic@127.0.0.1 -c "$COOKIE"`
   ;;
 "restart")
   echo "Restarting"

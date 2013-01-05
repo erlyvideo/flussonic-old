@@ -4,9 +4,13 @@
 -mode(compile).
 -include_lib("erlmedia/include/video_frame.hrl").
 
+main([]) ->
+  io:format("~s rtsp://host/path~n", [escript:script_name()]),
+  erlang:halt(1);
 
 main([URL]) ->
   application:load(lager),
+  application:set_env(lager,crash_log,undefined),
   application:set_env(lager,handlers,[{lager_console_backend,info}]),
   lager:start(),
   {ok, Reader} = rtsp_reader:start_link(URL, [{consumer,self()}]),
