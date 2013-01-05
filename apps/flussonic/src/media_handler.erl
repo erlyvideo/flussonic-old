@@ -87,6 +87,22 @@ name_or_pi(Opts, Acc) ->
   end,
   flu:join(Acc2, "/").
 
+
+full_name(Opts, []) ->
+  proplists:get_value(name, Opts);
+
+full_name(Opts, Acc) ->
+  Acc1 = lists:reverse(Acc),
+  Acc2 = case proplists:get_value(prefix, Opts) of
+    undefined ->
+      case proplists:get_value(file_prefix, Opts) of
+        undefined -> Acc1;
+        Prefix -> [Prefix | Acc1]
+      end;
+    Prefix -> [Prefix | Acc1]
+  end,
+  flu:join(Acc2, "/").
+
 lookup_name(Req, Opts) ->
   {PathInfo, _} = cowboy_req:path_info(Req),
   lookup_name(PathInfo, Opts, Req, []).
@@ -101,15 +117,15 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
   DefaultModule = proplists:get_value(module, Opts),
   case PathInfo of
     [<<"manifest.f4m">>] ->
-      {ok, {Stream,Token}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
+      {ok, Token} = ?MODULE:check_sessions(Req, full_name(Opts, Acc), [{type, <<"hds">>} | Opts]),
       Args = case DefaultModule of
         flu_stream when Token =/= undefined -> [Token];
         _ -> []
       end,
-      {{DefaultModule, hds_manifest, Args}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], Stream};
+      {{DefaultModule, hds_manifest, Args}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], name_or_pi(Opts,Acc)};
     [<<"bootstrap">>] ->
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
-      {{DefaultModule, bootstrap, []}, no_cache(), Stream};
+      {ok, _} = ?MODULE:check_sessions(Req, full_name(Opts, Acc), [{type, <<"hds">>} | Opts]),
+      {{DefaultModule, bootstrap, []}, no_cache(), name_or_pi(Opts,Acc)};
     [<<"hds">>, <<"tracks-", TrackSpec/binary>>, SegmentPath] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "Seg(\\d+)-Frag(\\d+)", [{capture,all_but_first,list}]),
       {{DefaultModule, hds_segment, [list_to_integer(Fragment), track_spec(TrackSpec)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
@@ -117,14 +133,14 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "Seg(\\d+)-Frag(\\d+)", [{capture,all_but_first,list}]),
       {{DefaultModule, hds_segment, [list_to_integer(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
     [<<"tracks-", TrackSpec/binary>>, <<"index.m3u8">>] ->
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
-      {{DefaultModule, hls_playlist, [track_spec(TrackSpec)]}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
+      {ok, _} = ?MODULE:check_sessions(Req, full_name(Opts, Acc), [{type, <<"hls">>} | Opts]),
+      {{DefaultModule, hls_playlist, [track_spec(TrackSpec)]}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], name_or_pi(Opts,Acc)};
     [<<"index.m3u8">>] ->
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
-      {{DefaultModule, hls_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
+      {ok, _} = ?MODULE:check_sessions(Req, full_name(Opts, Acc), [{type, <<"hls">>} | Opts]),
+      {{DefaultModule, hls_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], name_or_pi(Opts,Acc)};
     [<<"mbr.m3u8">>] ->
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
-      {{DefaultModule, hls_mbr_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
+      {ok, _} = ?MODULE:check_sessions(Req, full_name(Opts, Acc), [{type, <<"hls">>} | Opts]),
+      {{DefaultModule, hls_mbr_playlist, []}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], name_or_pi(Opts,Acc)};
     [<<"tracks-",TrackSpec/binary>>, <<"hls">>, SegmentPath] ->
       Root = proplists:get_value(root, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
@@ -143,8 +159,8 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
         <<"mp4">> -> mp4;
         <<"ts">> -> mpeg_file
       end,
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"export">>} | Opts]),
-      {{dvr_handler, Function, [to_b(Root), to_i(From), to_i(Duration), Req]}, [], Stream};
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"export">>} | Opts]),
+      {{dvr_handler, Function, [to_b(Root), to_i(From), to_i(Duration), Req]}, [], name_or_pi(Opts, Acc)};
     [<<"save-mp4-", FromDurationSpec/binary>>] ->
       {match, [From, Duration]} = re:run(FromDurationSpec, "(\\d+)-(\\d+)", [{capture, all_but_first, binary}]),
       Root = proplists:get_value(dvr, Opts),
@@ -165,43 +181,43 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       Root = proplists:get_value(dvr, Opts), % here Root may be undefined, because live is served here also
       {{hls_dvr_packetizer, segment, [to_b(Root), Seg]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
     [<<"timeshift_abs">>, From] ->
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>} | Opts]),
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
-      {{dvr_handler, timeshift_abs, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], Stream};
+      {{dvr_handler, timeshift_abs, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], name_or_pi(Opts, Acc)};
     [<<"timeshift_rel">>, From] ->
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>} | Opts]),
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
-      {{dvr_handler, timeshift_rel, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], Stream};
+      {{dvr_handler, timeshift_rel, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], name_or_pi(Opts, Acc)};
     [<<"archive">>, From, Duration, <<"mpegts">>] ->
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
-      {{dvr_handler, mpeg_stream, [to_b(Root), to_i(From), to_duration(Duration), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], Stream};
+      {{dvr_handler, mpeg_stream, [to_b(Root), to_i(From), to_duration(Duration), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], name_or_pi(Opts, Acc)};
     [<<"archive">>, From, Duration, <<"manifest.f4m">>] ->
-      {ok, {Stream,Token}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
+      {ok, Token} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       Args = if Duration == <<"now">> andalso Token =/= undefined -> [Token];
         true -> []
       end,
-      {{dvr_session, hds_manifest, [to_b(Root), to_i(From), to_duration(Duration)|Args]}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], Stream};
+      {{dvr_session, hds_manifest, [to_b(Root), to_i(From), to_duration(Duration)|Args]}, [{<<"Content-Type">>, <<"text/xml">>}|no_cache()], name_or_pi(Opts, Acc)};
     [<<"archive">>, From, Duration, <<"bootstrap">>] ->
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
-      {{dvr_session, hds_bootstrap, [to_b(Root), to_i(From), to_duration(Duration)]}, no_cache(), Stream};
+      {{dvr_session, hds_bootstrap, [to_b(Root), to_i(From), to_duration(Duration)]}, no_cache(), name_or_pi(Opts, Acc)};
     [<<"archive">>, From, Duration, <<"index.m3u8">>] ->
       {Query, _} = cowboy_req:qs(Req),
       throw({return, 302, [{<<"Location">>, <<"/", (name_or_pi(Opts,Acc))/binary, "/index-", From/binary, "-", Duration/binary, ".m3u8?", Query/binary>>}], <<"Redirect\n">>});
     [<<"index-", IndexSpec/binary>>] ->
       {match, [From, Duration]} = re:run(IndexSpec, "(\\d+)-(\\w+)\\.m3u8", [{capture, all_but_first, list}]),
       Root = proplists:get_value(dvr, Opts),
-      {ok, {Stream,_}} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
-      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", Stream]}),
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hls">>} | Opts]),
+      Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       % {dvr_session, hls_abs_playlist, [list_to_binary(Root), list_to_integer(From), list_to_integer(Duration)], [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}], name_or_pi(Opts, Acc)};
-      {{hls_dvr_packetizer, playlist, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], Stream};
+      {{hls_dvr_packetizer, playlist, [to_b(Root), to_i(From), to_duration(Duration)]}, [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()], name_or_pi(Opts, Acc)};
     [<<"archive">>, From, Duration, _Bitrate, <<"Seg", SegmentPath/binary>>] ->
       {match, [_Segment, Fragment]} = re:run(SegmentPath, "(\\d+)-Frag(\\d+)", [{capture,all_but_first,binary}]),
       Root = proplists:get_value(dvr, Opts),
@@ -294,7 +310,7 @@ retrieve_token(Req0) ->
 
 check_sessions(Req, Name, Opts) ->
   case proplists:get_value(sessions, Opts) of
-    undefined -> {ok, {Name, undefined}};    % no backend specified
+    undefined -> {ok, undefined};    % no backend specified
     URL -> check_sessions0(URL, Name, Req, proplists:get_value(type, Opts, <<"http">>))
   end.
 
@@ -312,8 +328,8 @@ check_sessions0(URL, Name0, Req0, Type) ->
         _ -> [{referer,Referer}]
       end,
       case flu_session:verify(URL, Identity, Options) of
-        {ok, NewName} ->
-          {ok, {NewName, Token}};
+        {ok, _} ->
+          {ok, Token};
         {error, Code, Reply} ->
           throw({return,Code, Reply})
       end

@@ -74,13 +74,12 @@ start() ->
   
 start(_Options) ->
   case erl_epmd:port_please(flussonic, "localhost") of
-    noport ->
-      start_distribution();
+    noport -> ok;
     {port, _Port, _Version} ->
       error_logger:info_msg("Old instance of flussonic exists, shutdown it~n"),
-      stop_old_instance(),
-      start_distribution()
+      stop_old_instance()
   end,
+  start_distribution(),
 
   catch erlang:system_flag(scheduler_bind_type, spread),
   application:start(compiler),

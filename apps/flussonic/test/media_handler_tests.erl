@@ -128,7 +128,7 @@ test_live_hds_manifest() ->
 
 
 test_live_hds_manifest_with_auth() ->
-  meck:expect(media_handler, check_sessions, fun(_,_,_) -> {ok, {<<"chan0">>, <<"a">>}} end),
+  meck:expect(media_handler, check_sessions, fun(_,_,_) -> {ok, <<"a">>} end),
   set_config([{stream, "chan0", "udp://1", [{sessions, "http://127.0.0.1:8080/"}]}]),
   ?assertMatch({{flu_stream, hds_manifest, [<<"a">>]}, _, <<"chan0">>},
     test_lookup_by_path("/chan0/manifest.f4m")).
@@ -193,7 +193,7 @@ test_archive_dvr_event_manifest() ->
     test_lookup_by_path("/livestream/archive/1234567/now/manifest.f4m")).  
 
 test_archive_dvr_event_manifest_with_auth() ->
-  meck:expect(media_handler, check_sessions, fun(_,_,_) -> {ok, {<<"livestream">>, <<"a">>}} end),
+  meck:expect(media_handler, check_sessions, fun(_,_,_) -> {ok, <<"a">>} end),
   set_config([{stream, "livestream", "fake://url", [{dvr, <<"test/files">>},{sessions,"http://127.0.0.1:8080"}]}]),
   ?assertMatch({{dvr_session, hds_manifest, [<<"test/files">>,1234567,now, <<"a">>]}, _, <<"livestream">>},
     test_lookup_by_path("/livestream/archive/1234567/now/manifest.f4m")).  

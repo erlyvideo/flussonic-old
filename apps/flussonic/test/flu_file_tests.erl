@@ -433,8 +433,17 @@ flu_file_http_test_() ->
     ,{"test_flu_hls_no_segment", fun test_flu_hls_no_segment/0}
     ,{"test_answer_404_on_no_file", fun test_answer_404_on_no_file/0}
     ,{"test_answer_404_on_no_file_with_auth", fun test_answer_404_on_no_file_with_auth/0}
+    ,{"test_flu_hds_good_manifest", fun test_flu_hds_good_manifest/0}
+    ,{"test_flu_hds_good_segment", fun test_flu_hds_good_segment/0}
   ]}.
 
+test_flu_hds_good_manifest() ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny.mp4/manifest.f4m",[{keepalive,false},{no_fail,true}]),
+  ?assertMatch({ok, {_, 200, _, _}}, Result).
+
+test_flu_hds_good_segment() ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny.mp4/hds/0/Seg0-Frag4",[{keepalive,false},{no_fail,true}]),
+  ?assertMatch({ok, {_, 200, _, _}}, Result).
 
 test_flu_hds_no_segment() ->
   Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny.mp4/hds/0/Seg0-Frag100",[{keepalive,false},{no_fail,true}]),

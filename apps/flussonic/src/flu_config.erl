@@ -155,7 +155,7 @@ parse_routes([{stream, Path, URL, Options}|Env]) ->
   
 parse_routes([{file, Prefix, Root,Options}|Env]) ->
   Tokens = tokens(Prefix),
-  [{Tokens ++ ['...'], media_handler, merge([{module,flu_file},{root, Root}],Options)}
+  [{Tokens ++ ['...'], media_handler, merge([{file_prefix,Prefix},{module,flu_file},{root, Root}],Options)}
   |parse_routes(Env)];
 
 parse_routes([{root, Root}|Env]) ->

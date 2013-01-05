@@ -4,17 +4,26 @@ require 'rubygems'
 require 'rack'
 require 'thin'
 require 'net/http'
+require 'digest/md5'
 
-
-Tokens = {}
 
 class MainPage
+  def generate_token(name, ip, user_id)
+    expire = Time.now.to_i + 600
+    salt = rand(1000)
+    hash = Digest::MD5.hexdigest("#{expire}:#{salt}:#{name}:#{ip}:#{user_id}")
+    "#{expire}:#{user_id}:#{salt}:#{hash}"
+  end
+
+
   def call(env)
     query = Rack::Utils.parse_query(env["QUERY_STRING"])
-    token = query["token"] || rand(100000000).to_s
+    req = Rack::Request.new(env)
+    user_id = (query["user_id"] || 15).to_i
     path = query["path"] || "securevod/bunny.mp4"
+    token = query["token"] || generate_token(path, req.ip, user_id)
+    return [302, {"Location" => "/?path=#{path}&token=#{token}"}, []] unless query["token"]
     streamer = query["streamer"] || "localhost:8080"
-    Tokens[token] ||= Time.now + 60
     body = <<-EOF
 <html>
 <head>
@@ -55,22 +64,31 @@ player("video1", "#{token}");
 end
 
 class AuthPage
+  def validate_token(token, name, ip)
+    expire, user_id, salt, hash = token.split(":")
+    expire = expire.to_i
+    return :expired if expire < Time.now.to_i
+    user_id = user_id.to_i
+    good_hash = Digest::MD5.hexdigest("#{expire}:#{salt}:#{name}:#{ip}:#{user_id}")
+    if good_hash != hash
+      return :invalid_hash
+    end
+    {:user_id => user_id, :expire => expire}
+  end
+
   def call(env)
     query = Rack::Utils.parse_query(env["QUERY_STRING"])
+    req = Rack::Request.new(env)
     token = query["token"]
-    return [403, {}, ["no token\n"]] if !token
-    expire_at = Tokens[token]
+    name = query["name"]
+    ip = req.ip
 
-    if !expire_at
-      return [403, {}, ["session not found\n"]]
+    res = validate_token(token, name, ip)
+    if res.is_a?(Hash)
+      [200, {"X-AuthDuration" => "4000", "X-Unique" => "true", "X-UserId" => res[:user_id].to_s}, ["accepted\n"]]
+    else
+      [403, {}, "forbidden: #{res}\n"]
     end
-
-    if expire_at < Time.now
-      Tokens.delete(token)
-      return [403, {}, ["session expired\n"]]
-    end
-
-    [200, {"X-AuthDuration" => "4000", "X-Unique" => "true", "X-UserId" => "5"}, ["accepted\n"]]
   end
 end
 

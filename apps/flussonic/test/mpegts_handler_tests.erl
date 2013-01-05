@@ -7,7 +7,6 @@
 mpegts_test_() ->
   {foreach,
   fun() ->
-    error_logger:delete_report_handler(error_logger_tty_h),
     Apps = [ranch, gen_tracker, cowboy, flussonic],
     [application:stop(App) || App <- Apps],
     [ok = application:start(App) || App <- Apps],
@@ -24,10 +23,13 @@ mpegts_test_() ->
     ok
   end,
   fun(_) ->
+    error_logger:delete_report_handler(error_logger_tty_h),
     application:stop(cowboy),
     application:stop(flussonic),
     application:stop(ranch),
-    application:stop(gen_tracker)
+    application:stop(gen_tracker),
+    error_logger:add_report_handler(error_logger_tty_h),
+    ok
   end,
   [
     {"test_mpegts", fun test_mpegts/0},

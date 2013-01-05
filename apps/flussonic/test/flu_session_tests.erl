@@ -21,7 +21,11 @@ setup_flu_session() ->
   meck:expect(flu_session,table, fun() -> Table end),
   meck:expect(flu_session, timeout, fun() -> 100 end),
   
-  ServerConf = [{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6070/vodauth"}]}],
+  ServerConf = [
+    {file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6070/vodauth"}]},
+    {rewrite, "cam2", "passive://localhost/", [{sessions, "http://127.0.0.1:6070/streamauth"}]},
+    {live, "live", [{sessions, "http://127.0.0.1:6070/liveauth"}]}
+  ],
   {ok, ServerConfig} = flu_config:parse_config(ServerConf, undefined),
   {ok, _} = cowboy:start_http(our_http, 1, [{port, 5555}],
     [{dispatch, [{'_', flu_config:parse_routes(ServerConfig)}]}]
@@ -154,16 +158,16 @@ assertBackendRequested(Msg) ->
 
 
 
-test_backend_arguments() ->
+test_backend_arguments_on_file() ->
   Self = self(),
   meck:expect(flu_session, backend_request, fun(URL, Identity, Options) ->
     Self ! {backend_request, {URL, Identity, Options}},
-    {ok, [{access,granted}]}
+    {ok, [{access,denied}]}
   end),
   {ok, Reply} = httpc:request(get, 
     {"http://127.0.0.1:5555/vod/bunny.mp4/manifest.f4m?token=123", [
     {"Referer", "http://ya.ru/"}, {"X-Forwarded-For", "94.95.96.97"}]},[],[]),
-  ?assertMatch({{_,200,_}, _, _}, Reply),
+  ?assertMatch({{_,403,_}, _, _}, Reply),
 
   {URL, Identity, Options} = receive
     {backend_request, QsVals} -> QsVals
@@ -173,11 +177,66 @@ test_backend_arguments() ->
 
   ?assertEqual(<<"http://127.0.0.1:6070/vodauth">>, URL),
   ?assertEqual(<<"123">>, proplists:get_value(token, Identity)),
-  ?assertEqual(<<"bunny.mp4">>, proplists:get_value(name, Identity)),
+  ?assertEqual(<<"vod/bunny.mp4">>, proplists:get_value(name, Identity)),
   ?assertEqual(<<"94.95.96.97">>, proplists:get_value(ip, Identity)),
   ?assertEqual(<<"http://ya.ru/">>, proplists:get_value(referer, Options)),
 
   ok.
+
+
+
+test_backend_arguments_on_stream() ->
+  Self = self(),
+  meck:expect(flu_session, backend_request, fun(URL, Identity, Options) ->
+    Self ! {backend_request, {URL, Identity, Options}},
+    {ok, [{access,denied}]}
+  end),
+  {ok, Reply} = httpc:request(get, 
+    {"http://127.0.0.1:5555/cam2/manifest.f4m?token=123", [
+    {"Referer", "http://ya.ru/"}, {"X-Forwarded-For", "94.95.96.97"}]},[],[]),
+  ?assertMatch({{_,403,_}, _, _}, Reply),
+
+  {URL, Identity, Options} = receive
+    {backend_request, QsVals} -> QsVals
+  after
+    10 -> error(backend_wasnt_requested)
+  end,
+
+  ?assertEqual(<<"http://127.0.0.1:6070/streamauth">>, URL),
+  ?assertEqual(<<"123">>, proplists:get_value(token, Identity)),
+  ?assertEqual(<<"cam2">>, proplists:get_value(name, Identity)),
+  ?assertEqual(<<"94.95.96.97">>, proplists:get_value(ip, Identity)),
+  ?assertEqual(<<"http://ya.ru/">>, proplists:get_value(referer, Options)),
+
+  ok.
+
+
+
+test_backend_arguments_on_live() ->
+  Self = self(),
+  meck:expect(flu_session, backend_request, fun(URL, Identity, Options) ->
+    Self ! {backend_request, {URL, Identity, Options}},
+    {ok, [{access,denied}]}
+  end),
+  {ok, Reply} = httpc:request(get, 
+    {"http://127.0.0.1:5555/live/ustream/manifest.f4m?token=123", [
+    {"Referer", "http://ya.ru/"}, {"X-Forwarded-For", "94.95.96.97"}]},[],[]),
+  ?assertMatch({{_,403,_}, _, _}, Reply),
+
+  {URL, Identity, Options} = receive
+    {backend_request, QsVals} -> QsVals
+  after
+    10 -> error(backend_wasnt_requested)
+  end,
+
+  ?assertEqual(<<"http://127.0.0.1:6070/liveauth">>, URL),
+  ?assertEqual(<<"123">>, proplists:get_value(token, Identity)),
+  ?assertEqual(<<"live/ustream">>, proplists:get_value(name, Identity)),
+  ?assertEqual(<<"94.95.96.97">>, proplists:get_value(ip, Identity)),
+  ?assertEqual(<<"http://ya.ru/">>, proplists:get_value(referer, Options)),
+
+  ok.
+
 
 
 test_backend_is_working_without_options() ->
@@ -197,7 +256,7 @@ test_backend_is_working_without_options() ->
     10 -> error(backend_wasnt_requested)
   end,
   ?assertEqual(<<"123">>, proplists:get_value(token, Identity)),
-  ?assertEqual(<<"bunny.mp4">>, proplists:get_value(name, Identity)),
+  ?assertEqual(<<"vod/bunny.mp4">>, proplists:get_value(name, Identity)),
   ?assertEqual(<<"94.95.96.97">>, proplists:get_value(ip, Identity)),
   ?assertEqual(false, lists:keyfind(referer, 1, Options)),
   ok.
