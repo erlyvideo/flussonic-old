@@ -9,14 +9,14 @@ http_mock_url() -> "http://127.0.0.1:6070/auth".
 backend_test_() ->
   {foreach, fun() ->
     fake_auth:start_http(),
-    meck:new(fake_auth, [{passthrough,true}]),
+    meck:new([fake_auth, auth_http_backend], [{passthrough,true}]),
     ok
   end, fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
     application:stop(cowboy),
     application:stop(ranch),
     application:stop(inets),
-    meck:unload(fake_auth),
+    meck:unload([fake_auth, auth_http_backend]),
     error_logger:add_report_handler(error_logger_tty_h),
     ok
   end,
@@ -92,6 +92,32 @@ test_backend_arguments() ->
   ok.
 
 
+test_url_prepare() ->
+  Self = self(),
+  meck:expect(auth_http_backend, http_get, fun(URL) ->
+    Self ! {backend, URL},
+    {error, rejected}
+  end),
+
+  auth_http_backend:verify(http_mock_url(), [{ip,<<"94.95.96.97">>},{token,<<"123">>},
+    {name,<<"bunny.mp4">>}], [{total_users,0},{referer,<<"http://ya.ru/?token=456&name=lalala">>}]),
+
+  URL = receive
+    {backend, URL_} -> URL_
+  after
+    10 -> error(backend_wasnt_requested)
+  end,
+
+  {ok, {http, "", Host, _, Path, "?" ++ Qs}} = http_uri:parse(URL),
+  ?assertEqual("127.0.0.1", Host),
+  ?assertEqual("/auth", Path),
+  Query = httpd:parse_query(Qs),
+  ?assertEqual("94.95.96.97", proplists:get_value("ip", Query)),
+  ?assertEqual("123", proplists:get_value("token", Query)),
+  ?assertEqual("bunny.mp4", proplists:get_value("name", Query)),
+  ?assertEqual("0", proplists:get_value("total_users", Query)),
+  ?assertEqual("http://ya.ru/?token=456&name=lalala", proplists:get_value("referer", Query)),
+  ok.
 
 
 

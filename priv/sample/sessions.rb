@@ -7,11 +7,13 @@ require 'net/http'
 require 'digest/md5'
 
 
+SECRET = "SOME_SECRET_KEY"
+
 class MainPage
   def generate_token(name, ip, user_id)
     expire = Time.now.to_i + 600
     salt = rand(1000)
-    hash = Digest::MD5.hexdigest("#{expire}:#{salt}:#{name}:#{ip}:#{user_id}")
+    hash = Digest::MD5.hexdigest("#{expire}:#{salt}:#{name}:#{ip}:#{user_id}:#{SECRET}")
     "#{expire}:#{user_id}:#{salt}:#{hash}"
   end
 
@@ -32,13 +34,18 @@ class MainPage
 <script src="http://localhost:8080/flu/js/swfobject.js" type="text/javascript"></script>
 </head>
 <body>
+
+<a href="/?path=#{path}">Regenerate token</a><br>
+
 <div id="video1" style="width:640px;height:480px">
   Video should be here, replacing this text
 </div>
 
+<!--
 <div id="video2" style="width:640px;height:480px">
   Video should be here, replacing this text
 </div>
+-->
 
 <script type="text/javascript">
 
@@ -69,7 +76,7 @@ class AuthPage
     expire = expire.to_i
     return :expired if expire < Time.now.to_i
     user_id = user_id.to_i
-    good_hash = Digest::MD5.hexdigest("#{expire}:#{salt}:#{name}:#{ip}:#{user_id}")
+    good_hash = Digest::MD5.hexdigest("#{expire}:#{salt}:#{name}:#{ip}:#{user_id}:#{SECRET}")
     if good_hash != hash
       return :invalid_hash
     end
@@ -83,11 +90,12 @@ class AuthPage
     name = query["name"]
     ip = req.ip
 
+    puts token.inspect
     res = validate_token(token, name, ip)
     if res.is_a?(Hash)
       [200, {"X-AuthDuration" => "4000", "X-Unique" => "true", "X-UserId" => res[:user_id].to_s}, ["accepted\n"]]
     else
-      [403, {}, "forbidden: #{res}\n"]
+      [403, {}, ["forbidden: #{res}\n"]]
     end
   end
 end

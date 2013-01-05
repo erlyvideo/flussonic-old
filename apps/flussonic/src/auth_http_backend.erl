@@ -3,6 +3,16 @@
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-export([http_get/1]).
+
+http_get(URL) ->
+  T = flu_session:timeout(),
+  case httpc:request(get, {URL, []}, [{connect_timeout, T},{timeout, T},{autoredirect,false}],[], auth) of
+    {ok, {{_,Code,_}, Headers, _Body}} ->
+      {ok, {Code, Headers}};
+    {error, _} = Error ->
+      Error
+  end.
 
 merge(List1, List2) ->
   lists:ukeymerge(1, lists:ukeysort(1,List1), lists:ukeysort(1, List2) ).
@@ -12,6 +22,11 @@ to_s(List) when is_list(List) -> List;
 to_s(Int) when is_integer(Int) -> integer_to_list(Int);
 to_s(undefined) -> undefined;
 to_s(Atom) when is_atom(Atom) -> atom_to_list(Atom).
+
+to_b(Bin) when is_binary(Bin) -> Bin;
+to_b(List) when is_list(List) -> list_to_binary(List);
+to_b(Int) when is_integer(Int) -> to_b(integer_to_list(Int));
+to_b(Atom) when is_atom(Atom) -> atom_to_binary(Atom, latin1).
 
 
 to_i(undefined) -> undefined;
@@ -23,8 +38,8 @@ verify(URL, Identity, Options) when is_list(URL) ->
   verify(list_to_binary(URL), Identity, Options);
 
 verify(URL, Identity, Options) when is_binary(URL) ->
-  Query = [ [to_s(K), "=", to_s(V), "&"] || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V) orelse is_atom(V) orelse is_integer(V)],
-  RequestURL = lists:flatten([binary_to_list(URL), "?", Query]),
+  Query = [ [to_s(K), "=", cowboy_http:urlencode(to_b(V)), "&"] || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V) orelse is_atom(V) orelse is_integer(V)],
+  RequestURL = binary_to_list(iolist_to_binary([URL, "?", Query])),
   case whereis(httpc_auth) of
     undefined ->
       inets:start(),
@@ -33,9 +48,8 @@ verify(URL, Identity, Options) when is_binary(URL) ->
     _ ->
       ok
   end,
-  case httpc:request(get, {RequestURL, []}, [{connect_timeout, flu_session:timeout()},{timeout, flu_session:timeout()},{autoredirect,false}],
-    [], auth) of
-    {ok, {{_,Code,_}, Headers, _Body}} ->
+  case ?MODULE:http_get(RequestURL) of
+    {ok, {Code, Headers}} ->
       AuthDuration = to_i(proplists:get_value("x-authduration", Headers, 30))*1000,
       DeleteTime = lists:max([AuthDuration, 10000]),
       UniqueUid = case proplists:get_value("x-unique", Headers) of
