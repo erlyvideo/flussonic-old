@@ -37,7 +37,7 @@ compile_public:
 	vagrant up compile_public
 
 run:
-	ERL_LIBS=apps:deps erl +K true +A 16 +a 2048 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error
+	ERL_LIBS=apps:deps erl +K true +A 16 +a 2048 -name flussonic@127.0.0.1 -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error
 
 shell:
 	erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1

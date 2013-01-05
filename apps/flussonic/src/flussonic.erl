@@ -111,7 +111,10 @@ write_pid() ->
     PidPath -> PidPath
   end,
   filelib:ensure_dir(Path),
-  file:write_file(Path, os:getpid()).
+  case file:write_file(Path, os:getpid()) of
+    ok -> ok;
+    {error, Error} -> io:format("Failed to write pid to file ~s because of ~p", [Path, Error])
+  end.
 
 
 try_start_app(App) ->

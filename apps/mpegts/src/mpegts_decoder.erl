@@ -242,7 +242,7 @@ merge_frames(V, []) -> {[], V, []}.
 %% 
 
 decode_ts(NewTS, #decoder{ts_buffer = <<16#47, _/binary>> = OldTS} = Decoder) when size(NewTS) + size(OldTS) < 188 ->
-  {ok, Decoder#decoder{ts_buffer = <<OldTS/binary, NewTS/binary>>}, []};
+  {ok, Decoder#decoder{ts_buffer = <<OldTS/binary, NewTS/binary>>}};
 
 decode_ts(NewTS, #decoder{ts_buffer = <<16#47, _/binary>> = OldTS} = Decoder) when size(NewTS) + size(OldTS) >= 188 ->
   ChunkSize = 188 - size(OldTS),

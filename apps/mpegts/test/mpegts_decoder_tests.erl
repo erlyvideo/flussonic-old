@@ -206,6 +206,11 @@ zipwith(_, [], _) -> ok;
 zipwith(_, Left, []) -> error(Left).
 
 
+small_chunk_test() ->
+  M1 = mpegts_decoder:init(),
+  {ok, M2, []} = mpegts_decoder:decode(<<16#47, 23>>, M1),
+  {ok, _M3, []} = mpegts_decoder:decode(<<45,32>>, M2),
+  ok.
 
 
 

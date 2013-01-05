@@ -41,10 +41,16 @@ case $1 in
   ;;
 "stop")
   echo "Stopping flussonic"
-  COOKIE=`cat $COOKIEFILE`
-  echo `erl_call -a 'erlang halt' -n flussonic@127.0.0.1 -c "$COOKIE"`
+  if [ -f $COOKIEFILE ] ; then
+    COOKIE=`cat $COOKIEFILE`
+    echo `erl_call -a 'erlang halt' -n flussonic@127.0.0.1 -c "$COOKIE"`
+  fi
   PID=`cat $PIDFILE 2>/dev/null`
   [ "$PID" != "" ] && kill $PID >/dev/null 2>&1
+  rm -f $PIDFILE
+  if [ -e "/var/run/flussonic/erlang.pipe.1.w" ] ; then
+    echo -e "erlang:halt().\n" > /var/run/flussonic/erlang.pipe.1.w
+  fi
   ;;
 "run")
   echo "Running"
@@ -79,7 +85,8 @@ case $1 in
 "attach")
   echo "Attaching"
   cd $FLUDIR
-  to_erl /var/run/flussonic/
+  [ -f /usr/lib/erlang/bin/to_erl ] && TO_ERL=/usr/lib/erlang/bin/to_erl || TO_ERL=to_erl
+  $TO_ERL /var/run/flussonic/
   ;;
 "shell")
   echo "Remote shell"

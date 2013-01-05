@@ -442,11 +442,11 @@ data(<<_Flags:32, 0:32, Data/binary>>, _Meaning) ->
 trak(<<>>, MediaInfo) ->
   MediaInfo;
   
-trak(Atom, #mp4_media{tracks = Tracks} = Media) ->
-  {_T1, Track} = timer:tc(fun() -> parse_atom(Atom, #mp4_track{number = size(Tracks)+1}) end),
-  case Track#mp4_track.codec of
+trak(Atom, #mp4_media{tracks = Tracks, duration = Duration} = Media) ->
+  #mp4_track{codec = Codec, duration = TrackDuration} =Track = parse_atom(Atom, #mp4_track{number = size(Tracks)+1}),
+  case Codec of
     undefined -> ?D({skip_mp4_track, undefined_codec}),Media;
-    _ -> Media#mp4_media{tracks = erlang:append_element(Tracks,Track)}
+    _ -> Media#mp4_media{tracks = erlang:append_element(Tracks,Track), duration = lists:max([Duration,TrackDuration])}
   end.
 
 
@@ -460,7 +460,7 @@ tkhd(<<0, Flags:24, CTime:32, MTime:32, TrackID:32, _Reserved1:32,
   _Meta = [{flags,Flags},{ctime,CTime},{mtime,MTime},{track_id,TrackID},{duration,Duration},{layer,Layer},
          {volume,Volume},{matrix,Matrix},{width,Width},{height,Height}],
   % ?D(Meta),
-  Mp4Track#mp4_track{track_id = TrackID, duration = Duration, width = Width, height = Height}.
+  Mp4Track#mp4_track{track_id = TrackID, width = Width, height = Height}.
 
 % Media box
 mdia(Atom, Mp4Track) ->
@@ -561,7 +561,8 @@ stbl(Atom, #mp4_track{} = Mp4Track1) ->
   % {_T2, {Frames, IndexInfo}} = timer:tc(fun() -> fill_track(TrackId, SampleSizes, ChunkOffsets, ChunkSizes, Keyframes, Timestamps, Compositions, Timescale) end),
   
   % [{Duration,_}|_] = IndexInfo,
-  R = Mp4Track3#mp4_track{keyframes = Keyframes, bitrate = Bitrate},
+  TrackDuration = lists:max([Duration, lists:last([0|Keyframes1]) + 1000])*1000/Timescale,
+  R = Mp4Track3#mp4_track{keyframes = Keyframes, bitrate = Bitrate, duration = TrackDuration},
 
   _T4 = erlang:now(),
   % ?DBG("stbl: No ~B ~s, ~B kbps, load ~B us, unpack ~B us, ~B us keyframing, ~B keyframes", [TrackId, R#mp4_track.content, Bitrate, 
