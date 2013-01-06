@@ -10,7 +10,6 @@
   retry_limit,
   last_dts,
   ts_delta,
-  last_access_at,
   last_dts_at,
   dump_frames,
   timeout,

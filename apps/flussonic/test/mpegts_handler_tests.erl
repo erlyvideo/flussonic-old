@@ -48,9 +48,9 @@ test_mpegts2() ->
 
 
 test_not_started_mpegts() ->
-  {ok, _Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
+  % {ok, _Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
   {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
-  gen_tcp:send(Sock, ["GET /testlivestream/mpegts HTTP/1.0\r\n\r\n"]),
+  gen_tcp:send(Sock, ["GET /livestream/mpegts HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   ?assertEqual(404, Code),
   gen_tcp:close(Sock).

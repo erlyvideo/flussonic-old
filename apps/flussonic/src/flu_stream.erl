@@ -137,7 +137,7 @@ static(Stream) ->
 
 update_options(Stream, Options) ->
   case find(Stream) of
-    {ok, Pid} -> gen_server:call(Pid, {update_options, Options});
+    {ok, Pid} -> gen_server:call(Pid, {update_options, Options}, 1000);
     _ -> false
   end.
 
@@ -169,25 +169,29 @@ autostart(Stream, Options) ->
   gen_tracker:find_or_open(flu_streams, Stream, fun() -> flussonic_sup:start_flu_stream(Stream,Options) end).
 
 media_info(Stream) ->
-  Reply = flu_stream:get(Stream, media_info),
-  Reply.
+  touch(Stream),
+  case flu_stream_data:get(Stream, media_info, 10) of
+    {ok, MI} -> MI;
+    undefined -> undefined
+  end.
+
 
 hds_segment(Stream,Segment) ->
-  Reply = flu_stream:get(Stream, {hds_segment, 1, Segment}),
-  Reply.
+  touch(Stream),
+  flu_stream_data:get(Stream, {hds_segment, 1, Segment}, 5).
 
 hls_segment(Stream, Segment) ->
-  Reply = flu_stream:get(Stream, {hls_segment,Segment}),
-  Reply.
+  touch(Stream),
+  flu_stream_data:get(Stream, {hls_segment,Segment}, 5).
 
 hls_key(Stream, Number) ->
-  Reply = flu_stream:get(Stream, {hls_key, Number}),
-  Reply.
+  touch(Stream),
+  flu_stream_data:get(Stream, {hls_key, Number}, 5).
   
 
 hds_manifest(Stream) ->
-  Reply = flu_stream:get(Stream, hds_manifest, 10000),
-  Reply.
+  touch(Stream),
+  flu_stream_data:get(Stream, hds_manifest, 10).
 
 hds_manifest(Stream, Token) ->
   case hds_manifest(Stream) of
@@ -204,16 +208,16 @@ rewrite_manifest(Manifest, Token) when is_binary(Manifest) andalso is_binary(Tok
 
 
 bootstrap(Stream) ->
-  Reply = flu_stream:get(Stream, bootstrap, 10000),
-  Reply.
+  touch(Stream),
+  flu_stream_data:get(Stream, bootstrap, 10).
 
 hls_playlist(Stream) ->
-  Reply = flu_stream:get(Stream, hls_playlist, 10000),
-  Reply.
+  touch(Stream),
+  flu_stream_data:get(Stream, hls_playlist, 10).
 
 
 publish(Stream,Frame) ->
-  Stream ! Frame.
+  gen_server:call(Stream, Frame).
 
 subscribe(Stream) when is_binary(Stream) ->
   {ok, {stream, Pid}} = flu_media:find_or_open(Stream),
@@ -240,6 +244,11 @@ set_last_dts(DTS, Now) ->
   Lifetime = DTS - FirstDTS,
   gen_tracker:setattr(flu_streams, get(name), [{last_dts, DTS},{last_dts_at,Now},{lifetime,Lifetime}]).
 
+
+touch(Stream) ->
+  gen_tracker:setattr(flu_streams, Stream, [{last_access_at, os:timestamp()}]).
+
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -253,11 +262,12 @@ start_link(Name,Options) ->
 init([Name,Options1]) ->
   Options = lists:ukeymerge(1, lists:ukeysort(1,Options1), [{name,Name}]),
   erlang:put(name, Name),
-  put(configs, []),
   Source = proplists:get_value(source, Options1),
   if is_pid(Source) -> erlang:monitor(process, Source); true -> ok end,
   CheckTimer = erlang:send_after(3000, self(), check_timeout),
-  Stream1 = #stream{last_dts_at=os:timestamp(), last_access_at = os:timestamp(), 
+  Now = os:timestamp(),
+  gen_tracker:setattr(flu_streams, Name, [{last_access_at,Now}]),
+  Stream1 = #stream{last_dts_at=Now,
     name = Name, options = Options, source = Source,
     check_timer = CheckTimer},
   % timer:send_interval(1000, next_second),
@@ -385,9 +395,8 @@ handle_call({get, Key}, _From, #stream{name = Name} = Stream) ->
     undefined -> undefined;
     Else -> {ok, Else}
   end,
-  Now = os:timestamp(),
-  gen_tracker:setattr(flu_streams, Name, [{last_access_at, Now}]),
-  {reply, Reply, Stream#stream{last_access_at = Now}};
+  touch(Name),
+  {reply, Reply, Stream};
 
 handle_call(#video_frame{} = Frame, _From, #stream{} = Stream) ->
   {noreply, Stream1} = handle_input_frame(Frame, Stream),
@@ -476,8 +485,8 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
       {noreply, Stream#stream{retry_count = Count+1}}
   end;
 
-handle_info(#media_info{} = MediaInfo, #stream{media_info = undefined} = Stream) ->
-  put(media_info,MediaInfo),
+handle_info(#media_info{} = MediaInfo, #stream{media_info = undefined, name = Name} = Stream) ->
+  flu_stream_data:set(Name, media_info, MediaInfo),
   Stream1 = pass_message(MediaInfo, Stream#stream{media_info = MediaInfo}),
   {noreply, Stream1};
 
@@ -495,11 +504,12 @@ handle_info({'DOWN', _, process, Source, _Reason},
 
 handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = OldCheckTimer,
   source_timeout = SourceTimeout, url = URL, source = Source, last_dts_at = LastDtsAt, retry_count = Count,
-  clients_timeout = ClientsTimeout, last_access_at = LastTouchedAt, clients = Clients} = Stream) ->
+  clients_timeout = ClientsTimeout, clients = Clients} = Stream) ->
   
   erlang:cancel_timer(OldCheckTimer),
   Now = os:timestamp(),
   SourceDelta = timer:now_diff(Now, LastDtsAt) div 1000,
+  {ok, LastTouchedAt} = gen_tracker:getattr(flu_streams, Name, last_access_at),
   ClientsDelta = timer:now_diff(Now, LastTouchedAt) div 1000,
 
   UsingSourceTimeout = lists:max([Count,1])*SourceTimeout,

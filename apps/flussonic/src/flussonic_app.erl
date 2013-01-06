@@ -109,9 +109,9 @@ load_config() ->
   % end,
   
   
-  [flu_stream:update_options(Stream, [{url,URL}|StreamOpts]) || {stream, Stream, URL, StreamOpts} <- Env],
+  [catch flu_stream:update_options(Stream, [{url,URL}|StreamOpts]) || {stream, Stream, URL, StreamOpts} <- Env],
   ConfigStreams = [Stream || {stream, Stream, _URL, _StreamOpts} <- Env],
-  [flu_stream:non_static(Name) || {Name, _} <- flu_stream:list(), not lists:member(Name, ConfigStreams)],
+  [catch flu_stream:non_static(Name) || {Name, _} <- flu_stream:list(), not lists:member(Name, ConfigStreams)],
   
   
   case proplists:get_value(rtmp, Env) of

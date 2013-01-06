@@ -113,16 +113,31 @@ handle_info(#video_frame{content = metadata}, #rtsp{} = RTSP) ->
 handle_info(#video_frame{flavor = config}, #rtsp{} = RTSP) ->
   {noreply, RTSP};
 
+
+% interleaved TCP
 handle_info(#video_frame{content = video, dts = DTS, pts = PTS} = Frame,
-  #rtsp{v_s_rtp = SRTP, v_c_rtp = CRTP, peer_addr = Addr, v_seq = Seq, first_dts = FDTS} = RTSP) ->
+  #rtsp{v_s_rtp = SRTP, v_seq = Seq, first_dts = FDTS} = RTSP) when is_integer(SRTP) ->
+  Packets = rtp_packets(Frame#video_frame{dts = DTS - FDTS, pts = PTS - FDTS}, RTSP),
+  [tcp_send(RTSP, [$$, SRTP, <<(size(RTP)):16>>, RTP]) || RTP <- Packets],
+  {noreply, RTSP#rtsp{v_seq = (Seq + length(Packets)) rem 65536}};
+
+handle_info(#video_frame{content = audio, dts = DTS, pts = PTS} = Frame, 
+  #rtsp{a_s_rtp = SRTP, a_seq = Seq, first_dts = FDTS} = RTSP) when is_integer(SRTP) ->
+  [RTP] = rtp_packets(Frame#video_frame{dts = DTS - FDTS, pts = PTS - FDTS}, RTSP),
+  tcp_send(RTSP, [$$, SRTP, <<(size(RTP)):16>>, RTP]),
+  {noreply, RTSP#rtsp{a_seq = (Seq +1) rem 65536}};
+
+
+% RTP UDP
+
+handle_info(#video_frame{content = video, dts = DTS, pts = PTS} = Frame,
+  #rtsp{v_s_rtp = SRTP, v_c_rtp = CRTP, peer_addr = Addr, v_seq = Seq, first_dts = FDTS} = RTSP) when is_port(SRTP) ->
   Packets = rtp_packets(Frame#video_frame{dts = DTS - FDTS, pts = PTS - FDTS}, RTSP),
   [gen_udp:send(SRTP, Addr, CRTP, RTP) || RTP <- Packets],
   {noreply, RTSP#rtsp{v_seq = (Seq + length(Packets)) rem 65536}};
 
-
 handle_info(#video_frame{content = audio, dts = DTS, pts = PTS} = Frame, 
-  #rtsp{a_s_rtp = SRTP, a_c_rtp = CRTP, peer_addr = Addr, a_seq = Seq, first_dts = FDTS} = RTSP) ->
-  
+  #rtsp{a_s_rtp = SRTP, a_c_rtp = CRTP, peer_addr = Addr, a_seq = Seq, first_dts = FDTS} = RTSP) when is_port(SRTP) ->
   [RTP] = rtp_packets(Frame#video_frame{dts = DTS - FDTS, pts = PTS - FDTS}, RTSP),
   gen_udp:send(SRTP, Addr, CRTP, RTP),
   {noreply, RTSP#rtsp{a_seq = (Seq +1) rem 65536}};
@@ -130,6 +145,15 @@ handle_info(#video_frame{content = audio, dts = DTS, pts = PTS} = Frame,
 
 handle_info(Info, #rtsp{} = RTSP) ->
   {stop, {unknown_message, Info}, RTSP}.
+
+
+tcp_send(#rtsp{socket = Socket} = RTSP, IOList) ->
+  case gen_tcp:send(Socket, IOList) of
+    ok -> ok;
+    {error, closed} -> throw({stop, normal, RTSP});
+    {error, timeout} -> throw({stop, normal, RTSP});
+    {error, Error} -> throw({stop, {tcp,Error}, RTSP})
+  end.
 
 
 
@@ -225,6 +249,8 @@ handle_request(<<"SETUP">>, URL, Headers, _Body, #rtsp{media_info = #media_info{
   TrackId = list_to_integer(Track_),
   Transport = proplists:get_value(<<"Transport">>, Headers),
   case binary:split(Transport, <<";">>, [global]) of
+    % [<<"RTP/AVP",_/binary>>, <<"unicast">>, <<"client_port=", _Ports/binary>>|_] ->
+    %   reply(400, [{'Cseq', seq(Headers)}], RTSP);
     [<<"RTP/AVP",_/binary>>, <<"unicast">>, <<"client_port=", Ports/binary>>|TransportArgs] ->
       {match, [ClientRTP_, ClientRTCP_]} = re:run(Ports, "(\\d+)-(\\d+)", [{capture,all_but_first,list}]),
       ClientRTP = list_to_integer(ClientRTP_),
@@ -246,7 +272,7 @@ handle_request(<<"SETUP">>, URL, Headers, _Body, #rtsp{media_info = #media_info{
       reply(200, [{'Cseq', seq(Headers)},
         {<<"Transport">>,<<"RTP/AVP;unicast;client_port=",Ports/binary,";server_port=", 
         Reply/binary, OutputMode/binary>>}], RTSP1);
-    [<<"RTP/AVP/TCP">>, <<"unicast">>, <<"mode=record">>, <<"interleaved=", Interleave/binary>>] ->
+    [<<"RTP/AVP/TCP">>, <<"unicast">>, <<"interleaved=", Interleave/binary>>] ->
       {match, [RTP_, RTCP_]} = re:run(Interleave, "(\\d+)-(\\d+)", [{capture,all_but_first,list}]),
       RTP = list_to_integer(RTP_),
       RTCP = list_to_integer(RTCP_),
@@ -257,9 +283,22 @@ handle_request(<<"SETUP">>, URL, Headers, _Body, #rtsp{media_info = #media_info{
           RTSP#rtsp{a_s_rtp = RTP, a_s_rtcp = RTCP, a_c_rtp = RTP, a_c_rtcp = RTCP}
       end,
       reply(200, [{'Cseq', seq(Headers)},
-        {'Transport', Transport}], RTSP1);
+        {<<"Transport">>,<<"RTP/AVP/TCP;unicast;interleaved=",Interleave/binary>>}], RTSP1);
+    [<<"RTP/AVP/TCP">>, <<"unicast">>, <<"mode=record">>, <<"interleaved=", _Interleave/binary>>] ->
+      reply(461, [{'Cseq', seq(Headers)}], RTSP);
+      % {match, [RTP_, RTCP_]} = re:run(Interleave, "(\\d+)-(\\d+)", [{capture,all_but_first,list}]),
+      % RTP = list_to_integer(RTP_),
+      % RTCP = list_to_integer(RTCP_),
+      % RTSP1 = case lists:keyfind(TrackId, #stream_info.track_id, Streams) of
+      %   #stream_info{content = video} ->
+      %     RTSP#rtsp{v_s_rtp = RTP, v_s_rtcp = RTCP, v_c_rtp = RTP, v_c_rtcp = RTCP};
+      %   #stream_info{content = audio} ->
+      %     RTSP#rtsp{a_s_rtp = RTP, a_s_rtcp = RTCP, a_c_rtp = RTP, a_c_rtcp = RTCP}
+      % end,
+      % reply(200, [{'Cseq', seq(Headers)},
+      %   {'Transport', Transport}], RTSP1);
     _ ->
-      reply("406 Transport not supported", [{'Cseq', seq(Headers)}], RTSP)
+      reply(461, [{'Cseq', seq(Headers)}], RTSP)
   end;
 
 handle_request(<<"PLAY">>, _URL, Headers, _Body, #rtsp{media = Media, paused = true, flow_type = stream} = RTSP) when is_pid(Media) ->
@@ -445,9 +484,11 @@ reply(Code, Headers, Body, #rtsp{socket = Socket, session = Session} = RTSP) ->
   RTSP1.
 
 message(200) -> "OK";
+message(400) -> "Bad Request";
 message(401) -> "Unauthorized";
 message(404) -> "Not found";
-message(406) -> "Not supported";
+message(406) -> "Not Acceptable";
+message(461) -> "Unsupported transport";
 message(_) -> "Response".
 
 

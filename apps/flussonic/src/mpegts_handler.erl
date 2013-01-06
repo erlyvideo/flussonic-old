@@ -49,8 +49,17 @@ init({_Any,http}, Req, Opts) ->
     Name_ -> Name_
   end,
   flu_stream:autostart(Name, Opts),
-  {Method, Req2} = cowboy_req:method(Req1),
-  {ok, Req2, #mpegts{name = Name, method = Method, options = Opts}}.
+  case flu_stream:find(Name) of
+    {ok, _Pid} ->
+      {Method, Req2} = cowboy_req:method(Req1),
+      {ok, Req2, #mpegts{name = Name, method = Method, options = Opts}};
+    _ ->
+      {ok, Req1, #mpegts{name = undefined}}
+  end.
+
+handle(Req, #mpegts{name = undefined} = State) ->
+  {ok, R1} = cowboy_req:reply(404, [], <<"not found">>, Req),
+  {ok, R1, State};
 
 handle(Req, State) ->
   try handle0(Req, State) of

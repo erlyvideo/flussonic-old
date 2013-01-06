@@ -31,14 +31,13 @@
 
 
 start_link(ListenerPid, Socket, _Transport, [Callback, Args]) ->
-  RTSP = proc_lib:spawn_link(?MODULE, init, [ListenerPid, Socket, Callback, Args]),
+  {ok, RTSP} = proc_lib:start_link(?MODULE, init, [ListenerPid, Socket, Callback, Args]),
   {ok, RTSP}.
 
 init(ListenerPid, Socket, Callback, Args) ->
+  proc_lib:init_ack({ok, self()}),
   ranch:accept_ack(ListenerPid),
   {ok, State, Timeout} = rtsp_socket:init([Socket, Callback, Args]),
-  gen_server:enter_loop(rtsp_socket, [], State, Timeout),
-  ?D({loop_not_entered,Socket, Callback}),
-  ok.
+  gen_server:enter_loop(rtsp_socket, [], State, Timeout).
 
 

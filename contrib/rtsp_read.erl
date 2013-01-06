@@ -21,8 +21,15 @@ main([URL]) ->
 loop() ->
   receive
     #video_frame{codec = Codec, flavor = Flavor, dts = DTS} ->
-      io:format("~.4s ~.8s ~B", [Codec, Flavor, round(DTS)]),
+      io:format("~.4s ~.8s ~B~n", [Codec, Flavor, round(DTS)]),
       loop();
+    {'$gen_call', From, #video_frame{codec = Codec, flavor = Flavor, dts = DTS}} ->
+      gen_server:reply(From, ok),
+      io:format("~.4s ~.8s ~B~n", [Codec, Flavor, round(DTS)]),
+      loop();
+    Else ->
+      io:format("~p~n",[Else]),
+      ok;
     {'DOWN', _,_,_,_} ->
       ok
   end.

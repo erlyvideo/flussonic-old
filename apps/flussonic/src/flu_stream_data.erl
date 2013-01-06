@@ -4,7 +4,7 @@
 -include("log.hrl").
 
 -export([start_link/0]).
--export([register/2, get/2, set/3, erase/2]).
+-export([register/2, get/2, get/3, set/3, erase/2]).
 -export([init/1, handle_info/2, handle_call/3, terminate/2]).
 
 start_link() ->
@@ -12,6 +12,14 @@ start_link() ->
 
 register(Name, Pid) when is_binary(Name) andalso is_pid(Pid) ->
   gen_server:call(?MODULE, {register, Name, Pid}).
+
+
+get(_Name, _Key, 0) -> undefined;
+get(Name, Key, Count) ->
+  case ets:lookup(flu_stream_data, {Name,Key}) of
+    [{{Name,Key}, Value}] -> {ok, Value};
+    [] -> timer:sleep(1000), get(Name, Key, Count - 1)
+  end.
 
 get(Name, Key) when is_binary(Name) ->
   case ets:lookup(flu_stream_data, {Name,Key}) of

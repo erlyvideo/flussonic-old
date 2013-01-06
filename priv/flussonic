@@ -90,7 +90,8 @@ case $1 in
   ;;
 "shell")
   echo "Remote shell"
-  erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1
+  COOKIE=`cat $COOKIEFILE`
+  erl -name debug@127.0.0.1 -remsh flussonic@127.0.0.1 -setcookie $COOKIE
   ;;
 "force-reload")
   echo "Force reload"
