@@ -5,22 +5,6 @@
 // @end
 //
 //
-// This file is part of erlyvideo.
-// 
-// erlyvideo is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// erlyvideo is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with erlmedia.  If not, see <http://www.gnu.org/licenses/>.
-//
-//---------------------------------------------------------------------------------------
 
 #include <ei.h>
 #include <stdio.h>
@@ -30,6 +14,7 @@
 
 #include <libavcodec/avcodec.h>
 #include "reader.h"
+#include "compat.h"
 
 
 typedef struct Track {

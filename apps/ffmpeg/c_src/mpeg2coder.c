@@ -5,21 +5,6 @@
 // @end
 //
 //
-// This file is part of erlyvideo.
-// 
-// erlyvideo is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// erlyvideo is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with erlmedia.  If not, see <http://www.gnu.org/licenses/>.
-//
 //---------------------------------------------------------------------------------------
 
 #include <stdio.h>
@@ -30,6 +15,8 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 
+#include "compat.h"
+
 typedef struct Track {
   AVCodec *codec;
   AVCodecContext *ctx;
@@ -38,6 +25,7 @@ typedef struct Track {
   enum AVCodecID codec_id;
   int width;
   int height;
+  AVRational time_base;
 } Track;
 
 
@@ -47,7 +35,7 @@ int main(int argc, char *argv[]) {
   avformat_network_init();
   av_log_set_level(AV_LOG_ERROR);
 
-  if(argc < 1) {
+  if(argc < 2) {
     printf("%s input-ts\n", argv[0]);
     exit(1);
   }
@@ -65,24 +53,71 @@ int main(int argc, char *argv[]) {
   }
 
 
-  int video_stream_index;
-  AVCodecContext *vdec_ctx;
+  int video_stream_index = -1;
+  int vdts_step = -1;
+  int audio_stream_index = -1;
+  int adts_step = -1;
+  AVCodecContext *vdec_ctx = NULL;
+  AVCodecContext *adec_ctx = NULL;
+
+  int sample_rate;
 
   Track tracks[input_ctx->nb_streams];
 
-  for(int i =0;i<input_ctx->nb_streams;i++){
-    tracks[i].codec = input_ctx->streams[i]->codec;
-    tracks[i].ctx = avcodec_alloc_context3(tracks[i]->codec);
+  // if((video_stream_id = av_find_best_stream(input_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0)) < 0) {
+  //   printf("no video input\n");
+  //   exit(4);
+  // } else {
+  //   tracks[video_stream_id].codec = vdec;
+  // }
+
+  // if((audio_stream_id = av_find_best_stream(input_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0)) < 0) {
+  //   printf("no audio input\n");
+  //   exit(5);
+  // }
+
+  int i;
+  for(i =0;i<input_ctx->nb_streams;i++){
+
+    tracks[i].codec = avcodec_find_decoder(input_ctx->streams[i]->codec->codec_id);
+    fprintf(stderr, "stream %d: %s %s (%d)\r\n", i, av_get_media_type_string(input_ctx->streams[i]->codec->codec_type), tracks[i].codec->name, input_ctx->streams[i]->codec->sample_rate);
+    tracks[i].ctx = avcodec_alloc_context3(tracks[i].codec);
+    if(avcodec_open2(tracks[i].ctx, tracks[i].codec, NULL) < 0) {
+      fprintf(stderr, "Failed to open decoder %s", tracks[i].codec->name);
+      exit(2);
+    }
     tracks[i].time_base = input_ctx->streams[i]->time_base;
-    if(input_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+    if(input_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
       video_stream_index = i;
+      vdts_step = 3600;
+    } else if(input_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
+      audio_stream_index = i;
+      sample_rate = input_ctx->streams[i]->codec->sample_rate;
+      adts_step = 90000*1024 / sample_rate;
+    }
+      
   }
 
   AVPacket packet;
   av_init_packet(&packet);
 
+  int64_t first_dts = -1;
+  int64_t first_vdts = -1;
+  AVFrame *raw_video, *raw_audio;
+  raw_video = avcodec_alloc_frame();
+  raw_audio = avcodec_alloc_frame();
+
   while(av_read_frame(input_ctx, &packet) >= 0) {
-    printf("frame %d %8llu %8llu\n", packet.stream_index, packet.dts, packet.pts);
+    if(first_dts == -1) first_dts = packet.dts;
+    int decoded = 0;
+    int got_picture = 0;
+    if(packet.stream_index == video_stream_index) {
+      if(first_vdts == -1) first_vdts = packet.dts;
+      decoded = avcodec_decode_video2(tracks[packet.stream_index].ctx, raw_video, &got_picture, &packet);
+    } else {
+      //decoded = avcodec_decode_audio4(tracks[packet.stream_index].ctx, raw_video, &got_picture, &packet);
+    }
+    printf("% 10s %8lld %d, %d\n", tracks[packet.stream_index].codec->name, (long long int)(packet.dts - first_dts), got_picture, decoded);
     av_free_packet(&packet);
     av_init_packet(&packet);
   }

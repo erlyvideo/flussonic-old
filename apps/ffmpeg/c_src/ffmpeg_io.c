@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include "reader.h"
+#include "compat.h"
 
 int in_fd = 0;
 int out_fd = 1;
