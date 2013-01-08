@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
   for(i =0;i<input_ctx->nb_streams;i++){
 
     tracks[i].codec = avcodec_find_decoder(input_ctx->streams[i]->codec->codec_id);
-    fprintf(stderr, "stream %d: %s %s (%d)\r\n", i, av_get_media_type_string(input_ctx->streams[i]->codec->codec_type), tracks[i].codec->name, input_ctx->streams[i]->codec->sample_rate);
+    fprintf(stderr, "stream %d: %s (%d)\r\n", i, tracks[i].codec->name, input_ctx->streams[i]->codec->sample_rate);
     tracks[i].ctx = avcodec_alloc_context3(tracks[i].codec);
     if(avcodec_open2(tracks[i].ctx, tracks[i].codec, NULL) < 0) {
       fprintf(stderr, "Failed to open decoder %s", tracks[i].codec->name);
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
     } else if(input_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
       audio_stream_index = i;
       sample_rate = input_ctx->streams[i]->codec->sample_rate;
-      adts_step = 90000*1024 / sample_rate;
+      adts_step = 90000*1152 / sample_rate;
     }
       
   }
@@ -103,6 +103,9 @@ int main(int argc, char *argv[]) {
 
   int64_t first_dts = -1;
   int64_t first_vdts = -1;
+  uint64_t vcount = 0;
+  int64_t first_adts = -1;
+  uint64_t acount = 0;
   AVFrame *raw_video, *raw_audio;
   raw_video = avcodec_alloc_frame();
   raw_audio = avcodec_alloc_frame();
@@ -113,9 +116,14 @@ int main(int argc, char *argv[]) {
     int got_picture = 0;
     if(packet.stream_index == video_stream_index) {
       if(first_vdts == -1) first_vdts = packet.dts;
+      if(packet.dts != first_vdts + vcount*vdts_step) printf("Invalid vdts\n");
       decoded = avcodec_decode_video2(tracks[packet.stream_index].ctx, raw_video, &got_picture, &packet);
+      vcount++;
     } else {
-      //decoded = avcodec_decode_audio4(tracks[packet.stream_index].ctx, raw_video, &got_picture, &packet);
+      if(first_adts == -1) first_adts = packet.dts;
+      if(packet.dts != first_adts + acount*adts_step) printf("Invalid adts: %llu != %llu\n", (unsigned long long)packet.dts, (unsigned long long)(first_adts + acount*adts_step));
+      decoded = avcodec_decode_audio4(tracks[packet.stream_index].ctx, raw_audio, &got_picture, &packet);
+      acount++;
     }
     printf("% 10s %8lld %d, %d\n", tracks[packet.stream_index].codec->name, (long long int)(packet.dts - first_dts), got_picture, decoded);
     av_free_packet(&packet);
