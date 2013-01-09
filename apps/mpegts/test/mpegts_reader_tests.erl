@@ -64,6 +64,8 @@ monotone_read_frames(PrevDTS, Count) ->
       ?assertMatch(Delta when Delta >= 0, round(DTS - PrevDTS)),
       gen_server:reply(From, ok),
       monotone_read_frames(DTS, Count + 1);
+    #media_info{} ->
+      monotone_read_frames(PrevDTS, Count);
     Else ->
       ?assertEqual(a, Else)
   after
@@ -118,5 +120,72 @@ check_udp(URL) ->
   end,
   monotone_read_frames(),
   ok.
+
+
+
+
+dont_send_empty_mi_test() ->
+  {ok, Reader} = mpegts_reader:start_link([{consumer,self()}]),
+  <<Header:376/binary, _Skip:376/binary, VideoTS:23312/binary, _/binary>> = mpegts_decoder_tests:only_video_mpegts(),
+  NoConfigTS = <<Header/binary, VideoTS/binary>>,
+
+  Reader ! {input_data, socket, NoConfigTS},
+  ?assertEqual(undefined, fetch_frames()),
+  close_reader(Reader),
+  ok.
+
+
+
+refresh_media_info_test() ->
+  {ok, Reader} = mpegts_reader:start_link([{consumer,self()}]),
+
+  VideoTS = mpegts_decoder_tests:only_video_mpegts(),
+  Reader ! {input_data, socket, VideoTS},
+  ?assertMatch(#media_info{streams = [#stream_info{codec = h264, track_id = 1, config = C}]} when is_binary(C), fetch_frames()),
+
+  AllTS = mpegts_decoder_tests:all_mpegts(),
+  Reader ! {input_data, socket, AllTS},
+  ?assertMatch(#media_info{streams = [#stream_info{codec = h264, track_id = 1, config = V}, 
+    #stream_info{codec = aac, track_id = 2, config = A}]} when is_binary(V) andalso is_binary(A), fetch_frames()),
+
+
+  close_reader(Reader),
+  ok.
+
+fetch_frames() -> fetch_frames(undefined).
+
+fetch_frames(MI1) ->
+  receive
+    #media_info{} = MI2 -> MI2;
+    {'$gen_call', From, #video_frame{}} -> gen_server:reply(From, ok), fetch_frames(MI1);
+    Else -> Else
+  after
+    10 -> MI1
+  end.
+
+
+close_reader(Reader) ->
+  receive
+    {'$gen_call', From, #video_frame{}} -> gen_server:reply(From, ok), close_reader(Reader);
+    _Else -> close_reader(Reader)
+  after
+    10 -> erlang:exit(Reader, normal)
+  end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

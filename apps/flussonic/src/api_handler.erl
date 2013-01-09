@@ -70,6 +70,14 @@ handle(Req, {events, _Opts}) ->
   end;
 
 
+handle(Req, {sessions, Opts}) ->
+  check_auth(Req, Opts, viewer, fun() ->
+    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(flu_session:list()), "\n"], Req),
+    {ok, R1, undefined}
+  end);
+
+
+
 handle(Req, {streams, Opts}) ->
   check_auth(Req, Opts, viewer, fun() ->
     {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(flu_stream:json_list()), "\n"], Req),

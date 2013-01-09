@@ -57,8 +57,6 @@ int main(int argc, char *argv[]) {
   int vdts_step = -1;
   int audio_stream_index = -1;
   int adts_step = -1;
-  AVCodecContext *vdec_ctx = NULL;
-  AVCodecContext *adec_ctx = NULL;
 
   int sample_rate;
 
@@ -116,16 +114,40 @@ int main(int argc, char *argv[]) {
     int got_picture = 0;
     if(packet.stream_index == video_stream_index) {
       if(first_vdts == -1) first_vdts = packet.dts;
-      if(packet.dts != first_vdts + vcount*vdts_step) printf("Invalid vdts\n");
+      while(packet.dts >= first_vdts + vcount*vdts_step + vdts_step) {
+        printf("missed video frame %llu", (unsigned long long)acount);
+        vcount++;
+      }
       decoded = avcodec_decode_video2(tracks[packet.stream_index].ctx, raw_video, &got_picture, &packet);
+      if(!decoded) {
+        printf("%10s undecoded: %llu", tracks[packet.stream_index].codec->name, (unsigned long long) vcount);
+      } else if(packet.dts != first_vdts + vcount*vdts_step) {
+        printf("%10s  bad vdts: %llu %d\n", tracks[packet.stream_index].codec->name, (unsigned long long)vcount, (int)(packet.dts - (first_vdts + vcount*vdts_step)));
+      } else {
+        printf("%10s good vdts: %llu\n", tracks[packet.stream_index].codec->name, (unsigned long long)vcount);
+      }
       vcount++;
     } else {
       if(first_adts == -1) first_adts = packet.dts;
-      if(packet.dts != first_adts + acount*adts_step) printf("Invalid adts: %llu != %llu\n", (unsigned long long)packet.dts, (unsigned long long)(first_adts + acount*adts_step));
+      while(packet.dts >= first_adts + acount*adts_step + adts_step) {
+        printf("missed audio frame %llu", (unsigned long long)acount);
+        acount++;
+      }
       decoded = avcodec_decode_audio4(tracks[packet.stream_index].ctx, raw_audio, &got_picture, &packet);
+      if(!decoded) {
+        printf("%10s undecoded: %llu", tracks[packet.stream_index].codec->name, (unsigned long long) acount);
+      } else if(packet.dts != first_adts + acount*adts_step) {
+        printf("%10s  bad adts: %llu %d\n", tracks[packet.stream_index].codec->name, (unsigned long long)acount, (int)(packet.dts - (first_adts + acount*adts_step)));
+      } else {
+        printf("%10s good adts: %llu", tracks[packet.stream_index].codec->name, (unsigned long long)acount);
+      }
       acount++;
     }
-    printf("% 10s %8lld %d, %d\n", tracks[packet.stream_index].codec->name, (long long int)(packet.dts - first_dts), got_picture, decoded);
+    // if(!got_picture) {
+    //   printf("%10s %8lld failed to decode frame\n", tracks[packet.stream_index].codec->name, (long long int)(packet.dts - first_dts));
+    // } else {
+    //   printf("%10s %8lld %d, %d\n", tracks[packet.stream_index].codec->name, (long long int)(packet.dts - first_dts), got_picture, decoded);
+    // }
     av_free_packet(&packet);
     av_init_packet(&packet);
   }

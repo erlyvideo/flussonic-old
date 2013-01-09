@@ -85,37 +85,49 @@ Erlyvideo = {
     }
     Erlyvideo.stream_load_timer = setTimeout(Erlyvideo.load_stream_info, 3000);
   },
+
+  info_template: "Total clients: {{total}}<br/> \
+  Total file clients: {{total_file}}<br/>",
   
-  stream_template: "<p>\
-  Total clients: {{total}}<br/> \
-  Total file clients: {{total_file}}<br/> \
-  </p>\
-  <table class='table'> \
-    <thead><tr><th class='first'>Name</th><th>Play</th><th width='65'>Clients</th> \
-    <th width='65'>Lifetime</th><th width='65'>DTS Delay</th><th width='70'>Retry count</th></tr></thead> \
-    <tbody> \
-    {{#streams}}<tr id=\"stream-{{name}}\" playprefix=\"{{play_prefix}}\">\
-      <td class='first'>\
+  stream_template: "<tr id=\"stream-{{name}}\" playprefix=\"{{play_prefix}}\">\
+      <td class='first'  valign='top'>\
       <a href='#' onclick='Erlyvideo.open_stream_tab(\"{{name}}\"); return false;'>{{name}}</a> \
       </td> \
       <td class='stream-play'>\
-      {{#hds}}<a href='#' onclick='Erlyvideo.play_stream(\"{{play_name}}\",\"hds\"); return false;'><span class='hds'></span>{{name}}</a>{{/hds}} \
-      <a href='#' onclick='Erlyvideo.play_stream(\"{{name}}\",\"rtmp\"); return false;'><span class='rtmp'></span>{{name}}</a> \
-      {{#hls}}<a href='#' onclick='Erlyvideo.play_stream(\"{{play_name}}\",\"hls\"); return false;'><span class='hls'></span>{{name}}</a>{{/hls}} \
-      {{#dvr}}<a href='#' onclick='Erlyvideo.show_dvr_status(\"{{name}}\", {play_name : \"{{play_name}}\"}); return false'><span class='dvr'></span>{{name}}</a>{{/dvr}} \
+      <a class='s-hds' style='visibility: {{hds}}' href='#' onclick='Erlyvideo.play_stream(\"{{play_name}}\",\"hds\"); return false;'><span class='hds'></span>{{name}}</a>\
+      <a class='s-rtmp' style='visibility: {{rtmp}}' href='#' onclick='Erlyvideo.play_stream(\"{{name}}\",\"rtmp\"); return false;'><span class='rtmp'></span>{{name}}</a> \
+      <a class='s-hls' style='visibility: {{hls}}' href='#' onclick='Erlyvideo.play_stream(\"{{play_name}}\",\"hls\"); return false;'><span class='hls'></span>{{name}}</a> \
+      <a class='s-dvr' style='visibility: {{dvr}}' href='#' onclick='Erlyvideo.show_dvr_status(\"{{name}}\", {play_name : \"{{play_name}}\"}); return false'><span class='dvr'></span>{{name}}</a>\
+      <div id=\"clients-{{name}}\"></div>\
       </td>\
-      <td>{{client_count}}</td> \
-      <td>{{lifetime}}</td> \
-      <td>{{ts_delay}}</td> \
-      <td>{{retry_count}}</td> \
-    </tr>{{/streams}} \
-    </tbody></table>",
+      <td><a href='#' onclick='Erlyvideo.show_clients(\"{{name}}\"); return false;' class='client_count'>{{client_count}}</a></td> \
+      <td class='lifetime'>{{lifetime}}</td> \
+      <td class='ts_delay'>{{ts_delay}}</td> \
+      <td class='retry_count'>{{retry_count}}</td> \
+    </tr>",
   
+  session_template: "<a href='#' onclick='$(\"#clients-{{name}}\").html(\"\"); return false;' style='width: auto'>Close</a>\
+  <table width=\"100%\">\
+  <thead><tr><th>IP</th><th>UserID</th><th>Type</th><th>Name</th><th>Time</th></tr></thead>\
+  {{#sessions}}<tr><td>{{ip}}</td><td>{{user_id}}</td><td>{{type}}</td><td>{{name}}</td><td>{{duration}}</td></tr>{{/sessions}}\
+  </table>",
   
   show_dvr_status: function(name, opts) {
     $("#dvr-list").showDVR(name, opts || {});
   },
   
+  show_clients: function(name) {
+    $.get("/erlyvideo/api/sessions", {}, function(sessions) {
+      var sess1 = [];
+      for(var i = 0; i < sessions.length; i++) {
+        if(sessions[i].name == name) sess1[sess1.length] = sessions[i];
+      }
+      $("#clients-"+name).html(Mustache.to_html(Erlyvideo.session_template, {sessions : sess1, name : name}));
+    });
+  },
+
+  current_streams: {},
+
   draw_stream_info: function(streams) {
     var i;
     var total = 0;
@@ -124,23 +136,50 @@ Erlyvideo = {
     if(streams["version"]) {
       $("#flu_version").html(streams["version"]);
     }
+
+    var new_streams = {};
     
     for(i = 0; i < streams["streams"].length; i++) {
-      streams["streams"][i].lifetime = Math.round(streams["streams"][i].lifetime / 1000);
-      streams["streams"][i].ts_delay = streams["streams"][i].ts_delay < 5000 ? 0 : Math.round(streams["streams"][i].ts_delay / 1000);
-      if(streams["streams"][i].type == "file") {
-        streams["streams"][i].ts_delay = 0;
-        total_file += streams["streams"][i].client_count;
+      var s = streams["streams"][i];
+      s.play_name = s.name;
+      s.lifetime = Math.round(s.lifetime / 1000);
+      s.ts_delay = s.ts_delay < 5000 ? 0 : Math.round(s.ts_delay / 1000);
+      if(s.type == "file") {
+        s.ts_delay = 0;
+        total_file += s.client_count;
       }
-      streams["streams"][i].play_name = streams["streams"][i].name;
-      if(streams["streams"][i].play_prefix) {
-        streams["streams"][i].play_name = streams["streams"][i].play_prefix + "/" + streams["streams"][i].play_name;
+      if(s.play_prefix) {
+        s.play_name = s.play_prefix + "/" + s.play_name;
       }
-      total += streams["streams"][i].client_count;
+      if(!Erlyvideo.current_streams[s.name]) {
+        Erlyvideo.current_streams[s.name] = true;
+        $("#stream-list").append(Mustache.to_html(Erlyvideo.stream_template, s));
+      } else {
+        var s1 = $("#stream-"+s.name);
+        s1.find(".client_count").html(s.client_count);
+        if(s.lifetime) s1.find(".lifetime").html(s.lifetime);
+        if(s.ts_delay) s1.find(".ts_delay").html(s.ts_delay);
+        if(s.retry_count) s1.find(".retry_count").html(s.retry_count);
+        s1.find(".s-hds").css('visibility', s.hds ? "visible" : "hidden");
+        s1.find(".s-hls").css('visibility', s.hls ? "visible" : "hidden");
+        s1.find(".s-dvr").css('visibility', s.dvr ? "visible" : "hidden");
+        s1.find(".s-rtmp").css('visibility', s.rtmp ? "visible" : "hidden");
+      }
+      new_streams[s.name] = true;
+      total += s.client_count;
     }
-    streams["total"] = total;
-    streams["total_file"] = total_file;
-    $("#stream-list").html(Mustache.to_html(Erlyvideo.stream_template, streams));
+
+    for(var k in Erlyvideo.current_streams) {
+      if(!new_streams[k]) {
+        delete Erlyvideo.current_streams[k];
+        $("#stream-"+k).remove();
+      }
+    }
+    var info = {};
+    info["total"] = total;
+    info["total_file"] = total_file;
+    $("#stream-info").html(Mustache.to_html(Erlyvideo.info_template, info));
+    // $("#stream-list").html(Mustache.to_html(Erlyvideo.stream_template, streams));
   },
   
   stop_periodic_stream_loader: function() {

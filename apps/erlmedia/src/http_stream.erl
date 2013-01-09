@@ -103,14 +103,14 @@ find_or_open_socket(Host,Port,Options) ->
   Timeout = proplists:get_value(timeout, Options, 3000), 
   case proplists:get_value(socket, Options) of
     undefined ->
-      gen_tcp:connect(Host, Port, [binary, {packet, http_bin}, {active, false}, {recbuf, 65536}, inet, {reuseaddr,true}], Timeout);
+      gen_tcp:connect(Host, Port, [binary, {send_timeout,Timeout}, {packet, http_bin}, {active, false}, {recbuf, 65536}, inet, {reuseaddr,true}], Timeout);
     OldSocket ->
-      case inet:setopts(OldSocket, [{packet,http_bin},{active,false}]) of
+      case inet:setopts(OldSocket, [{send_timeout,Timeout}, {packet,http_bin},{active,false}]) of
         ok ->
           {ok, OldSocket};
         {error, _} ->
           (catch gen_tcp:close(OldSocket)),
-          gen_tcp:connect(Host, Port, [binary, {packet, http_bin}, {active, false}, {recbuf, 65536}, inet, {reuseaddr,true}], Timeout)
+          gen_tcp:connect(Host, Port, [binary, {send_timeout,Timeout}, {packet, http_bin}, {active, false}, {recbuf, 65536}, inet, {reuseaddr,true}], Timeout)
       end
   end.
 

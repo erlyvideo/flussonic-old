@@ -258,8 +258,8 @@ decode_ts(<<16#47, _:3, ?PAT_PID:13, _:185/binary, Rest/binary>> = Packet, #deco
   {pat, [{PMT,_}|_]} = mpegts_psi:psi(ts_payload(Packet)),
   decode_ts(Rest, Decoder#decoder{pmt = PMT});
 
-decode_ts(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>>, #decoder{media_info = MI, pmt = PMT} = Decoder) when MI =/= undefined ->
-  decode_ts(Rest, Decoder);
+% decode_ts(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>>, #decoder{media_info = MI, pmt = PMT} = Decoder) when MI =/= undefined ->
+%   decode_ts(Rest, Decoder);
 
 decode_ts(<<16#47, _:3, PMT:13, _:185/binary, Rest/binary>> = Packet, #decoder{pmt = PMT, 
   media_info = MI} = Decoder) ->
@@ -318,6 +318,7 @@ decode_ts(<<16#47, _/binary>> = TS, #decoder{ts_buffer = undefined} = Decoder) w
   {ok, Decoder#decoder{ts_buffer = TS}};
 
 decode_ts(<<C, Bin/binary>>, #decoder{} = Decoder) when C =/= 16#47 ->
+  ?D(align),
   decode_ts(Bin, Decoder);
 
 decode_ts(eof, #decoder{audio = A, video = V} = Decoder) ->
@@ -401,6 +402,9 @@ new_pes_packet(eof, _DTS, _PTS, #stream{dts = DTS, codec = aac, es_buffer = Buff
     Data -> new_pes_packet(Data, DTS, DTS, Stream#stream{es_buffer = []})
   end;
 
+% new_pes_packet(<<>>, _, _, #stream{codec = aac} = Stream) ->
+%   Stream;
+
 new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = undefined} = Stream) ->
   {AudioConfig, SampleRate} = aac_config(DTS, Data),
   Stream1 = #stream{frames = Frames} = new_pes_packet(Data, DTS, PTS, Stream#stream{sample_rate = SampleRate}),
@@ -413,8 +417,10 @@ new_pes_packet(Data, DTS, PTS, #stream{codec = aac, es_buffer = Old, dts = OldDT
     {ok, Frame, Rest} ->
       Stream1 = #stream{frames = Frames} = new_pes_packet(Rest, DTS, PTS, Stream#stream{es_buffer = [],frames = []}),
       Stream1#stream{frames = Delayed ++ [Frame|Frames]};
-    {more, _} ->
+    {more, _} when size(ADTS) > 0 ->
       new_pes_packet(Data, DTS, PTS, Stream#stream{es_buffer = [ADTS]});
+    {more, _} when size(ADTS) == 0 ->
+      new_pes_packet(Data, DTS, PTS, Stream#stream{es_buffer = []});
     {error, _} ->
       new_pes_packet(Data, DTS, PTS, Stream#stream{es_buffer = []})
   end;
@@ -424,8 +430,10 @@ new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = SampleRate, fr
     {ok, Frame, Rest} ->
       Stream1 = #stream{frames = Frames} = new_pes_packet(Rest, DTS + 1024*90*1000 div SampleRate, PTS, Stream#stream{frames = []}),
       Stream1#stream{frames = Delayed ++ [Frame|Frames]};
-    {more, _} ->
+    {more, _} when size(Data) > 0 ->
       Stream#stream{es_buffer = [Data], dts = DTS};
+    {more, _} when size(Data) == 0 ->
+      Stream#stream{es_buffer = [], dts = DTS};
     {error, _} ->
       Stream#stream{es_buffer = [], dts = DTS}
   end;

@@ -56,7 +56,11 @@ list() ->
   lists:sort([{Name, stream_info(Name, Attrs)} || {Name, Attrs} <- gen_tracker:list(flu_streams)]).
 
 json_list() ->
-  Streams = [[{name,Name}|parse_attr(Attr)] || {Name,Attr} <- list()],
+  RTMP = case proplists:get_value(rtmp, flu_config:get_config()) of
+    undefined -> [];
+    RTMP_ -> [{rtmp,RTMP_}]
+  end,
+  Streams = [ RTMP ++ [{name,Name}|parse_attr(Attr)] || {Name,Attr} <- list()],
   {ok, Vsn} = application:get_key(flussonic, vsn),
   [{streams,Streams},{version, list_to_binary(Vsn)}].
 
@@ -371,10 +375,20 @@ handle_call({update_options, NewOptions}, _From, #stream{name = Name} = Stream) 
   Stream1 = set_options(Stream#stream{options = NewOptions1}),
   {reply, ok, Stream1};
 
-handle_call({subscribe, Pid}, _From, #stream{clients = Clients} = Stream) ->
-  Ref = erlang:monitor(process, Pid),
+handle_call({subscribe, Pid}, From, #stream{name = Name, monotone = undefined} = Stream) ->
+  {ok, Monotone} = case flussonic_sup:find_stream_helper(Name, monotone) of
+    {ok, M} ->
+      {ok, M};
+    {error, _} ->
+      flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]})
+  end,
+  handle_call({subscribe, Pid}, From, Stream#stream{monotone = Monotone});
+
+
+handle_call({subscribe, Pid}, _From, #stream{monotone = Monotone} = Stream) ->
   [Pid ! C#video_frame{stream_id = self()} || C <- configs(Stream)],
-  {reply, {ok, Ref}, Stream#stream{clients = [{Pid,Ref}|Clients]}};
+  flu_monotone:subscribe(Monotone, Pid),
+  {reply, ok, Stream};
 
 handle_call({set_source, Source}, _From, #stream{source = OldSource} = Stream) ->
   OldSource == undefined orelse error({reusing_source,Stream#stream.name,OldSource,Source}),
@@ -485,7 +499,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
       {noreply, Stream#stream{retry_count = Count+1}}
   end;
 
-handle_info(#media_info{} = MediaInfo, #stream{media_info = undefined, name = Name} = Stream) ->
+handle_info(#media_info{} = MediaInfo, #stream{name = Name} = Stream) ->
   flu_stream_data:set(Name, media_info, MediaInfo),
   Stream1 = pass_message(MediaInfo, Stream#stream{media_info = MediaInfo}),
   {noreply, Stream1};
@@ -504,7 +518,7 @@ handle_info({'DOWN', _, process, Source, _Reason},
 
 handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = OldCheckTimer,
   source_timeout = SourceTimeout, url = URL, source = Source, last_dts_at = LastDtsAt, retry_count = Count,
-  clients_timeout = ClientsTimeout, clients = Clients} = Stream) ->
+  clients_timeout = ClientsTimeout, monotone = Monotone} = Stream) ->
   
   erlang:cancel_timer(OldCheckTimer),
   Now = os:timestamp(),
@@ -517,8 +531,10 @@ handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = O
   % ?D({{source_delta,SourceDelta},{clients_delta,ClientsDelta}}),
   CheckTimer = erlang:send_after(3000, self(), check_timeout),
 
+  ClientsCount = flu_monotone:clients_count(Monotone),
+
   if 
-  is_number(ClientsTimeout) andalso not Static andalso ClientsDelta >= ClientsTimeout andalso length(Clients) == 0 ->
+  is_number(ClientsTimeout) andalso not Static andalso ClientsDelta >= ClientsTimeout andalso ClientsCount == 0 ->
     ?DBG("Stop stream \"~s\" (url \"~s\"): no clients during timeout: ~p/~p", [Name, URL, ClientsDelta,ClientsTimeout]),
     {stop, normal, Stream};
   is_number(SourceTimeout) andalso SourceDelta >= UsingSourceTimeout andalso is_pid(Source) ->
@@ -542,15 +558,8 @@ handle_info(reload_playlist, #stream{source = Source} = Stream) ->
   Source ! reload_playlist,
   {noreply, Stream};
 
-handle_info({'DOWN', _, process, Pid, _Reason} = Message, #stream{clients = Clients} = Stream) ->
-  Stream1 = case lists:keyfind(Pid, 1, Clients) of
-    false ->
-      pass_message(Message, Stream);
-    _ ->
-      Clients1 = [Client || {CPid,_Ref} = Client <- Clients, CPid =/= Pid],
-      Stream#stream{clients = Clients1}
-  end,
-  {noreply, Stream1};
+handle_info({'DOWN', _, _, _, _} = Message, #stream{} = Stream) ->
+  {noreply, pass_message(Message, Stream)};
 
 handle_info(#video_frame{} = Frame, #stream{} = Stream) ->
   {noreply, Stream1} = handle_input_frame(Frame, Stream),
@@ -586,16 +595,15 @@ handle_input_frame(#video_frame{} = Frame, #stream{retry_count = Count, name = N
   gen_tracker:setattr(flu_streams, Name, [{retry_count,0}]),
   handle_input_frame(Frame, Stream#stream{retry_count = 0});
   
-handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, clients = Clients} = Stream) ->
+handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, monotone = Monotone} = Stream) ->
   case Dump of
     true -> ?D({frame, Name, Frame#video_frame.codec, Frame#video_frame.flavor, Frame#video_frame.track_id, round(Frame#video_frame.dts), round(Frame#video_frame.pts)});
     _ -> ok
   end,
   {reply, Frame1, Stream2} = flu_stream_frame:handle_frame(Frame, Stream),
   Stream3 = pass_message(Frame1, Stream2),
-  Frame2 = Frame1#video_frame{stream_id = self()},
+  flu_monotone:send_frame(Monotone, Frame),
   
-  [Pid ! Frame2 || {Pid, _} <- Clients],
   set_last_dts(Stream3#stream.last_dts, Stream3#stream.last_dts_at),
   {noreply, Stream3}.
 

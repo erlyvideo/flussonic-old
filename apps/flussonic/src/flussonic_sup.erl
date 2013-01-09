@@ -27,7 +27,9 @@
 
 %% API
 -export([start_link/0]).
--export([start_flu_file/2, start_flu_stream/2, stop_stream/1, start_stream_helper/3, stop_stream_helper/2]).
+-export([start_flu_file/2, start_flu_stream/2, stop_stream/1]).
+
+-export([start_stream_helper/3, stop_stream_helper/2, find_stream_helper/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -94,7 +96,21 @@ stop_stream_helper(Stream, Id) ->
     false ->
       undefined
   end.
-  
+
+
+find_stream_helper(Stream, Id) ->
+  case lists:keyfind(Stream, 1, supervisor:which_children(flu_streams_sup)) of
+    {Stream, Sup, _, _} ->
+      {helper, Helper, _, _} = lists:keyfind(helper, 1, supervisor:which_children(Sup)),
+      case lists:keyfind(Id, 1, supervisor:which_children(Helper)) of
+        false ->
+          {error, no_child};
+        {Id, Pid, _, _} ->
+          {ok, Pid}
+      end;
+    false ->
+      {error, no_stream}
+  end.
 
 %% ===================================================================
 %% Supervisor callbacks

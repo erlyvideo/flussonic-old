@@ -17,7 +17,6 @@ hds_packetizer_test_() ->
 
 
 setup() ->
-  error_logger:delete_report_handler(error_logger_tty_h),
   application:start(gen_tracker),
   gen_tracker_sup:start_tracker(flu_streams),
   {ok, Pid} = flu_stream_data:start_link(),
@@ -25,8 +24,10 @@ setup() ->
   {ok, Pid}.
 
 teardown({ok, Pid}) ->
+  error_logger:delete_report_handler(error_logger_tty_h),
   erlang:exit(Pid, shutdown),
   application:stop(gen_tracker),
+  error_logger:add_report_handler(error_logger_tty_h),
   ok.
 
 

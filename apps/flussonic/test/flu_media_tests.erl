@@ -16,7 +16,6 @@ find_or_open_test_() ->
 
 
 setup() ->
-  error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(ranch),
   application:stop(gen_tracker),
   application:stop(flussonic),
@@ -29,9 +28,11 @@ setup() ->
 
 
 teardown(_) ->
+  error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(ranch),
   application:stop(gen_tracker),
   application:stop(flussonic),
+  error_logger:add_report_handler(error_logger_tty_h),
   ok.
 
 set_config(Env) ->

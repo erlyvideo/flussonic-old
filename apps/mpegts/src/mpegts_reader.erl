@@ -47,7 +47,6 @@
   byte_counter = 0,
   media_info,
   delay_for_config = true,
-  sent_media_info = false,
   delayed_frames = [],
   current_time
 }).
@@ -143,25 +142,24 @@ handle_info({mpegts_udp, Socket, Data}, #reader{counters = Counters, url = _URL}
   mpegts_udp:active_once(Socket),
   handle_info({input_data, Socket, Data}, Reader#reader{counters = Counters2});  
 
-handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = Decoder, sent_media_info = Sent} = Reader) ->
+handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = Decoder, media_info = MI1} = Reader) ->
   try mpegts_decoder:decode(Bin, Decoder) of
     {ok, Decoder2, Frames} ->
-      % send_media_info_if_needed(Decoder_, Frames),
-      % if Delay1 andalso not Delay2 ->
-      %   Consumer ! MediaInfo;
-      % true -> ok end,
-      Sent1 = case Sent of
-        true -> true;
-        false -> case mpegts_decoder:media_info(Decoder2) of
-          #media_info{} = MI -> Consumer ! MI, true;
-          undefined -> false
-        end
+      % ?debugFmt("frames: ~p", [[{Codec,Flavor} || #video_frame{codec = Codec, flavor = Flavor} <- Frames]]),
+      MI2 = video_frame:define_media_info(MI1, Frames),
+      % ?debugFmt("mi: ~p", [MI2]),
+      MI3 = case MI2 of
+        #media_info{streams = []} -> undefined;
+        #media_info{} when MI2 =/= MI1 -> Consumer ! MI2;
+        _ -> MI2
+        % undefined -> MI2;
+        % #media_info{} -> Consumer ! MI2
       end,
-      case Sent1 of
-        true -> [gen_server:call(Consumer, Frame) || Frame <- Frames];
-        false -> ok
+      case MI3 of
+        undefined -> ok;
+        _ -> [gen_server:call(Consumer, Frame) || Frame <- Frames]
       end,
-      {noreply, Reader#reader{decoder = Decoder2, sent_media_info = Sent1}}
+      {noreply, Reader#reader{decoder = Decoder2, media_info = MI3}}
   catch
     error:{desync_adts,_Bin} ->
       {noreply, Reader};

@@ -18,7 +18,7 @@
   hls,
   udp,
   rtmp,
-  clients = [],
+  monotone,
   gop = undefined,
   gop_start = undefined,
   check_timer

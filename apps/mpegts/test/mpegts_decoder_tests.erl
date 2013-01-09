@@ -161,6 +161,12 @@ readtest_ellinika() ->
   ok.
 
 
+readtest_broken_looping() ->
+  {ok, Frames} = mpegts_decoder:read_file("../test/fixtures/looping.ts"),
+  check_frames(2154685376,2155290176,1,169,2154687019,2155293739,2,316,Frames),
+  ok.
+
+
 
 readtest_empty() ->
   ?assertEqual({ok, []}, mpegts_decoder:read_file("../test/fixtures/empty.ts")),
@@ -211,6 +217,73 @@ small_chunk_test() ->
   {ok, M2, []} = mpegts_decoder:decode(<<16#47, 23>>, M1),
   {ok, _M3, []} = mpegts_decoder:decode(<<45,32>>, M2),
   ok.
+
+
+
+padding(0) -> [];
+padding(Size) -> [255 | padding(Size - 1)].
+
+only_video_mpegts() ->
+  {ok, Bin} = file:read_file("../../../test/files/livestream/2012/09/27/12/24/23-05875.ts"),
+  [<<16#47, _:3, 0:13, _/binary>> = PAT, 
+  <<16#47, _:3, 16#FFF:13, _PMT/binary>> | Packets] = [<<16#47, Packet:187/binary>> || <<16#47, Packet:187/binary>> <= Bin],
+  PMT1 = [<<16#47, 0:1, 1:1, 0:1, 16#FFF:13, 0:2, 0:1, 1:1, 0:4>>,
+    mpegts_psi:encode(pmt, [{program,1},{pcr_pid,16#100},{streams,[{h264,16#100,[]}]}])
+  ],
+  Padding = padding(188 - iolist_size(PMT1)),
+  PMT2 = [PMT1, Padding],
+  TS = iolist_to_binary([PAT, PMT2 | [Packet || <<16#47, _:3, Pid:13, _/binary>> = Packet <- Packets, Pid =/= 0,  Pid =/= 16#FFF]]),
+  TS.
+
+all_mpegts() ->
+  {ok, Bin} = file:read_file("../../../test/files/livestream/2012/09/27/12/24/30-05875.ts"),
+  Bin.
+
+
+audio_doesnt_appear_without_pmt_test() ->
+  % {ok, Bin} = file:read_file("../test/fixtures/10-06800.ts"),
+  % {ok, Frames} = mpegts_decoder:decode_file(Bin),
+
+  VideoTS = only_video_mpegts(),
+  {ok, Frames} = mpegts_decoder:decode_file(VideoTS),
+
+  % ?assertMatch([#media_info{streams = [#stream_info{codec = h264, config = Config}]}|_] when is_binary(Config), Frames),
+
+  ?assertMatch(VideoCount when VideoCount > 40, length([Frame || #video_frame{content = video} = Frame <- Frames])),
+  ?assertEqual([], [Frame || #video_frame{content = audio} = Frame <- Frames]),
+  ok.
+
+
+some_audio_appear_after_pmt_test() ->
+  VideoTS = only_video_mpegts(),
+  AllTS = all_mpegts(),
+
+  {ok, Frames} = mpegts_decoder:decode_file(<<VideoTS/binary, AllTS/binary>>),
+
+  ?assertMatch(Count when Count > 40, length([Frame || #video_frame{content = video} = Frame <- Frames])),
+  ?assertMatch(Count when Count > 40, length([Frame || #video_frame{content = audio} = Frame <- Frames])),
+
+  ok.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

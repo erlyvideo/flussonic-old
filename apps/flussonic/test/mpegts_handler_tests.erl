@@ -19,11 +19,14 @@ mpegts_test_() ->
     cowboy:start_http(fake_http, 3, 
       [{port,5555}],
       [{dispatch,[{'_',flu_config:parse_routes(Config)}]}]
-    ), 
+    ),
+    meck:new(flu_monotone, [{passthrough,true}]),
+    meck:expect(flu_monotone, delay, fun(_,_) -> 0 end),
     ok
   end,
   fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
+    meck:unload(flu_monotone),
     application:stop(cowboy),
     application:stop(flussonic),
     application:stop(ranch),

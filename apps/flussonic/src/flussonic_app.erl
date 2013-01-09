@@ -115,13 +115,13 @@ load_config() ->
   
   
   case proplists:get_value(rtmp, Env) of
-    undefined -> ok;
+    undefined -> rtmp_socket:stop_server(rtmp_listener1);
     RTMPPort ->
 	  	?D({"Start RTMP server at port", RTMPPort}),
   	  rtmp_socket:start_server(RTMPPort, rtmp_listener1, flu_rtmp)
   end,
   case proplists:get_value(rtsp, Env) of
-	  undefined -> ok;
+	  undefined -> rtsp_socket:stop_server(rtsp_listener1);
 	  RTSPPort ->
 	    ?D({"Start RTSP server at port", RTSPPort}),
 	    rtsp:start_server(RTSPPort, rtsp_listener1, flu_rtsp)

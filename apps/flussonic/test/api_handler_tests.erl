@@ -10,25 +10,23 @@ api_handler_test_() ->
       Apps = [ranch, gen_tracker, cowboy, flussonic],
       [application:stop(App) || App <- Apps],
       [ok = application:start(App) || App <- Apps],
-      error_logger:delete_report_handler(error_logger_tty_h),
-      error_logger:delete_report_handler(error_logger),
       meck:new([flu], [{passthrough,true}]),
       inets:start(),
       ok
   end,
   fun(_) ->
+    error_logger:delete_report_handler(error_logger_tty_h),
     meck:unload([flu]),
     application:stop(cowboy),
     application:stop(flussonic),
     application:stop(ranch),
-    application:stop(gen_tracker)
+    application:stop(gen_tracker),
+    application:stop(inets),
+    error_logger:add_report_handler(error_logger_tty_h),
+    ok
   end,
-  [
-    fun test_reconf/0
-    ,fun test_streams/0
-    ,fun test_protected_reconf_rejected/0
-    ,fun test_protected_reconf_passed/0
-  ] 
+  [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
+    lists:prefix("test_", atom_to_list(F))]
   }.
 
 
@@ -71,3 +69,17 @@ test_streams() ->
   Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/streams"),
   ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
   ok.
+
+
+
+test_sessions() ->
+  set_config([api]),
+  Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/sessions"),
+  ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
+  ok.
+
+
+
+
+
+
