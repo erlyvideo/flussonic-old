@@ -29,7 +29,7 @@
 
 
 -export([start/0, stop/0, start/2, stop/1, config_change/3]).
--export([start_server/3, behaviour_info/1, test/1]).
+-export([start_server/3, stop_server/1, behaviour_info/1, test/1]).
 
 
 start() ->
@@ -79,6 +79,10 @@ behaviour_info(_Other) -> undefined.
 
 start_server(Port, Name, Callback) ->
   ranch:start_listener(Name, 10, ranch_tcp, [{port, Port}], rtsp_listener, [Callback, []]).
+
+
+stop_server(Name) ->
+  ranch:stop_listener(Name).
 
 
 

@@ -130,8 +130,10 @@ test_monitor_session() ->
   ?assertEqual(<<"127.0.0.5">>, proplists:get_value(ip, Info)),
   Session = flu_session:find_session(Identity),
   flu_session ! {'DOWN', flu_session:ref(Session), undefined, self(), undefined},
-  gen_server:call(flu_session, {unregister, flu_session:ref(Session)}),
+  gen_server:call(flu_session, sync_call),
   ?assertEqual([], flu_session:list()),
+
+  gen_server:call(flu_session, {unregister, flu_session:ref(Session)}),
   ok.
 
 
@@ -272,12 +274,37 @@ test_expire_and_delete_session() ->
   ?assertEqual({ok, <<"cam0">>},
     flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested),
-  ets:delete_all_objects(flu_session:table()),
+
+  [#session{session_id = Id}] = ets:tab2list(flu_session:table()),
+  ets:update_element(flu_session:table(), Id, [{#session.last_access_time, 0}]),
+  flu_session ! clean,
+  gen_server:call(flu_session, sync_call),
 
   ?assertEqual({ok, <<"cam0">>},
     flu_session:verify(http_mock_url(), Identity, [])),
 
   assertBackendRequested(backend_wasnt_requested_second_time),
+  ok.
+
+
+test_dont_expire_monitored_session() ->
+  Self = self(),
+  meck:expect(flu_session, backend_request, fun(_, _, _) ->
+    Self ! backend_request,
+    {ok,[{access,granted},{user_id,15},{auth_time, 5000}]} 
+  end),
+  Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
+  ?assertEqual({ok, <<"cam0">>},
+    flu_session:verify(http_mock_url(), Identity, [{type,<<"rtmp">>},{pid,self()}])),
+  assertBackendRequested(backend_wasnt_requested),
+  [#session{session_id = Id}] = ets:tab2list(flu_session:table()),
+  ets:update_element(flu_session:table(), Id, [{#session.last_access_time, 0}]),
+
+  flu_session ! clean,
+  gen_server:call(flu_session, sync_call),
+
+  ?assertMatch([_], ets:tab2list(flu_session:table())),
+
   ok.
 
 

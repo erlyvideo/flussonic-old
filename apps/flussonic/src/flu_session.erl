@@ -100,7 +100,8 @@ timeout() ->
 clients() ->
   Now = flu:now_ms(),
   Sessions = ets:select(flu_session:table(), ets:fun2ms(fun(#session{access = granted} = E) -> E end)),
-  [[{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type}] || #session{ip = IP, name = Name, created_at = StartAt, type = Type} <- Sessions].
+  [[{id,Id},{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type}] || 
+    #session{session_id = Id, ip = IP, name = Name, created_at = StartAt, type = Type} <- Sessions].
 
 list() ->
   clients().
@@ -205,19 +206,19 @@ handle_call(Call, _From, State) ->
 handle_info(clean, State) ->
   Now = flu:now_ms(),
   ToDelete = ets:select(flu_session:table(),
-    ets:fun2ms(fun(#session{auth_time = A, delete_time = D, last_access_time = Last} = S)
+    ets:fun2ms(fun(#session{auth_time = A, delete_time = D, last_access_time = Last, pid = undefined} = S)
                                              when Now > Last + A + D -> S end)),
-  % if length(ToDelete) > 0 -> 
+  if length(ToDelete) > 0 -> 
+    ?D({deleting,ToDelete});
   % ?D({deleting, [{Tok, Now - (Last+A+D)} || #session{token = Tok, last_access_time = Last, auth_time = A, delete_time = D} <- ToDelete]});
-  % true -> ok end,
+  true -> ok end,
   [delete_session(Session) || Session <- ToDelete],
   {noreply, State};
 
 handle_info({'DOWN', Ref, _, _Pid, _}, State) ->
   [delete_session(Session) ||
       Session <- ets:select(flu_session:table(),
-                            ets:fun2ms(fun(#session{ref = R} = S)
-                                             when R == Ref -> S end))],
+                            ets:fun2ms(fun(#session{ref = R} = S) when R == Ref -> S end))],
   {noreply, State};
 
 handle_info(_Info, State) ->

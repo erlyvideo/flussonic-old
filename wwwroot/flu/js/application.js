@@ -98,7 +98,13 @@ Erlyvideo = {
       <a class='s-rtmp' style='visibility: {{rtmp}}' href='#' onclick='Erlyvideo.play_stream(\"{{name}}\",\"rtmp\"); return false;'><span class='rtmp'></span>{{name}}</a> \
       <a class='s-hls' style='visibility: {{hls}}' href='#' onclick='Erlyvideo.play_stream(\"{{play_name}}\",\"hls\"); return false;'><span class='hls'></span>{{name}}</a> \
       <a class='s-dvr' style='visibility: {{dvr}}' href='#' onclick='Erlyvideo.show_dvr_status(\"{{name}}\", {play_name : \"{{play_name}}\"}); return false'><span class='dvr'></span>{{name}}</a>\
-      <div id=\"clients-{{name}}\"></div>\
+      <div id=\"clients-{{name}}\" style='display: none'>\
+        <a href='#' onclick='Erlyvideo.hide_clients(\"{{name}}\"); return false;' style='width: auto'>Close</a> \
+        <table width=\"100%\">\
+          <thead><tr><th>IP</th><th>UserID</th><th>Type</th><th>Name</th><th>Time</th></tr></thead>\
+          <tbody id=\"clients-list-{{name}}\"></tbody>\
+        </table>\
+      </div>\
       </td>\
       <td><a href='#' onclick='Erlyvideo.show_clients(\"{{name}}\"); return false;' class='client_count'>{{client_count}}</a></td> \
       <td class='lifetime'>{{lifetime}}</td> \
@@ -106,24 +112,51 @@ Erlyvideo = {
       <td class='retry_count'>{{retry_count}}</td> \
     </tr>",
   
-  session_template: "<a href='#' onclick='$(\"#clients-{{name}}\").html(\"\"); return false;' style='width: auto'>Close</a>\
-  <table width=\"100%\">\
-  <thead><tr><th>IP</th><th>UserID</th><th>Type</th><th>Name</th><th>Time</th></tr></thead>\
-  {{#sessions}}<tr><td>{{ip}}</td><td>{{user_id}}</td><td>{{type}}</td><td>{{name}}</td><td>{{duration}}</td></tr>{{/sessions}}\
-  </table>",
+  session_template: "<tr id='session-{{id}}' data-id='{{id}}'><td>{{ip}}</td><td>{{user_id}}</td><td>{{type}}</td><td>{{name}}</td><td class='duration'>{{duration}}</td></tr>",
   
   show_dvr_status: function(name, opts) {
     $("#dvr-list").showDVR(name, opts || {});
   },
   
   show_clients: function(name) {
+    $("#clients-"+name).show();
     $.get("/erlyvideo/api/sessions", {}, function(sessions) {
-      var sess1 = [];
-      for(var i = 0; i < sessions.length; i++) {
-        if(sessions[i].name == name) sess1[sess1.length] = sessions[i];
-      }
-      $("#clients-"+name).html(Mustache.to_html(Erlyvideo.session_template, {sessions : sess1, name : name}));
+      Erlyvideo.draw_clients(sessions, name);
     });
+    Erlyvideo.session_load_timer = setTimeout(function() { Erlyvideo.show_clients(name); }, 2000);
+  },
+
+  hide_clients: function(name) {
+    Erlyvideo.stop_periodic_session_loader();
+    $("#clients-"+name).hide();
+  },
+
+  stop_periodic_session_loader: function() {
+    if(Erlyvideo.session_load_timer) clearTimeout(Erlyvideo.session_load_timer);
+    Erlyvideo.session_load_timer = undefined;
+  },
+
+
+  draw_clients: function(sessions, name) {
+    var new_sessions = {};
+    var list = $("#clients-list-"+name);
+    for(var i = 0; i < sessions.length; i++) {
+      if(sessions[i].name == name) {
+        new_sessions[sessions[i].id] = true;
+        sessions[i].duration = Math.round(sessions[i].duration / 1000);
+        var h = $("#session-"+sessions[i].id);
+        if(h.length > 0) {
+          h.find(".duration").html(sessions[i].duration);
+        } else {
+          list.append(Mustache.to_html(Erlyvideo.session_template, sessions[i]));
+        }
+      }
+    }
+    list.find("tr").each(function() {
+      if(!new_sessions[$(this).attr('data-id')]) {
+        $(this).remove();
+      }
+    })
   },
 
   current_streams: {},
@@ -321,10 +354,15 @@ Erlyvideo = {
     if(Erlyvideo.traffic_load_timer) clearTimeout(Erlyvideo.traffic_load_timer);
     Erlyvideo.traffic_load_timer = undefined;
   },
+
+  dump_events: false,
   
   on_message: function(event) {
     // console.log(event.data);
     var message = eval("("+event.data+")");
+    if(Erlyvideo.dump_events) {
+      console.log(message.event);
+    }
     if(message.event == "stream.next_minute" && Erlyvideo.current_dvr_stream == message.stream) {
       $("div[time=\""+message.options.timestamp+"\"]").addClass("ok").removeClass("fail");
     } else if(message.event == "stream.list") {
