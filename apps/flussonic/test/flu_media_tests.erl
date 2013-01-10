@@ -85,12 +85,12 @@ lookup_stream() ->
 
 lookup_live() ->
   set_config([{live, "prefix"}]),
-  ?assertEqual({ok, {live, <<"ustream">>, [{prefix,<<"prefix">>}]}}, flu_media:lookup("prefix/ustream")),
+  ?assertEqual({ok, {live, <<"prefix/ustream">>, [{prefix,<<"prefix">>}]}}, flu_media:lookup("prefix/ustream")),
   ok.
 
 lookup_live_secure() ->
   set_config([{live, "prefix", [{sessions, "url"}]}]),
-  ?assertEqual({ok, {live, <<"ustream">>, [{prefix,<<"prefix">>},{sessions, "url"}]}}, flu_media:lookup("prefix/ustream")),
+  ?assertEqual({ok, {live, <<"prefix/ustream">>, [{prefix,<<"prefix">>},{sessions, "url"}]}}, flu_media:lookup("prefix/ustream")),
   ok.
 
 

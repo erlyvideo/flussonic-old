@@ -119,7 +119,7 @@ lookup(Path) ->
 lookup(Path, [{live, Prefix, Options}|Config]) ->
   PrefixLen = size(Prefix),
   case Path of
-    <<Prefix:PrefixLen/binary, "/", Stream/binary>> -> {ok, {live, Stream, [{prefix,Prefix}|Options]}};
+    <<Prefix:PrefixLen/binary, "/", _Stream/binary>> -> {ok, {live, Path, [{prefix,Prefix}|Options]}};
     _ -> lookup(Path, Config)
   end;
 

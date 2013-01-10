@@ -100,8 +100,8 @@ timeout() ->
 clients() ->
   Now = flu:now_ms(),
   Sessions = ets:select(flu_session:table(), ets:fun2ms(fun(#session{access = granted} = E) -> E end)),
-  [[{id,Id},{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type}] || 
-    #session{session_id = Id, ip = IP, name = Name, created_at = StartAt, type = Type} <- Sessions].
+  [[{id,Id},{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type},{user_id,UserId}] || 
+    #session{session_id = Id, ip = IP, name = Name, user_id =UserId, created_at = StartAt, type = Type} <- Sessions].
 
 list() ->
   clients().

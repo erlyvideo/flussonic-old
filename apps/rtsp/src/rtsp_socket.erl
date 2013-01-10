@@ -69,11 +69,11 @@ handle_call(Call, _From, #rtsp{timeout = Timeout} = RTSP) ->
 handle_info({tcp, Socket, Line}, #rtsp{timeout = Timeout} = RTSP) ->
   case re:run(Line, "^(\\w+) ([^ ]+) (RTSP|HTTP)/1.0", [{capture,all_but_first,binary}]) of
     {match, [Method, URL_, Proto]} ->
-      {Headers, Dump} = rtsp_protocol:collect_headers(Socket),
+      {Headers, _Dump} = rtsp_protocol:collect_headers(Socket),
       Body = rtsp_protocol:collect_body(Socket, Headers),
       inet:setopts(Socket, [{active,once},{packet,line}]),
 
-      io:format(">>>>>> RTSP IN (~p:~p) >>>>>~n~s~s~n~s~n", [?MODULE, ?LINE, Line, Dump, case Body of undefined -> ""; _ -> Body end]),
+      % io:format(">>>>>> RTSP IN (~p:~p) >>>>>~n~s~s~n~s~n", [?MODULE, ?LINE, Line, Dump, case Body of undefined -> ""; _ -> Body end]),
 
       Len = size(URL_)-1,
       URL = case URL_ of <<URL__:Len/binary, "/">> -> URL__; _ -> URL_ end,
@@ -199,7 +199,7 @@ pack_h264([], _, _, _) -> [].
 
 
 terminate(_,_) ->
-  ?D({terminate,rtsp}),
+  % ?D({terminate,rtsp}),
   ok.
 
 
@@ -213,7 +213,7 @@ handle_request(Method, _URL, Headers, _Body, RTSP) when Method == <<"OPTIONS">> 
 
 handle_request(<<"DESCRIBE">>, URL1, Headers, Body, #rtsp{callback = Callback} = RTSP) ->
   {URL, Auth} = extract_url(URL1),
-  ?D({describe,URL}),
+  % ?D({describe,URL}),
   case Callback:describe(URL, Auth ++ Headers, Body) of
     {error, authentication} ->
       reply(401, [{"WWW-Authenticate", "Basic realm=\"Flussonic Streaming Server\""}], RTSP);
@@ -309,7 +309,7 @@ handle_request(<<"PLAY">>, _URL1, Headers, Body, #rtsp{url = URL1, callback = Ca
   {URL, Auth} = extract_url(URL1),
   case Callback:play(URL, [{ip,inet_parse:ntoa(Addr)}]++ Auth ++ Headers, Body) of
     {ok, {Type, Stream}} ->
-      ?D({got, Type, Stream}),
+      % ?D({got, Type, Stream}),
       erlang:monitor(process, Stream),
       % It is ok here to fetch first config frame, because we know its contents
       % from media_info and already sent to client
@@ -479,7 +479,7 @@ reply(Code, Headers, Body, #rtsp{socket = Socket, session = Session} = RTSP) ->
     undefined -> <<>>;
     _ -> Body
   end]),
-  io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Reply]),
+  % io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Reply]),
   gen_tcp:send(Socket, Reply),
   RTSP1.
 

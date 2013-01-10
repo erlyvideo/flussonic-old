@@ -117,6 +117,22 @@ no_prepend_base_path_test() ->
 
 
 
+mbr_playlist_with_crlf_test() ->
+Playlist = <<"#EXTM3U\r
+#EXT-X-STREAM-INF:PROGRAM-ID=1, BANDWIDTH=326819\r
+master_Layer1.m3u8\r
+#EXT-X-STREAM-INF:PROGRAM-ID=1, BANDWIDTH=621051\r
+master_Layer2.m3u8\r
+#EXT-X-STREAM-INF:PROGRAM-ID=1, BANDWIDTH=915384\r
+master_Layer3.m3u8\r
+">>,
+    ?assertMatch(#m3u8_mbr_playlist{
+    playlists = [
+      #m3u8_playlist{url = <<"master_Layer1.m3u8">>, bitrate = 326819},
+      #m3u8_playlist{url = <<"master_Layer2.m3u8">>, bitrate = 621051},
+      #m3u8_playlist{url = <<"master_Layer3.m3u8">>, bitrate = 915384}
+    ]
+  }, m3u8:parse(Playlist)).
 
 
 

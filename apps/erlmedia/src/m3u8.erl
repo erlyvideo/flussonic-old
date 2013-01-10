@@ -53,7 +53,7 @@ fetch(URL, Options) when is_binary(URL) ->
 
 
 parse(Bin) when is_binary(Bin) ->
-  Lines = [L || L <- binary:split(Bin, <<"\n">>, [global]), L =/= <<>>],
+  Lines = [L || L <- binary:split(Bin, [<<"\r">>, <<"\n">>], [global]), L =/= <<>>],
   detect_playlist_type(Lines).
 
 
@@ -78,7 +78,7 @@ read_mbr_playlist([<<"#EXT-X-MEDIA:",_/binary>>|Lines], Playlist) ->
   read_mbr_playlist(Lines, Playlist);
 
 read_mbr_playlist([<<"#EXT-X-STREAM-INF:", Opts/binary>>, URL|Lines], #m3u8_mbr_playlist{playlists = SubLists} = Playlist) ->
-  Options = [ list_to_tuple(binary:split(Opt, <<"=">>)) || Opt <- binary:split(Opts, <<",">>,[global])],
+  Options = [ list_to_tuple(binary:split(Opt, <<"=">>)) || Opt <- binary:split(Opts, [<<" ">>, <<",">>],[global]), Opt =/= <<>>],
   Bitrate = to_i(proplists:get_value(<<"BANDWIDTH">>, Options)),
   read_mbr_playlist(Lines, Playlist#m3u8_mbr_playlist{playlists = [#m3u8_playlist{url = URL, bitrate = Bitrate}|SubLists]});
 
