@@ -1,6 +1,22 @@
 %%% @author     Max Lapshin <max@maxidoors.ru> [http://erlyvideo.org]
 %%% @copyright  2010-2012 Max Lapshin
-%%% @doc        common media
+%%% @doc        
+% This module must help different protocols to make lookups in flussonic config and launch streams and files.
+% There are three basic types of media in flussonic: 
+%
+% 1) static stream that is already launched. It may be accessed via HTTP without any prefix
+% 2) live stream that is published by users ondemand
+% 3) files
+%
+% Files and streams live in different tracking tables, but they live in the same HTTP url namespace
+%
+% Each media has two different names: 
+% 1) its outer name, which is visible via HTTP
+% 2) its inner URL that points to real media
+%
+% Live medias has null URL, because they dont know when and how to reconnect.
+% 
+%
 %%% @reference  See <a href="http://erlyvideo.org" target="_top">http://erlyvideo.org</a> for more information
 %%% @end
 %%%

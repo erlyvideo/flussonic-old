@@ -155,7 +155,7 @@ autostart(Stream) ->
 lookup_in_config(Path, [{live, Prefix, Options}|Config]) ->
   PrefixLen = size(Prefix),
   case Path of
-    <<Prefix:PrefixLen/binary, "/", Stream/binary>> -> {ok, Stream, Options};
+    <<Prefix:PrefixLen/binary, "/", _Stream/binary>> -> {ok, Path, Options};
     _ -> lookup_in_config(Path, Config)
   end;
 

@@ -262,7 +262,7 @@ profile_has_scaling_matrix(Profile) ->
 % SPS is described in ITUIT 7.3.2.1 Sequence parameter set RBSP syntax
 % PPS is described in ITUIT 7.3.2.1 Picture parameter set RBSP syntax
 
-parse_sps(<<0:1, _NalRefIdc:2, ?NAL_SPS:5, Profile, _:8, Level, Data/binary>>) ->
+parse_sps(<<0:1, _NalRefIdc:2, ?NAL_SPS:5, Profile, _:8, Level, Data/binary>> = _SPS) ->
   {SPS_ID, Rest} = exp_golomb_read(Data),
   SPS = #h264_sps{profile = Profile, level = Level, sps_id = SPS_ID},
   Rest1 = case profile_has_scaling_matrix(Profile) of
@@ -275,6 +275,7 @@ parse_extended_sps1(Rest) ->
   {ChromaFormat, Rest1} = exp_golomb_read(Rest),
   Rest2 = case ChromaFormat of
     3 -> <<_SeparateColourPlane:1, Rest2_/bitstring>> = Rest1, Rest2_;
+    2 -> Rest1;
     1 -> Rest1
   end,
   {_BitDepthLuma, Rest3} = exp_golomb_read(Rest2),

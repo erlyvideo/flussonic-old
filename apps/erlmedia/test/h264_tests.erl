@@ -16,6 +16,11 @@ rtp_test_fua() ->
     ].
 
 
+parse_422_sps_test() ->
+  ?assertMatch(#h264_sps{profile = 122, level = 31, width = 1280, height = 720}, 
+    h264:parse_sps(<<103,122,0,31,188,217,64,80,5,187,1,16,0,0,62,144,0,11,184,0,241,131,25,96>>)).
+
+
 parse_sps_for_high_profile_test() ->
   ?assertMatch(#h264_sps{profile = 100, level = 50, width = 1280, height = 720}, h264:parse_sps(<<103,100,0,50,172,52,226,192,80,5,187,1,16,0,0,62,144,0,11,184,8,241,131,24,184>>)).
 

@@ -224,14 +224,17 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
   Path2 = normalize_path(Path1),
   Path = clear_path(Path2),
   {StreamName0, QsVals} = http_uri2:parse_path_query(Path),
-  StreamName1 = list_to_binary(StreamName0),
-
   App = rtmp_session:get_field(Session, app),
 
-  {Type, Args, Options} = case lookup_config(flu_config:get_config(), App, StreamName1) of
+
+  {Type, Args, Options} = case lookup_config(flu_config:get_config(), App, iolist_to_binary(StreamName0)) of
     {error, _} ->
-      throw({fail, [404, fmt("failed to find in config ~s/~s", [App, StreamName1])]});
+      throw({fail, [404, fmt("failed to find in config ~s/~s", [App, StreamName0])]});
     {ok, Spec} -> Spec
+  end,
+  StreamName1 = case Type of
+    file -> iolist_to_binary(StreamName0);
+    _ -> Args
   end,
 
   StreamName = case proplists:get_value(sessions, Options) of
@@ -270,8 +273,8 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
 lookup_config([{file,App,Root,Options}|_], App, _Path) ->
   {ok, {file, Root, Options}};
 
-lookup_config([{live,App,Options}|_], App, _Path) ->
-  {ok, {live, undefined, Options}};
+lookup_config([{live,App,Options}|_], App, Path) ->
+  {ok, {live, iolist_to_binary([App,"/",Path]), Options}};
 
 lookup_config([{stream,Path,URL,Options}|_], _App, Path) ->
   {ok, {stream, URL, Options}};

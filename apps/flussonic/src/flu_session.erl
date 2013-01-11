@@ -46,7 +46,7 @@ verify(URL, Identity, Options) ->
   end,
 
   {Session, ErrorMessage} = case find_session(Identity) of
-    Sess when Sess == undefined orelse Now > Sess#session.last_access_time + Sess#session.auth_time ->
+    Sess when Sess == undefined orelse Now > Sess#session.last_access_time + Sess#session.auth_time orelse Sess#session.pid =/= undefined ->
       RequestType = case Sess of
         undefined -> [{request_type,new_session}];
         _ -> [{request_type,update_session}]
@@ -55,6 +55,7 @@ verify(URL, Identity, Options) ->
       StreamClients = proplists:get_value(proplists:get_value(name,Identity), Stats, 0),
       TotalClients = lists:sum([Count || {_,Count} <- Stats]),
       ClientsInfo = [{stream_clients,StreamClients},{total_clients,TotalClients}],
+
 
       case flu_session:backend_request(URL, Identity, ClientsInfo ++ RequestType ++ Options) of
         {error,  {_Code,ErrMsg}, Opts1} -> {new_or_update(Identity, Opts1 ++ Options), ErrMsg};
@@ -65,6 +66,13 @@ verify(URL, Identity, Options) ->
               ExistingSessions = ets:select(flu_session:table(), 
                 ets:fun2ms(fun(#session{user_id = UID, access = granted} = E) when UID == UserId -> E end)),
               OurId = session_id(Identity),
+              case lists:keyfind(OurId, #session.session_id, ExistingSessions) of
+                false -> ok;
+                #session{ref = OldRef, pid = OldPid} ->
+                  gen_server:call(?MODULE, {unregister, OldRef}),
+                  erlang:exit(OldPid, duplicated_user_id)
+              end,
+
               [begin
                 ets:update_element(flu_session:table(), Id, {#session.access, denied}),
                 case Pid of
@@ -161,9 +169,10 @@ new_or_update(Identity, Opts) ->
       {Old_, false};
     [] -> 
       {#session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
-      bytes_sent = 0, pid = Pid, ref = Ref, user_id = UserId, type = proplists:get_value(type, Opts, <<"http">>)}, true}
+      bytes_sent = 0, user_id = UserId, type = proplists:get_value(type, Opts, <<"http">>)}, true}
   end,
-  Session = OldSession#session{auth_time = AuthTime, delete_time = DeleteTime, last_access_time = Now, access = Access},
+  Session = OldSession#session{auth_time = AuthTime, delete_time = DeleteTime, last_access_time = Now, access = Access,
+    pid = Pid, ref = Ref},
   ets:insert(flu_session:table(), Session),
 
   case New of

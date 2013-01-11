@@ -66,7 +66,9 @@ handle_call(Call, _From, #rtsp{timeout = Timeout} = RTSP) ->
   
 
 
-handle_info({tcp, Socket, Line}, #rtsp{timeout = Timeout} = RTSP) ->
+handle_info({tcp, Socket, Bin}, #rtsp{timeout = Timeout} = RTSP) ->
+  inet:setopts(Socket, [{active,false},{packet,raw}]),
+  Line = skip_rtcp(Bin, Socket),
   case re:run(Line, "^(\\w+) ([^ ]+) (RTSP|HTTP)/1.0", [{capture,all_but_first,binary}]) of
     {match, [Method, URL_, Proto]} ->
       {Headers, _Dump} = rtsp_protocol:collect_headers(Socket),
@@ -84,8 +86,8 @@ handle_info({tcp, Socket, Line}, #rtsp{timeout = Timeout} = RTSP) ->
       end,
       {noreply, RTSP1, Timeout};
     nomatch ->
-      ?DBG("Unknown RTSP data: ~250p", [Line]),
-      {stop, bad_rtsp, RTSP}
+      inet:setopts(Socket, [{active,once},{packet,line}]),
+      {noreply, RTSP, Timeout}
   end;
 
 handle_info({tcp_closed, _Socket}, RTSP) ->
@@ -154,6 +156,21 @@ tcp_send(#rtsp{socket = Socket} = RTSP, IOList) ->
     {error, timeout} -> throw({stop, normal, RTSP});
     {error, Error} -> throw({stop, {tcp,Error}, RTSP})
   end.
+
+
+skip_rtcp(<<$$, _, Length:16, _Bin:Length/binary, Rest/binary>>, Socket) ->
+  skip_rtcp(Rest, Socket);
+
+skip_rtcp(<<$$, _, Length:16, Bin/binary>>, Socket) ->
+  {ok, _Rest} = gen_tcp:recv(Socket, Length - size(Bin), 3000),
+  <<>>;
+
+skip_rtcp(<<$$, _/binary>> = Bin, Socket) ->
+  {ok, Rest} = gen_tcp:recv(Socket, 3, 3000),
+  skip_rtcp(<<Bin/binary, Rest/binary>>, Socket);
+
+skip_rtcp(<<>>, _Socket) -> ok;
+skip_rtcp(Else, _Socket) -> Else.
 
 
 

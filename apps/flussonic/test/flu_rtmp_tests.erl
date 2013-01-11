@@ -464,7 +464,25 @@ test_clients_count_on_rtmp_file() ->
 
 
 
+play_stream_test_() ->
+  {foreach, fun() ->
+    init_all(),
+    #env{}
+  end, fun teardown_publish/1, [
+    {"playtest_live_stream", fun playtest_live_stream/0}
+  ]}.
 
+playtest_live_stream() ->
+  ?assertEqual([], flu_stream:list()),
+  set_config([{live,"live"}]),
+  {ok, Pid} = flu_stream:autostart(<<"live/ustream">>),
+  [Pid ! Frame || Frame <- h264_aac_frames()],
+  ?assertMatch([{<<"live/ustream">>, _}], flu_stream:list()),
+
+  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/live/ustream"),
+  ?assertMatch([{<<"live/ustream">>, _}], flu_stream:list()),
+  rtmp_socket:close(RTMP),
+  ok.
 
 
 

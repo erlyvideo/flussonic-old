@@ -10,7 +10,14 @@ main([]) ->
   halt(1);
 
 main([URL]) ->
-  {ok, {_, 200, _, HDS}} = http_stream:request_body(URL, [{keepalive,false},{timeout,10000}]),
+  HDS = case URL of
+    "http://" ++ _ ->
+      {ok, {_, 200, _, HDS_}} = http_stream:request_body(URL, [{keepalive,false},{timeout,10000}]),
+      HDS_;
+    _ ->
+      {ok, HDS_} = file:read_file(URL),
+      HDS_
+  end,
   Frames = flv:read_all_frames(HDS),
   [dump_frame(Frame) || Frame <- Frames],
   ok.

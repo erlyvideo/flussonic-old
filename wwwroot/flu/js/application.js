@@ -89,7 +89,7 @@ Erlyvideo = {
   info_template: "Total clients: {{total}}<br/> \
   Total file clients: {{total_file}}<br/>",
   
-  stream_template: "<tr id=\"stream-{{name}}\" playprefix=\"{{play_prefix}}\">\
+  stream_template: "<tr id=\"stream-{{vname}}\" playprefix=\"{{play_prefix}}\">\
       <td class='first'  valign='top'>\
       <a href='#' onclick='Erlyvideo.open_stream_tab(\"{{name}}\"); return false;'>{{name}}</a> \
       </td> \
@@ -98,11 +98,11 @@ Erlyvideo = {
       <a class='s-rtmp' style='visibility: {{rtmp}}' href='#' onclick='Erlyvideo.play_stream(\"{{name}}\",\"rtmp\"); return false;'><span class='rtmp'></span>{{name}}</a> \
       <a class='s-hls' style='visibility: {{hls}}' href='#' onclick='Erlyvideo.play_stream(\"{{play_name}}\",\"hls\"); return false;'><span class='hls'></span>{{name}}</a> \
       <a class='s-dvr' style='visibility: {{dvr}}' href='#' onclick='Erlyvideo.show_dvr_status(\"{{name}}\", {play_name : \"{{play_name}}\"}); return false'><span class='dvr'></span>{{name}}</a>\
-      <div id=\"clients-{{name}}\" style='display: none'>\
-        <a href='#' onclick='Erlyvideo.hide_clients(\"{{name}}\"); return false;' style='width: auto'>Close</a> \
+      <div id=\"clients-{{vname}}\" style='display: none'>\
+        <a href='#' onclick='Erlyvideo.hide_clients(\"{{vname}}\"); return false;' style='width: auto'>Close</a> \
         <table width=\"100%\">\
           <thead><tr><th>IP</th><th>UserID</th><th>Type</th><th>Name</th><th>Time</th></tr></thead>\
-          <tbody id=\"clients-list-{{name}}\"></tbody>\
+          <tbody id=\"clients-list-{{vname}}\"></tbody>\
         </table>\
       </div>\
       </td>\
@@ -119,16 +119,16 @@ Erlyvideo = {
   },
   
   show_clients: function(name) {
-    $("#clients-"+name).show();
+    $("#clients-"+name.replace(/\//g, "_")).show();
     $.get("/erlyvideo/api/sessions", {}, function(sessions) {
       Erlyvideo.draw_clients(sessions, name);
     });
     Erlyvideo.session_load_timer = setTimeout(function() { Erlyvideo.show_clients(name); }, 2000);
   },
 
-  hide_clients: function(name) {
+  hide_clients: function(vname) {
     Erlyvideo.stop_periodic_session_loader();
-    $("#clients-"+name).hide();
+    $("#clients-"+vname).hide();
   },
 
   stop_periodic_session_loader: function() {
@@ -139,7 +139,8 @@ Erlyvideo = {
 
   draw_clients: function(sessions, name) {
     var new_sessions = {};
-    var list = $("#clients-list-"+name);
+    var vname = name.replace(/\//g, "_");
+    var list = $("#clients-list-"+vname);
     for(var i = 0; i < sessions.length; i++) {
       if(sessions[i].name == name) {
         new_sessions[sessions[i].id] = true;
@@ -174,6 +175,7 @@ Erlyvideo = {
     
     for(i = 0; i < streams["streams"].length; i++) {
       var s = streams["streams"][i];
+      s.vname = s.name.replace(/\//g, "_");
       s.play_name = s.name;
       s.lifetime = Math.round(s.lifetime / 1000);
       s.ts_delay = s.ts_delay < 5000 ? 0 : Math.round(s.ts_delay / 1000);
