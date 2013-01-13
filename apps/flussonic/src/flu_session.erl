@@ -8,7 +8,7 @@
 -export([info/1]).
 -export([table/0]).
 -export([stats/0]).
--export([list/0, clients/0]).
+-export([list/0, json_list/0, json_list/1, clients/0]).
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("flu_session.hrl").
@@ -67,10 +67,10 @@ verify(URL, Identity, Options) ->
                 ets:fun2ms(fun(#session{user_id = UID, access = granted} = E) when UID == UserId -> E end)),
               OurId = session_id(Identity),
               case lists:keyfind(OurId, #session.session_id, ExistingSessions) of
-                false -> ok;
-                #session{ref = OldRef, pid = OldPid} ->
-                  gen_server:call(?MODULE, {unregister, OldRef}),
-                  erlang:exit(OldPid, duplicated_user_id)
+                #session{ref = OldRef, pid = OldPid} when is_reference(OldRef), is_pid(OldPid) ->
+                  ok = gen_server:call(?MODULE, {unregister, OldRef}),
+                  erlang:exit(OldPid, duplicated_user_id);
+                _ -> ok
               end,
 
               [begin
@@ -113,6 +113,12 @@ clients() ->
 
 list() ->
   clients().
+
+json_list() ->
+  [{event,user.list},{sessions,list()}].
+
+json_list(Name) ->
+  [{event,user.list},{name,Name},{sessions,[Session || Session <- list(), proplists:get_value(name,Session) == Name]}].  
 
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -186,6 +192,7 @@ update_session(#session{session_id = SessionId, access = Access}) ->
   Access.
 
 delete_session(Session) ->
+  ?D({delete_session,Session}),
   ets:delete_object(flu_session:table(), Session),
   flu_event:user_disconnected(Session#session.name, info(Session)).
 
@@ -201,11 +208,11 @@ init([]) ->
   timer:send_interval(5000, clean),
   {ok, state}.
 
-handle_call({register, Pid}, _From, State) ->
+handle_call({register, Pid}, _From, State) when is_pid(Pid) ->
   Ref = erlang:monitor(process, Pid),
   {reply, {ok, Ref}, State};
 
-handle_call({unregister, Ref}, _From, State) ->
+handle_call({unregister, Ref}, _From, State) when is_reference(Ref) ->
   erlang:demonitor(Ref, [flush]),
   {reply, ok, State};
 
@@ -217,14 +224,15 @@ handle_info(clean, State) ->
   ToDelete = ets:select(flu_session:table(),
     ets:fun2ms(fun(#session{auth_time = A, delete_time = D, last_access_time = Last, pid = undefined} = S)
                                              when Now > Last + A + D -> S end)),
-  if length(ToDelete) > 0 -> 
-    ?D({deleting,ToDelete});
-  % ?D({deleting, [{Tok, Now - (Last+A+D)} || #session{token = Tok, last_access_time = Last, auth_time = A, delete_time = D} <- ToDelete]});
-  true -> ok end,
+  % if length(ToDelete) > 0 -> 
+  %   ?D({deleting,ToDelete});
+  % % ?D({deleting, [{Tok, Now - (Last+A+D)} || #session{token = Tok, last_access_time = Last, auth_time = A, delete_time = D} <- ToDelete]});
+  % true -> ok end,
   [delete_session(Session) || Session <- ToDelete],
   {noreply, State};
 
 handle_info({'DOWN', Ref, _, _Pid, _}, State) ->
+  ?D({deleting,_Pid,session}),
   [delete_session(Session) ||
       Session <- ets:select(flu_session:table(),
                             ets:fun2ms(fun(#session{ref = R} = S) when R == Ref -> S end))],

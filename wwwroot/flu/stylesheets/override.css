@@ -54,6 +54,7 @@
   background-position: 0 0;
   background-repeat: no-repeat;
   background-color: white;
+  background-image: url("/flu/images/sprite.png");
   padding-left: 20px;
   overflow: hidden;
 }
@@ -64,10 +65,18 @@
   height: 650px;
 }
 
-.stream-play a .hls {background-image: url("/flu/images/hls.png");}
-.stream-play a .hds {background-image: url("/flu/images/osmf.png");}
-.stream-play a .rtmp {background-image: url("/flu/images/jwplayer.png");}
-.stream-play a .dvr {background-image: url("/flu/images/dvr.png");}
+.stream-play a .hds {background-position: 0 0;}
+.stream-play a .rtmp {background-position: -20px 0;}
+.stream-play a .hls {background-position: -40px 0;}
+.stream-play a .dvr {background-position: -60px 0;}
+
+#stream-list .lifetime, #stream-list .ts_delay, #stream-list .retry_count {
+  text-align: right;
+  font-family: fixed;
+  font-size: 14px;
+}
+
+
 
 #traffic-stats table {
   display: none;

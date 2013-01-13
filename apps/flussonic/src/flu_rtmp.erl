@@ -234,7 +234,8 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
   end,
   StreamName1 = case Type of
     file -> iolist_to_binary(StreamName0);
-    _ -> Args
+    stream -> iolist_to_binary(StreamName0);
+    live -> Args
   end,
 
   StreamName = case proplists:get_value(sessions, Options) of

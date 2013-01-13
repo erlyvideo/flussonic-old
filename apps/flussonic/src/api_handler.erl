@@ -72,7 +72,12 @@ handle(Req, {events, _Opts}) ->
 
 handle(Req, {sessions, Opts}) ->
   check_auth(Req, Opts, viewer, fun() ->
-    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(flu_session:list()), "\n"], Req),
+    {Name, Req1} = cowboy_req:qs_val(<<"name">>,Req),
+    List = case Name of
+      undefined -> flu_session:json_list();
+      _ -> flu_session:json_list(Name)
+    end,
+    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(List), "\n"], Req1),
     {ok, R1, undefined}
   end);
 
@@ -127,6 +132,14 @@ websocket_init(_TransportName, Req, Opts) ->
 
 websocket_handle({text, <<"streams">>}, Req, State) ->
   JSON = iolist_to_binary(mochijson2:encode(flu_stream:json_list())),
+  {reply, {text,JSON}, Req, State};
+
+websocket_handle({text, <<"sessions">>}, Req, State) ->
+  JSON = iolist_to_binary(mochijson2:encode(flu_session:json_list())),
+  {reply, {text,JSON}, Req, State};
+
+websocket_handle({text, <<"sessions?name=", Name/binary>>}, Req, State) ->
+  JSON = iolist_to_binary(mochijson2:encode(flu_session:json_list(Name))),
   {reply, {text,JSON}, Req, State};
 
 websocket_handle(_Data, Req, State) ->

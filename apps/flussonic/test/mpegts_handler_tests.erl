@@ -1,6 +1,7 @@
 -module(mpegts_handler_tests).
 -compile(export_all).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("erlmedia/include/video_frame.hrl").
 
 
 
@@ -8,18 +9,27 @@ mpegts_test_() ->
   {foreach,
   fun() ->
     Apps = [ranch, gen_tracker, cowboy, flussonic],
-    [application:stop(App) || App <- Apps],
     [ok = application:start(App) || App <- Apps],
     Conf = [
       {rewrite, "testlivestream", "/dev/null"},
+      {stream, "channel0", "passive://ok"},
+      {stream, "channel1", "passive://ok"},
       {mpegts, "mpegts"}
     ],
     {ok, Config} = flu_config:parse_config(Conf, undefined),
     application:set_env(flussonic, config, Config),
+    % application:load(lager),
+    % application:set_env(lager,handlers,[{lager_console_backend,info}]),
+    % application:set_env(lager,error_logger_redirect,true),
+    % application:set_env(lager,crash_log,undefined),
+    % lager:start(),
+
     cowboy:start_http(fake_http, 3, 
       [{port,5555}],
       [{dispatch,[{'_',flu_config:parse_routes(Config)}]}]
     ),
+    {ok, Pid} = flu_stream:autostart(<<"channel0">>),
+    [Pid ! F || F <- flu_rtmp_tests:h264_aac_frames()],
     meck:new(flu_monotone, [{passthrough,true}]),
     meck:expect(flu_monotone, delay, fun(_,_) -> 0 end),
     ok
@@ -30,14 +40,18 @@ mpegts_test_() ->
     application:stop(cowboy),
     application:stop(flussonic),
     application:stop(ranch),
+    application:stop(cowboy),
     application:stop(gen_tracker),
     error_logger:add_report_handler(error_logger_tty_h),
     ok
   end,
   [
-    {"test_mpegts", fun test_mpegts/0},
-    {"test_mpegts2", fun test_mpegts2/0}
-    ,{"test_not_started_mpegts", fun test_not_started_mpegts/0}
+    {"test_404_if_not_started", fun test_404_if_not_started/0}
+    ,{"test_null_packets_if_no_media_info", fun test_null_packets_if_no_media_info/0}
+    ,{"test_mpegts", fun test_mpegts/0}
+    ,{"test_mpegts2", fun test_mpegts2/0}
+    ,{"test_null_packets_when_frames_delay", fun test_null_packets_when_frames_delay/0}
+    ,{"test_change_media_info", fun test_change_media_info/0}
   ]
   }.
 
@@ -50,14 +64,26 @@ test_mpegts2() ->
   ok.
 
 
-test_not_started_mpegts() ->
+test_404_if_not_started() ->
   % {ok, _Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
   {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
-  gen_tcp:send(Sock, ["GET /livestream/mpegts HTTP/1.0\r\n\r\n"]),
+  gen_tcp:send(Sock, ["GET /channel4/mpegts HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   ?assertEqual(404, Code),
   gen_tcp:close(Sock).
 
+
+
+test_null_packets_if_no_media_info() ->
+  % {ok, _Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock, ["GET /channel1/mpegts HTTP/1.0\r\n\r\n"]),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
+  ?assertEqual(200, Code),
+  ok = read_headers(Sock),
+  {ok, Bin} = gen_tcp:recv(Sock, 188),
+  ?assertMatch(<<16#47, _:3, 16#1FFF:13, _/binary>>, Bin),
+  gen_tcp:close(Sock).
 
 
 capture_mpegts_url(URL) ->
@@ -74,11 +100,64 @@ capture_mpegts_url(URL) ->
   flussonic_sup:stop_stream(<<"testlivestream">>),
   ?assert(size(Data) > 0),
   ?assert(size(Data) > 10000),
+  {ok, Frames} = mpegts_decoder:decode_file(Data),
+  ?assertMatch(Len when Len > 10, length(Frames)),
+  ok.
+
+
+
+test_null_packets_when_frames_delay() ->
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock, ["GET /channel0/mpegts HTTP/1.0\r\n\r\n"]),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
+  read_headers(Sock),
+  ?assertEqual(200, Code),
+  {ok, Stream} = flu_stream:find(<<"channel0">>),
+  [Stream ! Frame || Frame <- flu_rtmp_tests:h264_aac_frames()],
+  Data = read_stream1(Sock),
+
+  {ok, Bin} = gen_tcp:recv(Sock, 188),
+  ?assertMatch(<<16#47, _:3, 16#1FFF:13, _/binary>>, Bin),
+
+  gen_tcp:close(Sock),
+  ?assert(size(Data) > 0),
+  ?assert(size(Data) > 10000),
 
   {ok, Frames} = mpegts_decoder:decode_file(Data),
   ?assertMatch(Len when Len > 10, length(Frames)),
   ok.
 
+
+test_change_media_info() ->
+  {ok, Stream} = flu_stream:autostart(<<"channel1">>),
+  AllFrames = flu_rtmp_tests:h264_aac_frames(),
+  {Frames1, Frames2} = lists:split(length(AllFrames) div 2, AllFrames),
+  NoAudio = [F || #video_frame{content = video} = F <- Frames1],
+  MI1 = video_frame:define_media_info(undefined, NoAudio),
+  Stream ! MI1,
+  MI2 = video_frame:define_media_info(MI1, Frames1),
+
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock, ["GET /channel1/mpegts HTTP/1.0\r\n\r\n"]),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
+  read_headers(Sock),
+  ?assertEqual(200, Code),
+
+  [Stream ! Frame || Frame <- NoAudio],
+  Data1 = read_stream1(Sock),
+  {ok, OutFrames1} = mpegts_decoder:decode_file(Data1),
+  ?assertMatch(Len when Len > 10, length(OutFrames1)),
+  ?assertMatch(0, length([F || #video_frame{content = audio} = F <- OutFrames1])),
+
+  gen_server:call(Stream, {set, MI2}),
+  [Stream ! Frame || Frame <- Frames2],
+
+  Data2 = read_stream1(Sock),
+  {ok, OutFrames2} = mpegts_decoder:decode_file(Data2),
+  ?assertMatch(Len when Len > 10, length(OutFrames2)),
+  ?assertMatch(Len when Len > 10, length([F || #video_frame{content = audio} = F <- OutFrames2])),
+
+  ok.
 
 
 
@@ -89,11 +168,24 @@ read_headers(Sock) ->
   end.
 
 read_stream(Sock) -> read_stream(Sock, []).
+read_stream1(Sock) ->
+  inet:setopts(Sock, [{active,true}]),
+  Bin = read_stream1(Sock, []),
+  inet:setopts(Sock, [{active,false}]),
+  Bin.
+
 
 
 read_stream(Sock, Acc) ->
-  case gen_tcp:recv(Sock, 1024, 500) of
-    {ok, Data} -> read_stream(Sock, [Data|Acc]);
-    {error, _} -> iolist_to_binary(lists:reverse(Acc))
+  case gen_tcp:recv(Sock, 1024*188, 100) of
+    {ok, Bin} -> read_stream(Sock, [Bin|Acc]);
+    {error, timeout} -> iolist_to_binary(lists:reverse(Acc))
   end.
 
+
+read_stream1(Sock, Acc) ->
+  receive
+    {tcp, Sock, Bin} -> read_stream1(Sock, [Bin|Acc])
+  after
+    400 -> iolist_to_binary(lists:reverse(Acc))
+  end.

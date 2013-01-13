@@ -80,6 +80,21 @@ test_stop_clients_timeout() ->
 
 
 
+test_no_fail_source_timeout() ->
+  ?assertEqual([], flu_stream:list()),
+  Stream = <<"livestream">>,
+  {ok, Pid} = flu_stream:autostart(Stream, [{source_timeout, false},{url, "passive://url"}]),
+  erlang:monitor(process, Pid),
+  Pid ! check_timeout,
+  receive
+    {'DOWN', _, _, Pid, normal} -> error(stream_stopped);
+    {'DOWN', _, _, Pid, Reason} -> error({stream_died,Reason})
+  after
+    100 -> ok
+  end.
+
+
+
 
 
 

@@ -335,11 +335,11 @@ setup() ->
   {ok, Httpd}.
 
 start_flu() ->
-  application:start(gen_tracker),
+  ok = application:start(gen_tracker),
   gen_tracker_sup:start_tracker(flu_files),
-  application:start(flussonic),
-  application:start(ranch),
-  application:start(cowboy),
+  ok = application:start(flussonic),
+  ok = application:start(ranch),
+  ok = application:start(cowboy),
   ok.
 
 set_config(Env) ->
@@ -356,10 +356,12 @@ set_config(Env) ->
 teardown({ok, Httpd}) ->
   error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(http_file),
-  inets:stop(httpd, Httpd),
-  application:stop(inets),
-  cowboy:stop_listener(fake_http),
+  ok = inets:stop(httpd, Httpd),
+  ok = application:stop(inets),
   application:stop(ranch),
+  application:stop(cowboy),
+  application:stop(flussonic),
+  application:stop(gen_tracker),
   error_logger:add_report_handler(error_logger_tty_h),
   ok.
 
@@ -421,11 +423,11 @@ flu_file_http_test_() ->
   end,
   fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
-    application:stop(ranch),
-    application:stop(flussonic),
-    application:stop(cowboy),
-    application:stop(inets),
-    application:stop(gen_tracker),
+    ok = application:stop(ranch),
+    ok = application:stop(flussonic),
+    ok = application:stop(cowboy),
+    % ok = application:stop(inets),
+    ok = application:stop(gen_tracker),
     error_logger:add_report_handler(error_logger_tty_h),
     ok
   end, [

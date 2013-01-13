@@ -469,7 +469,8 @@ play_stream_test_() ->
     init_all(),
     #env{}
   end, fun teardown_publish/1, [
-    {"playtest_live_stream", fun playtest_live_stream/0}
+    {"playtest_live_stream", fun playtest_live_stream/0},
+    {"playtest_static_stream", fun playtest_static_stream/0}
   ]}.
 
 playtest_live_stream() ->
@@ -483,6 +484,20 @@ playtest_live_stream() ->
   ?assertMatch([{<<"live/ustream">>, _}], flu_stream:list()),
   rtmp_socket:close(RTMP),
   ok.
+
+
+playtest_static_stream() ->
+  ?assertEqual([], flu_stream:list()),
+  set_config([{stream,"mystream", "passive://ok"}]),
+  {ok, Pid} = flu_stream:autostart(<<"mystream">>),
+  [Pid ! Frame || Frame <- h264_aac_frames()],
+  ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
+
+  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/live/mystream"),
+  ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
+  rtmp_socket:close(RTMP),
+  ok.
+
 
 
 

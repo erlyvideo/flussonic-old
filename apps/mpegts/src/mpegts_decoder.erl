@@ -318,7 +318,7 @@ decode_ts(<<16#47, _/binary>> = TS, #decoder{ts_buffer = undefined} = Decoder) w
   {ok, Decoder#decoder{ts_buffer = TS}};
 
 decode_ts(<<C, Bin/binary>>, #decoder{} = Decoder) when C =/= 16#47 ->
-  ?D(align),
+  % ?D(align),
   decode_ts(Bin, Decoder);
 
 decode_ts(eof, #decoder{audio = A, video = V} = Decoder) ->

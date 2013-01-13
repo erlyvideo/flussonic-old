@@ -157,14 +157,16 @@ handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = D
       end,
       case MI3 of
         undefined -> ok;
-        _ -> [gen_server:call(Consumer, Frame) || Frame <- Frames]
+        _ -> [flu_stream:send_frame(Consumer, Frame) || Frame <- Frames]
       end,
       {noreply, Reader#reader{decoder = Decoder2, media_info = MI3}}
   catch
     error:{desync_adts,_Bin} ->
       {noreply, Reader};
+    error:invalid_payload ->
+      {noreply, Reader};
     Class:Error ->
-      ?debugFmt("~p:~p~n~240p~n",[Class,Error, erlang:get_stacktrace()]),
+      ?DBG("~s", [lager_format:format("~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()], 10000)]),
       % ?D({udp_mpegts,Class,Error, erlang:get_stacktrace()}),
       {stop, {Class, Error}, Reader}
   end;

@@ -51,48 +51,88 @@ Erlyvideo = {
   hls: function(element, stream) {
     $(element).html("<video width=640 height=480 src=\""+stream+"?session="+((new Date()).getTime())+"\" autoplay controls></video>");
   },
-  
-  load_stream_info: function() {
-    // console.log("loading");
+
+
+  connect: function() {
     if(!Erlyvideo.stream_ws && window.WebSocket && !Erlyvideo.disabled_ws) {
-      Erlyvideo.stream_ws = new WebSocket("ws://"+window.location.host+"/erlyvideo/api/streams");
+      Erlyvideo.stream_ws = new WebSocket("ws://"+window.location.host+"/erlyvideo/api/events");
       Erlyvideo.stream_ws.onerror = function() {
         Erlyvideo.disabled_ws = true;
         setTimeout(function() {
           Erlyvideo.disabled_ws = false;
-        }, 10000);
+          Erlyvideo.connect();
+        }, 5000);
       }
       Erlyvideo.stream_ws.onmessage = function(reply) {
-        Erlyvideo.draw_stream_info(JSON.parse(reply.data));
+        Erlyvideo.on_message(JSON.parse(reply.data));
       }
       Erlyvideo.stream_ws.onclose = function() {
         Erlyvideo.stream_ws = null;
         delete Erlyvideo["stream_ws"];
       }
     }
+  },
+
+  request: function(resource) {
+    Erlyvideo.connect();
     if(Erlyvideo.stream_ws) {
       if(Erlyvideo.stream_ws.readyState == WebSocket.OPEN) {
-        Erlyvideo.stream_ws.send("streams");      
+        Erlyvideo.stream_ws.send(resource);
       } else {
         Erlyvideo.stream_ws.onopen = function() {          
-          Erlyvideo.stream_ws.send("streams");      
+          Erlyvideo.stream_ws.send(resource);
         }
       }
     } else {
-      $.get("/erlyvideo/api/streams", {}, function(streams) {
-        Erlyvideo.draw_stream_info(streams);
+      $.get("/erlyvideo/api/"+resource, {}, function(reply) {
+        Erlyvideo.on_message(reply);
       });      
     }
+  },
+
+  dump_events: false,
+
+  on_message: function(message) {
+    if(Erlyvideo.dump_events) console.log(message);
+    switch(message.event) {
+      case "stream.list":
+        Erlyvideo.draw_stream_info(message);
+        break;
+      case "stream.add_dvr_fragment":
+        Erlyvideo.add_dvr_fragment(message);
+        break;
+      case "stream.delete_dvr_fragment":
+        Erlyvideo.delete_dvr_fragment(message);
+        break;
+      case "user.list":
+        Erlyvideo.draw_clients(message);
+        break;
+      default:
+        console.log(message);
+    }
+  },
+
+  add_dvr_fragment: function(message) {
+    var minute = Math.floor(message.options.time / 60)*60;
+    $("div[time=\""+minute+"\"]").addClass("ok").removeClass("fail");
+  },
+
+  delete_dvr_fragment: function(message) {
+    var minute = Math.floor(message.options.time / 60)*60;
+    $("div[time=\""+minute+"\"]").removeClass("ok").addClass("fail");
+  },
+  
+  load_stream_info: function() {
+    // console.log("loading");
+    Erlyvideo.request("streams");
     Erlyvideo.stream_load_timer = setTimeout(Erlyvideo.load_stream_info, 3000);
   },
 
   info_template: "Total clients: {{total}}<br/> \
   Total file clients: {{total_file}}<br/>",
   
-  stream_template: "<tr id=\"stream-{{vname}}\" playprefix=\"{{play_prefix}}\">\
-      <td class='first'  valign='top'>\
-      <a href='#' onclick='Erlyvideo.open_stream_tab(\"{{name}}\"); return false;'>{{name}}</a> \
-      </td> \
+  stream_template: "<tr id=\"stream-{{vname}}\">\
+      <td class='first'  valign='top'>{{name}}</td> \
       <td class='stream-play'>\
       <a class='s-hds' style='visibility: {{hds}}' href='#' onclick='Erlyvideo.play_stream(\"{{play_name}}\",\"hds\"); return false;'><span class='hds'></span>{{name}}</a>\
       <a class='s-rtmp' style='visibility: {{rtmp}}' href='#' onclick='Erlyvideo.play_stream(\"{{name}}\",\"rtmp\"); return false;'><span class='rtmp'></span>{{name}}</a> \
@@ -120,9 +160,7 @@ Erlyvideo = {
   
   show_clients: function(name) {
     $("#clients-"+name.replace(/\//g, "_")).show();
-    $.get("/erlyvideo/api/sessions", {}, function(sessions) {
-      Erlyvideo.draw_clients(sessions, name);
-    });
+    Erlyvideo.request("sessions?name="+name);
     Erlyvideo.session_load_timer = setTimeout(function() { Erlyvideo.show_clients(name); }, 2000);
   },
 
@@ -137,7 +175,9 @@ Erlyvideo = {
   },
 
 
-  draw_clients: function(sessions, name) {
+  draw_clients: function(message) {
+    var name = message.name;
+    var sessions = message.sessions;
     var new_sessions = {};
     var vname = name.replace(/\//g, "_");
     var list = $("#clients-list-"+vname);
@@ -177,7 +217,31 @@ Erlyvideo = {
       var s = streams["streams"][i];
       s.vname = s.name.replace(/\//g, "_");
       s.play_name = s.name;
-      s.lifetime = Math.round(s.lifetime / 1000);
+      if(s.lifetime > 0) {
+        s.lifetime = Math.round(s.lifetime / 1000);
+        var lt = s.lifetime;
+        var pad = function(number, width) {
+          var input = number + "";  // make sure it's a string
+          return("00000000000000000000".slice(0, width - input.length) + input);
+        }
+        var lt_s = pad(lt % 60, 2); lt = Math.floor(lt / 60);
+        if(lt > 0) {
+          lt_s = pad(lt % 60,2) + ":" + lt_s;
+          lt = Math.floor(lt / 60);
+        }
+        if(lt > 0) {
+          lt_s = pad(lt % 24,2) + ":"  + lt_s;
+          lt = Math.floor(lt / 24);
+        }
+        if(lt > 0) {
+          lt_s = lt + "d " + lt_s;
+        }
+        s.lifetime = lt_s;
+      } else {
+        s.lifetime = 0;
+      }
+
+
       s.ts_delay = s.ts_delay < 5000 ? 0 : Math.round(s.ts_delay / 1000);
       if(s.type == "file") {
         s.ts_delay = 0;
@@ -192,9 +256,9 @@ Erlyvideo = {
       } else {
         var s1 = $("#stream-"+s.name);
         s1.find(".client_count").html(s.client_count);
-        if(s.lifetime) s1.find(".lifetime").html(s.lifetime);
-        if(s.ts_delay) s1.find(".ts_delay").html(s.ts_delay);
-        if(s.retry_count) s1.find(".retry_count").html(s.retry_count);
+        s1.find(".lifetime").html(s.lifetime);
+        if(s.ts_delay >= 0) s1.find(".ts_delay").html(s.ts_delay);
+        if(s.retry_count >= 0) s1.find(".retry_count").html(s.retry_count);
         s1.find(".s-hds").css('visibility', s.hds ? "visible" : "hidden");
         s1.find(".s-hls").css('visibility', s.hls ? "visible" : "hidden");
         s1.find(".s-dvr").css('visibility', s.dvr ? "visible" : "hidden");
@@ -259,29 +323,7 @@ Erlyvideo = {
     });
   },
   
-  license_template: "{{#licenses}}<div class=\"column\"> \
-  	<div class=\"group\"> \
-      <label class=\"label\">{{name}}</label> \
-      {{#versions}} \
-      <div> \
-        <input type=\"radio\" name=\"{{name}}\" class=\"checkbox\" id=\"version_{{name}}_{{version}}\" value=\"{{version}}\" {{#checked}}checked{{/checked}}/> \
-        <label for=\"version_{{name}}_{{version}}\" class=\"radio\">{{version}}</label> \
-      </div> \
-      {{/versions}} \
-    </div> \
-	</div> \
-	{{/licenses}} \
-	<div class=\"group navform wat-cf\"> \
-    <button class=\"button\" type=\"submit\"> \
-      <img src=\"images/icons/tick.png\" alt=\"Save\" /> Save \
-    </button> \
-    <span class=\"text_button_padding\">or</span> \
-    <a class=\"text_button_padding link_button\" href=\"#license\">Cancel</a> \
-  </div> \
-	",
   
-  open_stream_tab: function(stream) {
-  },
   
   enable_play_tab: function() {
     $("#play-tab form").submit(function() {
@@ -355,22 +397,8 @@ Erlyvideo = {
   stop_periodic_traffic_loader: function() {
     if(Erlyvideo.traffic_load_timer) clearTimeout(Erlyvideo.traffic_load_timer);
     Erlyvideo.traffic_load_timer = undefined;
-  },
-
-  dump_events: false,
-  
-  on_message: function(event) {
-    // console.log(event.data);
-    var message = eval("("+event.data+")");
-    if(Erlyvideo.dump_events) {
-      console.log(message.event);
-    }
-    if(message.event == "stream.next_minute" && Erlyvideo.current_dvr_stream == message.stream) {
-      $("div[time=\""+message.options.timestamp+"\"]").addClass("ok").removeClass("fail");
-    } else if(message.event == "stream.list") {
-      Erlyvideo.draw_stream_info(message);
-    }
   }
+
 };
 
 $.mustache = function(template, view, partials) {

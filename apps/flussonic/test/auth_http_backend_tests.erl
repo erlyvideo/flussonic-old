@@ -122,15 +122,23 @@ test_url_prepare() ->
 
 
 
+test_handle_strange_options_in_backend() ->
+  Self = self(),
+  meck:expect(auth_http_backend, http_get, fun(URL) ->
+    Self ! {backend, URL},
+    {error, rejected}
+  end),
 
+  auth_http_backend:verify(http_mock_url(), [{ip,<<"94.95.96.97">>},{token,<<"123">>},
+    {name,<<"bunny.mp4">>}], 
+    [{total_users,0},{referer,<<"http://ya.ru/?token=456&name=lalala">>},
+    {pid,self()},{rtmp, [{swfUrl,<<"http://a/">>},{tcUrl, <<"player.swf">>}]}]),
 
+  _URL = receive
+    {backend, URL_} -> URL_
+  after
+    10 -> error(backend_wasnt_requested)
+  end,
 
-
-
-
-
-
-
-
-
+  ok.
 

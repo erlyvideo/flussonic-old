@@ -49,6 +49,7 @@
 
 -export([read/2]).
 -export([padder/0]).
+-export([null/1]).
 
 
 -define(TS_PACKET, 184). % 188 - 4 bytes of header
@@ -507,6 +508,12 @@ adaptation_field(#pes{body = Data, dts = Timestamp, keyframe = _Keyframe, is_pcr
   
   Field = padding(Adaptation, ?TS_PACKET - 1 - iolist_size(Data)),
   [<<(iolist_size(Field))>>, Field].
+
+
+null(Counter1) ->
+  Counter = Counter1 rem 16,
+  <<Padding:182/binary, _/binary>> = padder(),
+  [<<16#47, 0:3, 16#1FFF:13, 0:2, 1:1, 0:1, Counter:4, 182, 0>>, Padding].
 
 
   

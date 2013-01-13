@@ -38,7 +38,17 @@ verify(URL, Identity, Options) when is_list(URL) ->
   verify(list_to_binary(URL), Identity, Options);
 
 verify(URL, Identity, Options) when is_binary(URL) ->
-  Query = [ [to_s(K), "=", cowboy_http:urlencode(to_b(V)), "&"] || {K,V} <- Identity ++ Options, is_binary(V) orelse is_list(V) orelse is_atom(V) orelse is_integer(V)],
+  Query = lists:flatmap(fun
+    ({K,V}) when is_atom(K),is_atom(V) -> [to_s(K), "=", cowboy_http:urlencode(to_b(V)), "&"];
+    ({K,V}) when is_atom(K),is_binary(V) -> [to_s(K), "=", cowboy_http:urlencode(to_b(V)), "&"];
+    ({K,V}) when is_atom(K),is_integer(V) -> [to_s(K), "=", cowboy_http:urlencode(to_b(V)), "&"];
+    ({K,V}) when is_atom(K),is_list(V) -> try list_to_binary(V) of
+      V_ -> [to_s(K), "=", cowboy_http:urlencode(V_), "&"]
+    catch
+      _:_ -> []
+    end;
+    (_) -> []
+  end, Identity ++ Options),
   RequestURL = binary_to_list(iolist_to_binary([URL, "?", Query])),
   case whereis(httpc_auth) of
     undefined ->

@@ -48,6 +48,8 @@
 -export([non_static/1, static/1, update_options/2]).
 -export([set_source/2]).
 
+-export([send_frame/2]).
+
 -define(RETRY_LIMIT, 10).
 -define(TIMEOUT, 70000).
 -define(SOURCE_TIMEOUT, 20000).
@@ -62,7 +64,7 @@ json_list() ->
   end,
   Streams = [ RTMP ++ [{name,Name}|parse_attr(Attr)] || {Name,Attr} <- list()],
   {ok, Vsn} = application:get_key(flussonic, vsn),
-  [{streams,Streams},{version, list_to_binary(Vsn)}].
+  [{streams,Streams},{event,stream.list},{version, list_to_binary(Vsn)}].
 
 white_keys() ->
   [dvr, hls, hds, last_dts, lifetime, name, type, ts_delay, client_count, play_prefix, retry_count].
@@ -93,6 +95,20 @@ add_ts_delay(Attrs) ->
     LastAccessAt -> [{client_delay,timer:now_diff(Now, LastAccessAt) div 1000}|Attr1]
   end,
   Attr2.
+
+
+send_frame(Stream, #video_frame{} = Frame) when is_pid(Stream) ->
+  try gen_server:call(Stream, Frame)
+  catch
+    exit:{timeout, _} ->
+      Name = case process_info(Stream, dictionary) of
+        {dictionary, Dict} -> proplists:get_value(name, Dict);
+        undefined -> <<"dead stream">>
+      end,
+      ?DBG("failed to send frame to ~s (~p), ~p", [Name, Stream, erlang:get_stacktrace()]),
+      [io:format("~10.. s: ~p~n", [K,V]) || {K,V} <- process_info(Stream)]
+  end.
+
 
 
 get(Stream, Key) ->
@@ -293,6 +309,7 @@ set_options(#stream{options = Options, name = Name, url = URL1, source = Source1
   Stream1 = set_timeouts(Stream),
   Dump = proplists:get_value(dump, Options),
   Stream2 = configure_packetizers(Stream1),
+  put(status, {setattr,url,URL}),
   gen_tracker:setattr(flu_streams, Name, [{url,URL}]),
   Stream2#stream{url = URL, source = Source, dump_frames = Dump}.
 
@@ -337,23 +354,28 @@ shutdown_packetizer({Module,State}) ->
   
 
 configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, options = Options, media_info = MediaInfo} = Stream) ->
+  put(status, {configure,hls}),
   HLS = case proplists:get_value(hls, Options) of
     false -> shutdown_packetizer(HLS1), {blank_packetizer, undefined};
     _ -> init_if_required(HLS1, hls_dvr_packetizer, Options)
   end,
+  put(status, {configure,hds}),
   HDS = case proplists:get_value(hds, Options) of
     false -> shutdown_packetizer(HDS1), {blank_packetizer, undefined};
     _ -> init_if_required(HDS1, hds_packetizer, Options)
   end,
   % ?D({configuring,Options, proplists:get_value(dvr,Options)}),
+  put(status, {configure,udp}),
   UDP = case proplists:get_value(udp, Options) of
     undefined -> shutdown_packetizer(UDP1), {blank_packetizer, undefined};
     _ -> init_if_required(UDP1, udp_packetizer, Options)
   end,
+  put(status, {configure,rtmp}),
   RTMP = case proplists:get_value(rtmp, Options) of
     undefined -> shutdown_packetizer(RTMP1), {blank_packetizer, undefined};
     _ -> init_if_required(RTMP1, rtmp_packerizer, Options)
   end,
+  put(status, {pass,media_info}),
   Stream1 = pass_message(MediaInfo, Stream#stream{hls = HLS, hds = HDS, udp = UDP, rtmp = RTMP}),
   Stream1.
 
@@ -376,6 +398,7 @@ handle_call({update_options, NewOptions}, _From, #stream{name = Name} = Stream) 
   {reply, ok, Stream1};
 
 handle_call({subscribe, Pid}, From, #stream{name = Name, monotone = undefined} = Stream) ->
+  put(status, start_monotone),
   {ok, Monotone} = case flussonic_sup:find_stream_helper(Name, monotone) of
     {ok, M} ->
       {ok, M};
@@ -387,6 +410,7 @@ handle_call({subscribe, Pid}, From, #stream{name = Name, monotone = undefined} =
 
 handle_call({subscribe, Pid}, _From, #stream{monotone = Monotone} = Stream) ->
   [Pid ! C#video_frame{stream_id = self()} || C <- configs(Stream)],
+  put(status, subscribe_pid_to_monotone),
   flu_monotone:subscribe(Monotone, Pid),
   {reply, ok, Stream};
 
@@ -401,6 +425,7 @@ handle_call({set, #media_info{} = MediaInfo}, _From, #stream{} = Stream) ->
 
 handle_call({get, media_info}, _From, #stream{name = Name, media_info = MediaInfo} = Stream) ->
   Now = os:timestamp(),
+  put(status, {setattr,last_access_at}),
   gen_tracker:setattr(flu_streams, Name, [{last_access_at, Now}]),
   {reply, MediaInfo, Stream};
 
@@ -413,6 +438,7 @@ handle_call({get, Key}, _From, #stream{name = Name} = Stream) ->
   {reply, Reply, Stream};
 
 handle_call(#video_frame{} = Frame, _From, #stream{} = Stream) ->
+  put(status, handle_input_frame),
   {noreply, Stream1} = handle_input_frame(Frame, Stream),
   {reply, ok, Stream1};
 
@@ -461,6 +487,7 @@ handle_info(reconnect_source, #stream{retry_count = Count, retry_limit = Limit, 
 handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL1, retry_count = Count, options = Options} = Stream) ->
   {Proto, URL} = detect_proto(URL1),
   LogError = will_log_error(Count),
+  put(status, {reconnect,URL}),
   Result = case Proto of
     tshttp -> mpegts:read(URL, [{name,Name}]);
     udp -> mpegts:read(URL, [{name,Name}]);
@@ -473,6 +500,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
     rtmp -> flu_rtmp:play_url(Name, URL, Options);
     playlist -> playlist:read(Name, URL, Options);
     mixer -> flu_mixer:read(Name, URL, Options);
+    timeshift -> timeshift:read(Name, URL, [{log_error,LogError}|Options]);
     passive -> {ok, undefined}
   end,
   case Result of
@@ -499,9 +527,10 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
       {noreply, Stream#stream{retry_count = Count+1}}
   end;
 
-handle_info(#media_info{} = MediaInfo, #stream{name = Name} = Stream) ->
+handle_info(#media_info{} = MediaInfo, #stream{name = Name, monotone = Monotone} = Stream) ->
   flu_stream_data:set(Name, media_info, MediaInfo),
   Stream1 = pass_message(MediaInfo, Stream#stream{media_info = MediaInfo}),
+  flu_monotone:send_media_info(Monotone, MediaInfo),
   {noreply, Stream1};
 
 handle_info({'DOWN', _, process, Source, _Reason}, 
@@ -526,11 +555,14 @@ handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = O
   {ok, LastTouchedAt} = gen_tracker:getattr(flu_streams, Name, last_access_at),
   ClientsDelta = timer:now_diff(Now, LastTouchedAt) div 1000,
 
-  UsingSourceTimeout = lists:max([Count,1])*SourceTimeout,
+  UsingSourceTimeout = if is_number(SourceTimeout) -> lists:max([Count,1])*SourceTimeout;
+    true -> SourceTimeout end,
 
   % ?D({{source_delta,SourceDelta},{clients_delta,ClientsDelta}}),
   CheckTimer = erlang:send_after(3000, self(), check_timeout),
 
+
+  put(status, monotone_clients_count),
   ClientsCount = flu_monotone:clients_count(Monotone),
 
   if 
@@ -601,7 +633,9 @@ handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Du
     _ -> ok
   end,
   {reply, Frame1, Stream2} = flu_stream_frame:handle_frame(Frame, Stream),
+  put(status, {pass,message}),
   Stream3 = pass_message(Frame1, Stream2),
+  put(status, {monotone,send_frame}),
   flu_monotone:send_frame(Monotone, Frame),
   
   set_last_dts(Stream3#stream.last_dts, Stream3#stream.last_dts_at),

@@ -332,6 +332,32 @@ test_rerequest_expiring_session() ->
   ok.
 
 
+
+test_rerequest_expiring_unique_session() ->
+  Self = self(),
+  meck:expect(flu_session, backend_request, fun(_, _, _) ->
+    Self ! backend_request,
+    {ok,[{access,granted},{user_id,15},{auth_time, 5000},{unique,true}]} 
+  end),
+  Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
+  ?assertEqual({ok, <<"cam0">>},
+    flu_session:verify(http_mock_url(), Identity, [])),
+  assertBackendRequested(backend_wasnt_requested),
+  Now = flu:now_ms(),
+  #session{} = Session = flu_session:find_session(Identity),
+  Session1 = Session#session{last_access_time = Now - 506000}, % a bit more than auth duration
+  ets:insert(flu_session:table(), Session1),
+
+  ?assertEqual({ok, <<"cam0">>},
+    flu_session:verify(http_mock_url(), Identity, [])),
+
+  assertBackendRequested(backend_wasnt_requested_second_time),
+  ok.
+
+
+
+
+
 test_session_is_not_destroyed_after_rerequest() ->
   Self = self(),
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
