@@ -174,6 +174,9 @@ handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = D
 handle_info({tcp_closed, _Socket}, #reader{} = Reader) ->
   {stop, normal, Reader};
 
+handle_info({Ref, _Reply}, #reader{} = Reader) when is_reference(Ref) ->
+  {noreply, Reader};
+
 handle_info(Else, #reader{} = Reader) ->
   {stop, {unknown_message, Else}, Reader}.
 

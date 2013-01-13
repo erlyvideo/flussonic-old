@@ -101,12 +101,15 @@ send_frame(Stream, #video_frame{} = Frame) when is_pid(Stream) ->
   try gen_server:call(Stream, Frame)
   catch
     exit:{timeout, _} ->
-      Name = case process_info(Stream, dictionary) of
-        {dictionary, Dict} -> proplists:get_value(name, Dict);
-        undefined -> <<"dead stream">>
+      Dict = case process_info(Stream, dictionary) of
+        {dictionary, Dict_} -> Dict_;
+        undefined -> []
       end,
-      ?DBG("failed to send frame to ~s (~p), ~p", [Name, Stream, erlang:get_stacktrace()]),
-      [io:format("~10.. s: ~p~n", [K,V]) || {K,V} <- process_info(Stream)]
+      Name = proplists:get_value(name, Dict, <<"dead stream">>),
+      Status = proplists:get_value(status, Dict),
+      ?DBG("failed to send frame to ~s (~p) in status ~p, ~p", [Name, Stream, Status, erlang:get_stacktrace()]),
+      % [io:format("~10.. s: ~p~n", [K,V]) || {K,V} <- process_info(Stream)]
+      {error, timeout}
   end.
 
 
@@ -664,8 +667,11 @@ pass_message(Message, Stream) ->
   end.
 
 pass_message0(Message, #stream{hls = {HLSMod, HLS}, hds = {HDSMod, HDS}, udp = {UDPMod, UDP}} = Stream) ->
+  put(status, {pass,message,hls}),
   {noreply, HLS1} = HLSMod:handle_info(Message, HLS),
+  put(status, {pass,message,hds}),
   {noreply, HDS1} = HDSMod:handle_info(Message, HDS),
+  put(status, {pass,message,udp}),
   {noreply, UDP1} = UDPMod:handle_info(Message, UDP),
   Stream#stream{hls = {HLSMod, HLS1}, hds = {HDSMod, HDS1}, udp = {UDPMod, UDP1}}.
 

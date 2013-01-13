@@ -75,7 +75,8 @@ read(URL, Options) ->
   pcr_pid,
   closing = false,
   resync_on_keyframe = false,
-  last_dts
+  last_dts,
+  warning_count = 0
 }).
 
 -record(pes, {
@@ -168,13 +169,16 @@ save_media_info(#streamer{} = Streamer, #media_info{streams = Streams} = MediaIn
   PcrPid = erlang:hd([TrackId || #stream_info{track_id = TrackId} <- Streams]),
   Streamer#streamer{media_info = MediaInfo, pcr_pid = PcrPid + ?PID_OFFSET}.
 
-encode_frame(#streamer{media_info = #media_info{streams = Infos}} = Streamer, 
+encode_frame(#streamer{media_info = #media_info{streams = Infos}, warning_count = WarningCount} = Streamer, 
              #video_frame{track_id = TrackId, next_id = NextId, content = Content} = Frame) when Content == audio orelse Content == video ->
   Closing = NextId == last_frame,
   case lists:keyfind(TrackId, #stream_info.track_id, Infos) of
     false ->
-      ?D({unknown_mpegts_track, TrackId, Streamer#streamer.media_info, Frame}),
-      {Streamer, <<>>};
+      % FIXME
+      if WarningCount < 10 ->
+        ?D({unknown_mpegts_track, TrackId, Infos, {video_frame, Frame#video_frame.track_id, Frame#video_frame.codec}, get(name)});
+      true -> ok end, 
+      {Streamer#streamer{warning_count = WarningCount}, <<>>};
     #stream_info{} = Info ->
       #pes{} = PES = pack_pes(Frame, Info),
       {Streamer1, TS} = mux(PES#pes{last_frame = Closing}, Streamer),
