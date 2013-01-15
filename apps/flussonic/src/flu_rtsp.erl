@@ -71,7 +71,7 @@ announce0(URL, Headers, #media_info{} = MediaInfo) ->
     [{live, _Prefix, Opts}|_] -> {_Prefix, Opts};
     [] -> []
   end,
-  
+
   {rtsp, _Auth, _Host, _Port, "/" ++ StreamName1, _Query} = http_uri2:parse(URL),
   StreamName = case re:run(StreamName1, "(.*)\\.sdp", [{capture,all_but_first,binary}]) of
     {match, [S]} -> S;

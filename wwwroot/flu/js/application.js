@@ -254,7 +254,7 @@ Erlyvideo = {
         Erlyvideo.current_streams[s.name] = true;
         $("#stream-list").append(Mustache.to_html(Erlyvideo.stream_template, s));
       } else {
-        var s1 = $("#stream-"+s.name);
+        var s1 = $("#stream-"+s.name.replace(/\//g, "_"));
         s1.find(".client_count").html(s.client_count);
         s1.find(".lifetime").html(s.lifetime);
         if(s.ts_delay >= 0) s1.find(".ts_delay").html(s.ts_delay);
@@ -271,7 +271,7 @@ Erlyvideo = {
     for(var k in Erlyvideo.current_streams) {
       if(!new_streams[k]) {
         delete Erlyvideo.current_streams[k];
-        $("#stream-"+k).remove();
+        $("#stream-"+k.replace(/\//g, "_")).remove();
       }
     }
     var info = {};

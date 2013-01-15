@@ -371,7 +371,8 @@ configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, 
   put(status, {configure,udp}),
   UDP = case proplists:get_value(udp, Options) of
     undefined -> shutdown_packetizer(UDP1), {blank_packetizer, undefined};
-    _ -> init_if_required(UDP1, udp_packetizer, Options)
+    Dest when is_list(Dest) orelse is_binary(Dest) -> init_if_required(UDP1, udp_packetizer, Options);
+    OtherUDP -> ?DBG("Invalid {udp,~p} option, need {udp,\"udp://239.0.0.1:5000\"}", [OtherUDP]), {blank_packetizer, undefined}
   end,
   put(status, {configure,rtmp}),
   RTMP = case proplists:get_value(rtmp, Options) of
@@ -383,16 +384,6 @@ configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, 
   Stream1.
 
 
-configs(#stream{media_info = undefined}) ->
-  [];
-  
-configs(#stream{last_dts = DTS, media_info = MediaInfo}) when is_number(DTS) ->
-  [F#video_frame{dts = DTS, pts = DTS} || F <- video_frame:config_frames(MediaInfo)];
-
-configs(#stream{last_dts = undefined, media_info = MediaInfo}) ->
-  video_frame:config_frames(MediaInfo).
-
-
 
 handle_call({update_options, NewOptions}, _From, #stream{name = Name} = Stream) ->
   NewOptions1 = lists:ukeymerge(1, lists:ukeysort(1, NewOptions), [{name,Name}]),
@@ -400,22 +391,38 @@ handle_call({update_options, NewOptions}, _From, #stream{name = Name} = Stream) 
   Stream1 = set_options(Stream#stream{options = NewOptions1}),
   {reply, ok, Stream1};
 
-handle_call({subscribe, Pid}, From, #stream{name = Name, monotone = undefined} = Stream) ->
+handle_call(start_monotone, _From, #stream{name = Name, last_dts = DTS, monotone = undefined, media_info = MediaInfo} = Stream) ->
+  case flussonic_sup:find_stream_helper(Name, monotone) of
+    {ok, M} ->
+      {reply, {ok,M}, Stream#stream{monotone = M}};
+    {error, _} ->
+      {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]}),
+      flu_monotone:send_media_info(M, MediaInfo),
+      flu_monotone:set_current_dts(M, DTS),
+      {reply, {ok,M}, Stream#stream{monotone = M}}
+  end;
+
+handle_call(start_monotone, _From, #stream{monotone = M1} = Stream) ->
+  {reply, {ok, M1}, Stream};
+
+handle_call({subscribe, Pid}, From, #stream{name = Name, last_dts = DTS, monotone = undefined, media_info = MediaInfo} = Stream) ->
   put(status, start_monotone),
   {ok, Monotone} = case flussonic_sup:find_stream_helper(Name, monotone) of
     {ok, M} ->
       {ok, M};
     {error, _} ->
-      flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]})
+      {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]}),
+      flu_monotone:send_media_info(M, MediaInfo),
+      flu_monotone:set_current_dts(M, DTS),
+      {ok, M}
   end,
   handle_call({subscribe, Pid}, From, Stream#stream{monotone = Monotone});
 
 
 handle_call({subscribe, Pid}, _From, #stream{monotone = Monotone} = Stream) ->
-  [Pid ! C#video_frame{stream_id = self()} || C <- configs(Stream)],
   put(status, subscribe_pid_to_monotone),
-  flu_monotone:subscribe(Monotone, Pid),
-  {reply, ok, Stream};
+  Reply = flu_monotone:subscribe(Monotone, Pid),
+  {reply, Reply, Stream};
 
 handle_call({set_source, Source}, _From, #stream{source = OldSource} = Stream) ->
   OldSource == undefined orelse error({reusing_source,Stream#stream.name,OldSource,Source}),
@@ -580,9 +587,9 @@ handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = O
     erlang:exit(Source, kill),
     {noreply, Stream#stream{check_timer = CheckTimer}};
   is_number(SourceTimeout) andalso SourceDelta >= SourceTimeout andalso not Static ->
-    ?D({stop_stream,Name,source_timeout,SourceDelta,SourceTimeout}),
+    ?DBG("Stop non-static stream \"~s\" (url ~p): no source during ~p/~p", [Name, URL, SourceDelta,SourceTimeout]),
     {stop, normal, Stream};
-  URL == undefined andalso Source == undefined andalso not Static ->
+  SourceTimeout == false andalso URL == undefined andalso Source == undefined andalso not Static ->
     ?D({no_url,no_source, Name, stopping}),
     {stop, normal, Stream};  
   true ->  
@@ -639,7 +646,7 @@ handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Du
   put(status, {pass,message}),
   Stream3 = pass_message(Frame1, Stream2),
   put(status, {monotone,send_frame}),
-  flu_monotone:send_frame(Monotone, Frame),
+  flu_monotone:send_frame(Monotone, Frame1),
   
   set_last_dts(Stream3#stream.last_dts, Stream3#stream.last_dts_at),
   {noreply, Stream3}.

@@ -89,6 +89,23 @@ handle(Req, {streams, Opts}) ->
     {ok, R1, undefined}
   end);
 
+
+handle(Req, {stream_restart, Opts}) ->
+  check_auth(Req, Opts, admin, fun() -> 
+    {PathInfo, _} = cowboy_req:path_info(Req),
+    Name = flu:join(PathInfo, "/"),
+    case flu_stream:find(Name) of
+      {ok, Pid} ->
+        erlang:exit(Pid, shutdown),
+        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], "true\n", Req),
+        {ok, R1, undefined};
+      _ ->
+        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], "false\n", Req),
+        {ok, R1, undefined}
+    end
+  end);
+
+
 handle(Req, {health, Opts}) ->
   check_auth(Req, Opts, viewer, fun() ->
     {PathInfo, _} = cowboy_req:path_info(Req),

@@ -133,6 +133,8 @@ handle_info({read_burst, StreamId, Fragment, BurstCount}, Session) ->
 handle_info({'DOWN', _, _, _, _}, State) ->
   {stop, normal, State};
 
+handle_info(#media_info{}, State) ->
+  {noreply, State};
 
 handle_info(_Info, State) ->
   ?D({_Info}),

@@ -22,6 +22,7 @@ media_info(RTSP) ->
 -record(rtsp, {
   url,
   rtp_mode,
+  queue,
   content_base,
   consumer,
   media_info,
@@ -36,19 +37,25 @@ init([URL, Options]) ->
   % erlang:send_after(5000, self(), teardown),
   RTPMode = proplists:get_value(rtp, Options, tcp),
   self() ! work,
-  {ok, #rtsp{url = URL, content_base = URL, options = Options, consumer = Consumer, rtp_mode = RTPMode}}.
+  Queue = frame_queue:init(5),
+  {ok, #rtsp{url = URL, content_base = URL, options = Options, consumer = Consumer, rtp_mode = RTPMode, queue = Queue}}.
 
 
 handle_info(work, #rtsp{} = RTSP) ->
   RTSP1 = try_read(RTSP),
   {noreply, RTSP1};
 
-handle_info(#video_frame{codec = Codec} = Frame, #rtsp{consumer = Consumer} = RTSP) when 
+handle_info(#video_frame{codec = Codec} = Frame, #rtsp{consumer = Consumer, queue = Queue1} = RTSP) when 
   Codec == h264 orelse Codec == aac orelse Codec == mp3 ->
   % #video_frame{content = Content, codec = Codec, flavor = Flavor, dts = DTS} = Frame,
   % io:format("~6s ~4s ~10s ~B~n", [Content, Codec, Flavor, round(DTS)]),
-  gen_server:call(Consumer, Frame),
-  {noreply, RTSP};
+  Queue2 = case frame_queue:push(Frame, Queue1) of
+    {undefined, Q} -> Q;
+    {#video_frame{} = Out, Q} ->
+      flu_stream:send_frame(Consumer, Out),
+      Q
+  end,
+  {noreply, RTSP#rtsp{queue = Queue2}};
 
 handle_info(#video_frame{}, #rtsp{} = RTSP) ->
   {noreply, RTSP};

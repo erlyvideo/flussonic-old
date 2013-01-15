@@ -1,6 +1,8 @@
 -module(flu_stream_tests).
 -compile(export_all).
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("erlmedia/include/video_frame.hrl").
+-include_lib("erlmedia/include/media_info.hrl").
 
 
 rewrite_stream_manifest_test() ->
@@ -94,7 +96,85 @@ test_no_fail_source_timeout() ->
   end.
 
 
+test_monotone_is_started_with_media_info() ->
+  ?assertEqual([], flu_stream:list()),
+  Stream = <<"livestream1">>,
+  {ok, Pid} = flu_stream:autostart(Stream, [{source_timeout, false},{url, "passive://url"}]),
+  ?assertEqual({error, no_child}, flussonic_sup:find_stream_helper(Stream, monotone)),
+  Frames = flu_rtmp_tests:h264_aac_frames(),
+  [Pid ! F || F <- Frames],
+  ?assertEqual(ok, flu_stream:subscribe(Stream)),
+  {ok, M} = flussonic_sup:find_stream_helper(Stream, monotone),
+  ?assertMatch(#media_info{streams = [#stream_info{codec = h264},#stream_info{codec = aac}]},
+    gen_server:call(M, media_info)),
+  ok.
 
+
+
+
+test_subscribe_proper_timestamps() ->
+  ?assertEqual([], flu_stream:list()),
+  Stream = <<"livestream">>,
+  {ok, Pid} = flu_stream:autostart(Stream, [{source_timeout, false},{url, "passive://url"}]),
+  Self = self(),
+  spawn_link(fun() ->
+    flu_stream:subscribe(Stream),
+    Self ! go
+  end),
+  receive
+    go -> ok
+  after 50 -> error(subscribe_timeout) end,
+  AllFrames = flu_rtmp_tests:h264_aac_frames(),
+  MI = video_frame:define_media_info(undefined, AllFrames),
+  gen_server:call(Pid, {set, MI}),
+
+  [Pid ! F || F <- lists:sublist(AllFrames,1,500)],
+  ?assertEqual(ok, flu_stream:subscribe(Stream)),
+  {ok, M} = flussonic_sup:find_stream_helper(Stream, monotone),
+  gen_server:call(M, {set_start_at,{0,0,0}}),
+
+
+  receive
+    #video_frame{content = metadata, dts = DTS1} -> ?assertMatch(_ when DTS1 < 5000, DTS1)
+  after 500 -> error(no_metadata) end,
+  receive 
+    #video_frame{content = video, flavor = config, dts = DTS2} -> ?assertMatch(_ when DTS2 < 5000, DTS2)
+  after 100 -> error(no_metadata) end,
+  ok.
+
+
+
+
+test_monotone_proper_timestamps_in_middle_of_stream() ->
+  ?assertEqual([], flu_stream:list()),
+  Stream = <<"livestream1">>,
+  {ok, Pid} = flu_stream:autostart(Stream, [{source_timeout, false},{url, "passive://url"}]),
+  ?assertEqual({error, no_child}, flussonic_sup:find_stream_helper(Stream, monotone)),
+
+  AllFrames = flu_rtmp_tests:h264_aac_frames(),
+  MI = video_frame:define_media_info(undefined, AllFrames),
+  gen_server:call(Pid, {set,MI}),
+  Frames1 = lists:nthtail(250, AllFrames),
+  [Pid ! F || F <- lists:sublist(Frames1, 1, 20)],
+  ?assertEqual(ok, flu_stream:subscribe(Stream)),
+  {ok, M} = flussonic_sup:find_stream_helper(Stream, monotone),
+  gen_server:call(M, {set_start_at,{0,0,0}}),
+
+  [Pid ! F || F <- lists:sublist(Frames1, 21, 500)],
+
+  receive
+    #video_frame{content = video, flavor = Flavor1, dts = DTS1} ->
+      ?assertEqual(config, Flavor1),
+      ?assertMatch(_ when DTS1 >= 4000, DTS1)
+  after 4000 -> error(no_config) end,
+
+  receive
+    #video_frame{content = video, flavor = Flavor2, dts = DTS2} -> 
+      ?assertEqual(keyframe,Flavor2),
+      ?assertMatch(_ when DTS2 >= 4000, DTS2)
+  after 100 -> error(no_keyframe) end,
+
+  ok.
 
 
 

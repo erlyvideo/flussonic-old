@@ -80,6 +80,17 @@ test_sessions() ->
 
 
 
+test_stream_restart() ->
+  set_config([{stream, "chan0", "passive://"}, api]),
+  ?assertEqual([], flu_stream:list()),
+  {ok, _Pid1} = flu_stream:autostart(<<"chan0">>),
+  ?assertMatch([_], flu_stream:list()),
+  Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/stream_restart/chan0"),
+  ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
+  ?assertEqual([], flu_stream:list()),
+  ok.
+
+
 
 
 

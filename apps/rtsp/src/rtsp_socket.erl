@@ -115,6 +115,8 @@ handle_info(#video_frame{content = metadata}, #rtsp{} = RTSP) ->
 handle_info(#video_frame{flavor = config}, #rtsp{} = RTSP) ->
   {noreply, RTSP};
 
+handle_info(#media_info{}, #rtsp{} = RTSP) ->
+  {noreply, RTSP};
 
 % interleaved TCP
 handle_info(#video_frame{content = video, dts = DTS, pts = PTS} = Frame,

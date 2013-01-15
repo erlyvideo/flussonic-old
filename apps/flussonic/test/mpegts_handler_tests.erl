@@ -28,15 +28,12 @@ mpegts_test_() ->
       [{port,5555}],
       [{dispatch,[{'_',flu_config:parse_routes(Config)}]}]
     ),
-    {ok, Pid} = flu_stream:autostart(<<"channel0">>),
-    [Pid ! F || F <- flu_rtmp_tests:h264_aac_frames()],
-    meck:new(flu_monotone, [{passthrough,true}]),
-    meck:expect(flu_monotone, delay, fun(_,_) -> 0 end),
+    {ok, _Pid} = flu_stream:autostart(<<"channel0">>),
+    % [Pid ! F || F <- lists:sublist(flu_rtmp_tests:h264_aac_frames(), 1, 50)],
     ok
   end,
   fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
-    meck:unload(flu_monotone),
     application:stop(cowboy),
     application:stop(flussonic),
     application:stop(ranch),
@@ -87,21 +84,27 @@ test_null_packets_if_no_media_info() ->
 
 
 capture_mpegts_url(URL) ->
-  {ok, Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
+  {ok, Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()},{hls,false},{hds,false}]),
   Stream ! flu_rtmp_tests:h264_aac_media_info(),
+  Frames = flu_rtmp_tests:h264_aac_frames(),
+  gen_server:call(Stream, hd(Frames)),
+  {ok, M} = gen_server:call(Stream, start_monotone),
+  gen_server:call(M, {set_start_at,{0,0,0}}),    
+
   {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock, ["GET ",URL," HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   read_headers(Sock),
   ?assertEqual(200, Code),
-  [Stream ! Frame || Frame <- flu_rtmp_tests:h264_aac_frames()],
+
+  [Stream ! Frame || Frame <- tl(Frames)],
   Data = read_stream(Sock),
   gen_tcp:close(Sock),
   flussonic_sup:stop_stream(<<"testlivestream">>),
   ?assert(size(Data) > 0),
   ?assert(size(Data) > 10000),
-  {ok, Frames} = mpegts_decoder:decode_file(Data),
-  ?assertMatch(Len when Len > 10, length(Frames)),
+  {ok, NetFrames} = mpegts_decoder:decode_file(Data),
+  ?assertMatch(Len when Len > 10, length(NetFrames)),
   ok.
 
 
@@ -113,18 +116,16 @@ test_null_packets_when_frames_delay() ->
   read_headers(Sock),
   ?assertEqual(200, Code),
   {ok, Stream} = flu_stream:find(<<"channel0">>),
-  [Stream ! Frame || Frame <- flu_rtmp_tests:h264_aac_frames()],
-  Data = read_stream1(Sock),
+  {ok, M} = gen_server:call(Stream, start_monotone),
+  gen_server:call(M, {set_start_at,{0,0,0}}),    
+
+  [Stream ! Frame || Frame <- lists:sublist(flu_rtmp_tests:h264_aac_frames(),1,50)],
+  _Data = read_stream1(Sock),
 
   {ok, Bin} = gen_tcp:recv(Sock, 188),
   ?assertMatch(<<16#47, _:3, 16#1FFF:13, _/binary>>, Bin),
 
   gen_tcp:close(Sock),
-  ?assert(size(Data) > 0),
-  ?assert(size(Data) > 10000),
-
-  {ok, Frames} = mpegts_decoder:decode_file(Data),
-  ?assertMatch(Len when Len > 10, length(Frames)),
   ok.
 
 
@@ -142,6 +143,10 @@ test_change_media_info() ->
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   read_headers(Sock),
   ?assertEqual(200, Code),
+
+  {ok, M} = gen_server:call(Stream, start_monotone),
+  gen_server:call(M, {set_start_at,{0,0,0}}),    
+
 
   [Stream ! Frame || Frame <- NoAudio],
   Data1 = read_stream1(Sock),

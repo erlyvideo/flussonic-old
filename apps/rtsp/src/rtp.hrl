@@ -4,6 +4,7 @@
   timecode = undefined,
   octet_count = 0,
   packet_count = 0,
+  warning_count = 0,
   stream_id,
   payload_type,
   timescale,

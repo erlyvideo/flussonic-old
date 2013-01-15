@@ -477,7 +477,9 @@ send_frame(#video_frame{content = Content, stream_id = FrameId, dts = DTS, pts =
       % case Frame#video_frame.content of
       %   metadata -> ?D(Frame);
       %   _ ->
-      %     (catch ?D({StreamId, Frame#video_frame.codec,Frame#video_frame.flavor, round(DTS), rtmp:justify_ts(DTS - BaseDts), Frame#video_frame.sound})),
+      %     case get(first_dts_at) of undefined -> put(first_dts_at, os:timestamp()); _ -> ok end,
+      %     RealDelta = timer:now_diff(os:timestamp(), get(first_dts_at)) div 1000,
+      %     (catch ?D({StreamId, Frame#video_frame.codec,Frame#video_frame.flavor, round(DTS), rtmp:justify_ts(DTS - BaseDts), rtmp:justify_ts(DTS - BaseDts) - RealDelta})),
       %     ok
       % end,
 

@@ -186,6 +186,7 @@ parse_routes([{api,Options}|Env]) ->
     {[<<"erlyvideo">>,<<"api">>,<<"streams">>], api_handler, [{mode,streams}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"sessions">>], api_handler, [{mode,sessions}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"stream_health">>, '...'], api_handler, [{mode,health}|Options]},
+    {[<<"erlyvideo">>,<<"api">>,<<"stream_restart">>, '...'], api_handler, [{mode,stream_restart}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"dvr_status">>, year, month, day, '...'], dvr_handler, [{mode,status}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"dvr_previews">>, year, month, day, hour, minute, '...'], dvr_handler, [{mode,previews}|Options]}
   |parse_routes(Env)];

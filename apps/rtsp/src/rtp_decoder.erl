@@ -65,9 +65,10 @@ decode(_, #rtp_channel{timecode = TC, wall_clock = Clock} = RTP) when TC == unde
 decode(<<_:16, Sequence:16, _/binary>> = Data, #rtp_channel{sequence = undefined} = RTP) ->
   decode(Data, RTP#rtp_channel{sequence = Sequence});
 
-decode(<<_:16, OldSeq:16, _/binary>> = Data, #rtp_channel{sequence = Sequence} = RTP) when OldSeq < Sequence ->
-  ?D({drop_sequence, OldSeq, Sequence}),
-  decode(Data, RTP#rtp_channel{sequence = undefined});
+decode(<<_:16, OldSeq:16, _/binary>> = Data, #rtp_channel{sequence = Sequence, warning_count = WarningCount} = RTP) when OldSeq < Sequence ->
+  if WarningCount < 10 -> ?D({drop_sequence, OldSeq, Sequence});
+  true -> ok end,
+  decode(Data, RTP#rtp_channel{sequence = undefined, warning_count = WarningCount + 1});
   % {ok, RTP, []};
 
 decode(<<2:2, 0:1, _Extension:1, 0:4, _Marker:1, _PayloadType:7, Sequence:16, Timecode:32, _StreamId:32, Data/binary>>, #rtp_channel{} = RTP) ->
