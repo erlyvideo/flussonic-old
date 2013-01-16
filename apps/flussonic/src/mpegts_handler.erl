@@ -79,7 +79,7 @@ handle(Req, State) ->
     exit:timeout ->
       {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined};
     Class:Error ->
-      ?DBG("~s", [lager_format:format("~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()], 10000)]),
+      lager:error("~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()]),
       {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined}      
   end.
 

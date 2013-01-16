@@ -18,8 +18,8 @@ init_nif() ->
     Dir -> Dir
   end ++ "/mpegts_decoder",
   case erlang:load_nif(Path, 0) of
-    ok -> ?DBG("mpegts_decoder loaded, acceleration enabled.", []), ok;
-    {error, Error} -> ?DBG("Loading mpegts_decoder failed: ~p. Acceleration disabled", [Error]), ok
+    ok -> lager:info("mpegts_decoder loaded, acceleration enabled."), ok;
+    {error, Error} -> lager:info("Loading mpegts_decoder failed: ~p. Acceleration disabled", [Error]), ok
   end.
 
 

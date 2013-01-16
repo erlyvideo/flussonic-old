@@ -61,7 +61,7 @@ handle(Req, Opts) ->
     Class:Reason ->
       % lager:notice([{tag,http}],"HTTP ~s ~s ~s",[Method, Path, 500]),
       Stacktrace = erlang:get_stacktrace(),
-      ?ERR("Error handling HTTP ~s ~s: ~p:~p~n~s", [Method, Path, Class, Reason, [io_lib:format("    ~240p~n", [T]) || T <- Stacktrace]]),
+      lager:error("Error handling HTTP ~s ~s: ~p:~p~n~s", [Method, Path, Class, Reason, [io_lib:format("    ~240p~n", [T]) || T <- Stacktrace]]),
       {ok, R1} = cowboy_req:reply(500, [], ["Internal server error\n", lager_format:format("~p:~p~n~p~n", [Class, Reason, Stacktrace], 10000)], Req2),
       {ok, R1, undefined}
   end.

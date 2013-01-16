@@ -59,7 +59,7 @@ update_options(Options, #udp{socket = undefined, name = Name, media_info = MI} =
   {ok, Host} = inet_parse:address(Host1),
   {ok, Socket} = gen_udp:open(0, [{broadcast,true},{reuseaddr,true},{sndbuf,1024*1024},
     {multicast_loop,MulticastLoop},{multicast_ttl,MulticastTtl}]),
-  ?DBG("UDP packetizer for stream \"~s\" to url \"~s\"", [Name, URL]),
+  lager:warning("UDP packetizer for stream \"~s\" to url \"~s\"", [Name, URL]),
   UDP1 = set_media_info(MI, UDP#udp{mpegts = Mpegts0, options = Options, host = Host, port = Port, socket = Socket}),
   {ok, UDP1};
 

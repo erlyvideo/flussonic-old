@@ -30,8 +30,8 @@ init_nif() ->
     Dir -> Dir
   end ++ "/mmap",
   case erlang:load_nif(Path, 0) of
-    ok -> ?DBG("mmap loaded, acceleration enabled.", []), ok;
-    {error, Error} -> ?DBG("Loading mmap failed: ~p. Acceleration disabled", [Error]), ok
+    ok -> lager:warning("mmap loaded, acceleration enabled."), ok;
+    {error, Error} -> lager:warning("Loading mmap failed: ~p. Acceleration disabled", [Error]), ok
   end.
 
 

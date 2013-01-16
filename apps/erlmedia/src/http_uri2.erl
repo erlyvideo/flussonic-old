@@ -58,7 +58,7 @@ extract_path_with_query(URL) ->
 parse_scheme(AbsURI) ->
     case split_uri(AbsURI, ":", {error, no_scheme}, 1, 1) of
 	{error, no_scheme} ->
-	    {error, no_scheme};
+	    {error, {no_scheme, AbsURI}};
 	{StrScheme, Rest} ->
 		  {list_to_atom(http_util:to_lower(StrScheme)), Rest}
     end.

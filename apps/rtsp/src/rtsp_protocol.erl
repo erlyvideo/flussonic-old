@@ -139,7 +139,7 @@ handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetPar
   {ok, Socket} = case gen_tcp:connect(Host, Port, [binary, {active,false}, {send_timeout, 10000}]) of
     {ok, Sock} -> {ok, Sock};
     {error, Error} ->
-      ?ERR("Failed to connect to \"~s\": ~p", [URL, Error]),
+      lager:error("Failed to connect to \"~s\": ~p", [URL, Error]),
       throw({stop, normal, RTSP})
   end,
 
@@ -226,7 +226,7 @@ handle_info({tcp, Socket, <<$$, _/binary>> = Bin}, #rtsp{} = RTSP) ->
   {noreply, RTSP1};
 
 handle_info({tcp, Socket, Bin}, #rtsp{} = RTSP) ->
-  ?DBG("read strange RTSP/RTP data: ~240p", [Bin]),
+  lager:error("read strange RTSP/RTP data: ~240p", [Bin]),
   RTSP1 = case binary:split(Bin, <<$$>>) of
     [Bin] -> RTSP;
     [_Junk, Rest] ->
@@ -241,7 +241,7 @@ handle_info({tcp_closed, _Socket}, #rtsp{} = RTSP) ->
   {stop, normal, RTSP};
 
 handle_info({tcp_error, _Socket, Error}, #rtsp{url = URL} = RTSP) ->
-  ?ERR("RTSP socket ~s closed with error ~p", [URL, Error]),
+  lager:warning("RTSP socket ~s closed with error ~p", [URL, Error]),
   {stop, normal, RTSP};
 
 handle_info({'DOWN', _, _, _Consumer, _}, #rtsp{} = RTSP) ->
@@ -320,7 +320,7 @@ read_rtp_packets(<<>>, RTSP) ->
   {ok, RTSP, <<>>};
 
 read_rtp_packets(Bin, RTSP) ->
-  ?ERR("Invalid TCP data: ~240p", [Bin]),
+  lager:error("Invalid TCP data: ~240p", [Bin]),
   throw({stop, normal, RTSP}).
 
 
@@ -347,7 +347,7 @@ read_response_code(#rtsp{socket = Socket, url = URL} = RTSP) ->
   inet:setopts(Socket, [{packet, line},{active,false}]),
   case gen_tcp:recv(Socket, 0, 10000) of
     {error, closed} ->
-      ?ERR("Remote server '~s' closed socket", [URL]),
+      lager:warning("Remote server '~s' closed socket", [URL]),
       throw({stop, normal, RTSP});
     {error, Error} ->
       throw({stop, {error, {socket_recv, Error, URL}}, RTSP});
@@ -511,3 +511,11 @@ digest_auth2_test() ->
     "uri=\"rtsp://axis-00408ca51334.local.:554/axis-media/media.amp\", response=\"64847b496c6778f3743f0a883e22e305\"\r\n">>,
   digest_auth([{realm, <<"AXIS_00408CA51334">>}, {nonce, <<"001f187aY315978eceda072f7ffdde87041d6cc0fd9d11">>}, {qop, <<"auth">>}],
     "root", "toor", "rtsp://axis-00408ca51334.local.:554/axis-media/media.amp", "DESCRIBE")).
+
+
+parse_auth_headers_test() ->
+  ?assertEqual([digest, {realm, <<"AXIS_00408CDD2171">>}, {nonce, <<"0001d0fdY3300574b60dc5f86d983d0ca0c97050fd3392">>}, {<<"stale">>,<<"FALSE">>}],
+    parse_auth_headers([{'Www-Authenticate', <<"Digest realm=\"AXIS_00408CDD2171\", nonce=\"0001d0fdY3300574b60dc5f86d983d0ca0c97050fd3392\", stale=FALSE">>},
+      {'Www-Authenticate', <<"Basic realm=\"AXIS_00408CDD2171\"">>}])).
+
+

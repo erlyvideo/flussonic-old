@@ -56,11 +56,11 @@ vagrant:
 	
 
 start:
-	mkdir -p log/pipe
-	run_erl -daemon log/pipe/ log/ "exec make run"
+	mkdir -p log/pipe log/console
+	export RUN_ERL_LOG_GENERATIONS=5
+	export RUN_ERL_LOG_MAXSIZE=100000
+	run_erl -daemon log/pipe/ log/console/ "exec make run"
 	while [ ! -e log/flussonic.pid ] ; do sleep 1; echo "."; done
-	# echo `ps axuww |grep beam.smp| grep "sname flussonic" | head -1 | awk '{print $$2}'` > log/flussonic.pid
-	cat log/flussonic.pid
 
 attach:
 	to_erl log/pipe/

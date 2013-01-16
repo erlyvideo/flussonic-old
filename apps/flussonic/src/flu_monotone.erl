@@ -31,7 +31,7 @@ send_frame(Monotone, Frame) ->
   try gen_server:call(Monotone, Frame, 1000)
   catch
     exit:{timeout, _} ->
-      ?DBG("stream ~p failed to send frame to monotone", [get(name)]),
+      lager:error("stream ~p failed to send frame to monotone", [get(name)]),
       % [io:format("~20.. s: ~p~n", [K,V]) || {K,V} <- process_info(Monotone)],
       {error, timeout}
   end.
@@ -45,7 +45,7 @@ send_media_info(Monotone, MediaInfo) ->
   try gen_server:call(Monotone, MediaInfo, 1000)
   catch
     exit:{timeout, _} ->
-      ?DBG("stream ~p failed to send nedia info to monotone", [get(name)]),
+      lager:error("stream ~p failed to send nedia info to monotone", [get(name)]),
       % [io:format("~20.. s: ~p~n", [K,V]) || {K,V} <- process_info(Monotone)],
       {error, timeout}
   end.
@@ -181,8 +181,7 @@ handle_frame(#monotone{frames = Frames, queue_len = QueueLen, name = Name} = M) 
     handle_frame(M2);
   QueueLen > 1000 andalso Delay > 2000 ->
     #video_frame{dts = DTS} = Last = queue:last(Frames),
-    ?DBG("monotone stream repeater ~p flushed queue with ~B frames to dts ~p", [Name, QueueLen, round(DTS)]),
-    error(flush),
+    lager:warning("monotone stream repeater ~p flushed queue with ~B frames to dts ~p", [Name, QueueLen, round(DTS)]),
     handle_frame(M#monotone{first_dts = DTS, current_dts = DTS, start_at = os:timestamp(), frames = queue:from_list([Last]), queue_len = 1});
   true ->
     schedule_timer(Delay, M)

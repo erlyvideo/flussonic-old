@@ -166,7 +166,7 @@ websocket_info(#flu_event{} = Event, Req, State) ->
   {reply, {text, flu_event:to_json(Event)}, Req, State};
 
 websocket_info(_Info, Req, State) ->
-  ?DBG("api_websocket msg: ~p~n", [_Info]),
+  lager:info("api_websocket msg: ~p~n", [_Info]),
   {ok, Req, State}.
 
 

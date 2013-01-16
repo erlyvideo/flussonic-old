@@ -1,1 +1,1 @@
--define(D(X), (case application:get_env(gen_tracker, logging_function) of undefined -> io:format("~p:~p ~240p~n", [?MODULE, ?LINE, X]); _ -> (element(2,application:get_env(gen_tracker,logging_function)))(?MODULE, ?LINE, X) end)).
+-define(D(X), lager:info("~240p", [X])).

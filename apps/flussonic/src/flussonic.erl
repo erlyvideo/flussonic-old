@@ -75,9 +75,30 @@ start(_Options) ->
   catch erlang:system_flag(scheduler_bind_type, spread),
   application:start(compiler),
   application:load(lager),
-  application:set_env(lager,handlers,[{lager_console_backend,info}]),
+
+
+  ConsoleFormat = [time, " ", pid, {pid, [" "], ""}, 
+    {module, [module, ":", line, " "], ""},
+    message, "\n"
+  ],
+  FileFormat = [date, " "] ++ ConsoleFormat,
+
+  {FileLogger, CrashLogger} = case os:getenv("LOGDIR") of
+    false ->
+      {[], false};
+    LogDir ->
+      {[{lager_file_backend, [[{LogDir++"/flussonic.log", info, 10485760, "$D04", 40},{lager_default_formatter, FileFormat}]]}], LogDir++"/crash.log"}
+  end,
+
+  application:set_env(lager,handlers,[{lager_console_backend,[info,{lager_default_formatter, ConsoleFormat}]}] ++ FileLogger),
   application:set_env(lager,error_logger_redirect,true),
-  application:set_env(lager,crash_log,undefined),
+  application:set_env(lager,crash_log,CrashLogger),
+  application:set_env(lager,crash_log_msg_size,16384),
+  application:set_env(lager,crash_log_size,1048576),
+  application:set_env(lager,crash_log_date,"$D04"),
+  application:set_env(lager,crash_log_count,5),
+
+
   lager:start(),
   license_client:load(),
   application:start(sasl),

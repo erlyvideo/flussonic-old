@@ -9,8 +9,9 @@
 ### END INIT INFO
 
 FLUDIR=/opt/flussonic
-PIDFILE=/var/run/flussonic/pid
+export PIDFILE=/var/run/flussonic/pid
 COOKIEFILE=/etc/flussonic/cookie
+export LOGDIR=/var/log/flussonic
 
 [ -f /etc/default/flussonic ] && . /etc/default/flussonic
 
@@ -26,11 +27,11 @@ case $1 in
     fi
   fi
   echo -n "Starting flussonic: "
-  mkdir -p /var/log/flussonic
+  mkdir -p /var/log/flussonic/console
   mkdir -p /var/run/flussonic
-  export RUN_ERL_LOG_GENERATIONS=100
-  export RUN_ERL_LOG_MAXSIZE=10000000
-  run_erl -daemon /var/run/flussonic/ /var/log/flussonic "exec $0 launch"
+  export RUN_ERL_LOG_GENERATIONS=5
+  export RUN_ERL_LOG_MAXSIZE=100000
+  run_erl -daemon /var/run/flussonic/ /var/log/flussonic/console "exec $0 launch"
   i=0
   while ((i < 100)) && [ ! -f "$PIDFILE" ] ; do 
     echo -n "."
@@ -62,6 +63,7 @@ case $1 in
   export PIDFILE
   SBT=""
   # This option is disabled unless Rickard makes +sbt flag non-failable
+  # He promised to do +stbt
   # if [ `uname` == "Linux" ]; then
   #   SBT="+sbt s"
   # fi

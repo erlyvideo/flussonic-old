@@ -27,6 +27,7 @@
 -include("log.hrl").
 -include("jsonerl.hrl").
 -include("flu_event.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %% External API
 -export([start_link/0, notify/1, add_handler/2, subscribe_to_events/1, add_sup_handler/2, remove_handler/1]).
@@ -68,14 +69,20 @@ stop_handlers() ->
 %% @end
 %%----------------------------------------------------------------------
 to_json(#flu_event{options = _Options} = Event) ->
-  Map = fun
-    (V) when is_pid(V) -> undefined;
-    (V) when is_reference(V) -> undefined;
-    (V) -> V
-  end,
-  Clean1 = [{K,Map(V)} || {K,V} <- tuple_to_list(?record_to_struct(flu_event, Event))],
-  Clean = [{K,V} || {K,V} <- Clean1, V =/= undefined andalso V =/= null],
-  mochijson2:encode(Clean).
+  List = lists:zip(record_info(fields, flu_event), tl(tuple_to_list(Event))),
+  iolist_to_binary(mochijson2:encode(clean(List))).
+
+
+clean([]) -> [];
+clean([{_,undefined}|Rest]) -> clean(Rest);
+clean([{K,true}|Rest]) -> [{K,true}|clean(Rest)];
+clean([{K,false}|Rest]) -> [{K,false}|clean(Rest)];
+clean([{K,V}|Rest]) when is_atom(V) -> [{K,V}|clean(Rest)];
+clean([{K,V}|Rest]) when is_integer(V) -> [{K,V}|clean(Rest)];
+clean([{K,V}|Rest]) when is_list(V) -> [{K,clean(V)}|clean(Rest)];
+clean([{K,V}|Rest]) when is_binary(V) -> [{K,V}|clean(Rest)];
+clean([_|Rest]) -> clean(Rest).
+
 
 
 to_proplist(#flu_event{} = Event) ->

@@ -49,7 +49,7 @@ init([StartSpec, Stream, Options]) ->
           erlang:monitor(process, Pid),
           Pid;
         {error, Error} ->
-          ?ERR("Failed to connect to upstream: ~p", [Error]),
+          lager:error("Failed to connect to upstream: ~p", [Error]),
           {error, Error}
       end;
     is_list(StartSpec) orelse is_binary(StartSpec) ->
@@ -58,7 +58,7 @@ init([StartSpec, Stream, Options]) ->
           erlang:monitor(process, Pid),
           Pid;
         {error, Error} ->
-          ?ERR("Failed to connect to \"~s\": ~p", [StartSpec, Error]),
+          lager:error("Failed to connect to \"~s\": ~p", [StartSpec, Error]),
           {error, Error}
       end;
     StartSpec == undefined ->

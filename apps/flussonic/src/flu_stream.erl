@@ -107,7 +107,7 @@ send_frame(Stream, #video_frame{} = Frame) when is_pid(Stream) ->
       end,
       Name = proplists:get_value(name, Dict, <<"dead stream">>),
       Status = proplists:get_value(status, Dict),
-      ?DBG("failed to send frame to ~s (~p) in status ~p, ~p", [Name, Stream, Status, erlang:get_stacktrace()]),
+      lager:error("failed to send frame to ~s (~p) in status ~p, ~p", [Name, Stream, Status, erlang:get_stacktrace()]),
       % [io:format("~10.. s: ~p~n", [K,V]) || {K,V} <- process_info(Stream)]
       {error, timeout}
   end.
@@ -297,7 +297,7 @@ init([Name,Options1]) ->
   
   Stream2 = set_options(Stream1),
   
-  ?DBG("Start stream \"~s\" with url ~p and options: ~p", [Name, Stream2#stream.url, Options]),
+  lager:warning("Start stream \"~s\" with url ~p and options: ~p", [Name, Stream2#stream.url, Options]),
   self() ! reconnect_source,
   {ok, Stream2}.
 
@@ -372,7 +372,7 @@ configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, 
   UDP = case proplists:get_value(udp, Options) of
     undefined -> shutdown_packetizer(UDP1), {blank_packetizer, undefined};
     Dest when is_list(Dest) orelse is_binary(Dest) -> init_if_required(UDP1, udp_packetizer, Options);
-    OtherUDP -> ?DBG("Invalid {udp,~p} option, need {udp,\"udp://239.0.0.1:5000\"}", [OtherUDP]), {blank_packetizer, undefined}
+    OtherUDP -> lager:error("Invalid {udp,~p} option, need {udp,\"udp://239.0.0.1:5000\"}", [OtherUDP]), {blank_packetizer, undefined}
   end,
   put(status, {configure,rtmp}),
   RTMP = case proplists:get_value(rtmp, Options) of
@@ -499,9 +499,9 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
   LogError = will_log_error(Count),
   put(status, {reconnect,URL}),
   Result = case Proto of
-    tshttp -> mpegts:read(URL, [{name,Name}]);
-    udp -> mpegts:read(URL, [{name,Name}]);
-    udp2 -> mpegts:read(URL, [{name,Name}]);
+    tshttp -> flu_mpegts:read(Name, URL, [{name,Name}]);
+    udp -> flu_mpegts:read(Name, URL, [{name,Name}]);
+    udp2 -> flu_mpegts:read(Name, URL, [{name,Name}]);
     rtsp -> flu_rtsp:read2(Name, URL, [{log_error,LogError}|Options]);
     rtsp2 -> flu_rtsp:read2(Name, URL, [{log_error,LogError}|Options]);
     rtsp1 -> flu_rtsp:read(Name, URL, Options);
@@ -528,8 +528,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
       end, Stream1, Configs),
       {noreply, Stream2};
     {error, Error} ->
-      if LogError ->
-      ?ERR("Stream \"~s\" can't open source \"~s\" (~p). Retries: ~B/~B", [Name, URL, Error, Count, Stream#stream.retry_limit]);
+      if LogError -> lager:error("Stream \"~s\" can't open source \"~s\" (~p). Retries: ~B/~B", [Name, URL, Error, Count, Stream#stream.retry_limit]);
       true -> ok end,
       Delay = ((Count rem 30) + 1)*1000,
       erlang:send_after(Delay, self(), reconnect_source),
@@ -549,8 +548,7 @@ handle_info({'DOWN', _, process, Source, _Reason},
   erlang:send_after(Delay, self(), reconnect_source),
   
   LogError = will_log_error(Count),
-  if LogError ->  
-  ?DBG("stream \"~s\" lost source \"~s\". Retry count ~p/~p", [Name, URL, Count, Limit]);
+  if LogError -> lager:error("stream \"~s\" lost source \"~s\". Retry count ~p/~p", [Name, URL, Count, Limit]);
   true -> ok end,
   gen_tracker:setattr(flu_streams, Name, [{retry_count,Count+1}]),
   {noreply, Stream#stream{source = undefined, ts_delta = undefined, retry_count = Count + 1}};
@@ -577,17 +575,17 @@ handle_info(check_timeout, #stream{name = Name, static = Static, check_timer = O
 
   if 
   is_number(ClientsTimeout) andalso not Static andalso ClientsDelta >= ClientsTimeout andalso ClientsCount == 0 ->
-    ?DBG("Stop stream \"~s\" (url \"~s\"): no clients during timeout: ~p/~p", [Name, URL, ClientsDelta,ClientsTimeout]),
+    lager:error("Stop stream \"~s\" (url \"~s\"): no clients during timeout: ~p/~p", [Name, URL, ClientsDelta,ClientsTimeout]),
     {stop, normal, Stream};
   is_number(SourceTimeout) andalso SourceDelta >= UsingSourceTimeout andalso is_pid(Source) ->
     erlang:exit(Source, shutdown),
     case will_log_error(Count) of true ->
-    ?DBG("stream \"~s\" is killing source \"~s\" because of timeout ~B > ~B", [Name, URL, SourceDelta, Count*SourceTimeout]);
+    lager:error("stream \"~s\" is killing source \"~s\" because of timeout ~B > ~B", [Name, URL, SourceDelta, Count*SourceTimeout]);
     false -> ok end,
     erlang:exit(Source, kill),
     {noreply, Stream#stream{check_timer = CheckTimer}};
   is_number(SourceTimeout) andalso SourceDelta >= SourceTimeout andalso not Static ->
-    ?DBG("Stop non-static stream \"~s\" (url ~p): no source during ~p/~p", [Name, URL, SourceDelta,SourceTimeout]),
+    lager:error("Stop non-static stream \"~s\" (url ~p): no source during ~p/~p", [Name, URL, SourceDelta,SourceTimeout]),
     {stop, normal, Stream};
   SourceTimeout == false andalso URL == undefined andalso Source == undefined andalso not Static ->
     ?D({no_url,no_source, Name, stopping}),
@@ -669,7 +667,7 @@ pass_message(Message, Stream) ->
   try pass_message0(Message, Stream)
   catch
     Class:Error ->
-      ?DBG("Failed to pass message ~p: ~p:~p~n~p", [Message, Class, Error, erlang:get_stacktrace()]),
+      lager:error("Failed to pass message ~p: ~p:~p~n~p", [Message, Class, Error, erlang:get_stacktrace()]),
       erlang:raise(Class, Error, erlang:get_stacktrace())
   end.
 

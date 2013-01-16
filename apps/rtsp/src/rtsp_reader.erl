@@ -87,7 +87,7 @@ try_read(#rtsp{options = Options, url = URL} = RTSP) ->
     throw:{rtsp, Error, Reason} ->
       case proplists:get_value(log_error, Options) of
         false -> ok;
-        _ -> ?ERR("Failed to read from \"~s\": ~p:~240p", [URL, Error, Reason])
+        _ -> lager:error("Failed to read from \"~s\": ~p:~240p", [URL, Error, Reason])
       end,
       throw({stop, normal, RTSP})
   end.

@@ -162,7 +162,7 @@ init([Path, Options]) ->
     nomatch -> flu:default_file_access();
     _ -> http_file
   end,
-  ?DBG("open ~s file \"~s\", fullpath: \"~s\", options: ~p",[Access, Path, URL, Options]),
+  lager:warning("open ~s file \"~s\", fullpath: \"~s\", options: ~p",[Access, Path, URL, Options]),
   Format = case re:run(URL, "\\.flv$") of
     nomatch -> mp4_reader;
     _ -> flv_reader

@@ -192,7 +192,7 @@ update_session(#session{session_id = SessionId, access = Access}) ->
   Access.
 
 delete_session(Session) ->
-  ?D({delete_session,Session}),
+  % ?D({delete_session,Session}),
   ets:delete_object(flu_session:table(), Session),
   flu_event:user_disconnected(Session#session.name, info(Session)).
 
@@ -232,7 +232,7 @@ handle_info(clean, State) ->
   {noreply, State};
 
 handle_info({'DOWN', Ref, _, _Pid, _}, State) ->
-  ?D({deleting,_Pid,session}),
+  % ?D({deleting,_Pid,session}),
   [delete_session(Session) ||
       Session <- ets:select(flu_session:table(),
                             ets:fun2ms(fun(#session{ref = R} = S) when R == Ref -> S end))],

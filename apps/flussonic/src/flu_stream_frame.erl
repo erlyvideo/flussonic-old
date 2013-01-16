@@ -66,7 +66,7 @@ calculate_new_stream_shift(#video_frame{dts = DTS} = Frame,
     undefined -> Now = DTS, {Now, Now - DTS};
     _ -> {LDTS, LDTS - DTS + GlueDelta}
   end,
-  ?DBG("Stream \"~s\" resynchronized time. last DTS: ~B, new DTS: ~B, new delta: ~B", [Name, round(LastDTS), round(DTS), round(TSDelta)]),
+  lager:warning("Stream \"~s\" resynchronized time. last DTS: ~B, new DTS: ~B, new delta: ~B", [Name, round(LastDTS), round(DTS), round(TSDelta)]),
   % ems_event:stream_started(proplists:get_value(host,Media#stream.options), Media#stream.name, self(), Media#stream.options),
   {Frame, Media#stream{ts_delta = TSDelta, last_dts_at = undefined}}; %% Lets glue new instance of stream to old one plus small glue time
 
@@ -115,7 +115,7 @@ check_dts_wallclock(#video_frame{dts = DTS} = Frame, Media) ->
 store_gop(#video_frame{flavor = keyframe, dts = DTS} = F, #stream{gop = GOP, gop_start = GopStart, dump_frames = Dump} = Stream) when 
   GOP == undefined orelse (DTS - GopStart >= 6000) ->
   case Dump of
-    true -> ?DBG("gop ~.2f - ~.2f = ~.2f", [GopStart, DTS, DTS - GopStart]);
+    true -> lager:info("gop ~.2f - ~.2f = ~.2f", [GopStart, DTS, DTS - GopStart]);
     _ -> ok
   end,
   Stream1 = case GOP of

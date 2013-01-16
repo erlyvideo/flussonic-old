@@ -255,7 +255,7 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
       case flu_session:verify(URL, Identity, [{pid,self()},{referer,Referer},{type,<<"rtmp">>}|Options]) of
         {ok, StreamName1_} -> StreamName1_;
         {error, Code, Message} ->
-          ?ERR("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName1, Token, Code, Message]),
+          lager:error("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName1, Token, Code, Message]),
           throw({fail, [403, Code, to_b(Message), App, StreamName1, <<"auth_denied">>]})
       end
   end,
@@ -269,7 +269,7 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
     {ok, Media} ->
       play_stream(Session, AMF, StreamName, Media);
     {error, _Error} ->
-      ?ERR("failed to play rtmp ~s//~s: ~p", [App, StreamName, _Error]),
+      lager:error("failed to play rtmp ~s//~s: ~p", [App, StreamName, _Error]),
       throw({fail, [500, fmt("failed to play rtmp ~s//~s: ~p", [App, StreamName, _Error])]})
   end.
 
@@ -319,7 +319,7 @@ play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media
       
       Session2;
     {return, _Code, Msg} ->
-      ?DBG("failed to play file: ~s", [Msg]),
+      lager:error("failed to play file: ~s", [Msg]),
       throw(reject)
   end.
 
@@ -357,7 +357,7 @@ publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = 
   Options = case [Entry || {live,Pref,_Options} = Entry <- Env, Pref == Prefix] of
     [{live, Prefix, Opts}] -> Opts;
     [] ->
-      ?ERR("Tried to publish to invalid RTMP app ~s from addr ~p", [Prefix, rtmp_session:get(Session, addr)]),
+      lager:error("Tried to publish to invalid RTMP app ~s from addr ~p", [Prefix, rtmp_session:get(Session, addr)]),
       throw({fail, [403, <<Prefix/binary, "/", Name/binary>>, <<"no_application">>]})
   end,
 
@@ -372,7 +372,7 @@ publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = 
       case proplists:get_value("password", Args) of
         RequiredPassword -> ok;
         WrongPassword ->
-          error_logger:error_msg("Publish denied, wrong password: ~p~n", [WrongPassword]),
+          lager:error("Publish denied, wrong password: ~p", [WrongPassword]),
           throw({fail, [403, StreamName, <<"wrong_password">>]})
       end;
     undefined -> 
@@ -388,7 +388,7 @@ publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = 
             {Login, Password} -> 
               ok;
             _ ->
-              error_logger:error_msg("Publish denied, wrong password: ~p, ~p~n", [UserLogin, UserPassword]),
+              lager:error("Publish denied, wrong password: ~p, ~p", [UserLogin, UserPassword]),
               throw({fail, [403, StreamName, <<"wrong_login_password">>]})
           end
       end

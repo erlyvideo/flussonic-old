@@ -87,12 +87,12 @@ handle_call(start, _From, #mixer{video = undefined, video_name = VideoName,
 
 handle_info(#video_frame{content = video, stream_id = Video, dts = DTS} = Frame, 
   #mixer{video = Video, video_dts = undefined} = Mixer) ->
-  ?DBG("sync video (~B)", [round_(DTS)]),
+  lager:info("sync video (~B)", [round_(DTS)]),
   handle_info(Frame, Mixer#mixer{video_dts = DTS, last_dts = DTS});
 
 handle_info(#video_frame{content = video, stream_id = Video, dts = DTS} = Frame,
   #mixer{video = Video, last_dts = VDTS} = Mixer) when abs(VDTS - DTS) > 1000 ->
-  ?DBG("video stream unsynced: ~B vs ~B", [round_(DTS), round_(VDTS)]),
+  lager:info("video stream unsynced: ~B vs ~B", [round_(DTS), round_(VDTS)]),
   handle_info(Frame, Mixer#mixer{video_dts = undefined});
 
 handle_info(#video_frame{content = video, stream_id = Video, dts = DTS} = Frame, 
@@ -110,12 +110,12 @@ handle_info(#video_frame{content = metadata, stream_id = Video} = Frame, #mixer{
 
 handle_info(#video_frame{content = audio, stream_id = Audio, dts = DTS} = Frame, 
   #mixer{audio = Audio, last_dts = VDTS, audio_dts = undefined} = Mixer) ->
-  ?DBG("sync audio (~B) on video (~B)", [round_(DTS), round_(VDTS)]),
+  lager:info("sync audio (~B) on video (~B)", [round_(DTS), round_(VDTS)]),
   handle_info(Frame, Mixer#mixer{audio_dts = VDTS - DTS});
 
 handle_info(#video_frame{content = audio, stream_id = Audio, dts = ADTS} = Frame,
   #mixer{audio = Audio, audio_dts = Delta, last_dts = VDTS} = Mixer) when abs(ADTS + Delta - VDTS) > 1000 ->
-  ?DBG("audio stream unsynced: A:~B, V:~B", [round_(ADTS + Delta), round_(VDTS)]),
+  lager:info("audio stream unsynced: A:~B, V:~B", [round_(ADTS + Delta), round_(VDTS)]),
   handle_info(Frame, Mixer#mixer{audio_dts = undefined});
 
 handle_info(#video_frame{content = audio, stream_id = Audio, dts = DTS, pts = PTS} = Frame, 

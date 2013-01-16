@@ -137,7 +137,7 @@ encode_sdp_session(#sdp_session{
   ];
 
 encode_sdp_session(Else) ->
-  ?DBG("Strange opts: ~240p", [Else]),
+  lager:error("Strange SDP opts: ~240p", [Else]),
   throw(stop).
 
 

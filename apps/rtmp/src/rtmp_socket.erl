@@ -624,7 +624,7 @@ send_data(#rtmp_socket{socket = Socket, key_out = KeyOut} = State, Message) ->
       case gen_tcp:send(Socket, Crypt) of
         ok -> ok;
         {error, timeout} -> flush_all(),
-          ?ERR("RTMP client from ~p is exiting due to slow connection", [State#rtmp_socket.address]),
+          lager:warning("RTMP client from ~p is exiting due to slow connection", [State#rtmp_socket.address]),
           throw({stop, normal, NewState1});
         {error, closed} -> throw({stop, normal, NewState1});
         {error, Else} -> flush_all(), throw({stop, {network_error,Else}, NewState1})

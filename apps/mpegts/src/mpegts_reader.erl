@@ -166,7 +166,7 @@ handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = D
     error:invalid_payload ->
       {noreply, Reader};
     Class:Error ->
-      ?DBG("~s", [lager_format:format("~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()], 10000)]),
+      lager:error("~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()]),
       % ?D({udp_mpegts,Class,Error, erlang:get_stacktrace()}),
       {stop, {Class, Error}, Reader}
   end;

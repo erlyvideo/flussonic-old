@@ -56,7 +56,6 @@ int main(int argc, char *argv[]) {
   int video_stream_index = -1;
   int vdts_step = -1;
   int audio_stream_index = -1;
-  int adts_step = -1;
 
   int sample_rate;
 
@@ -90,7 +89,6 @@ int main(int argc, char *argv[]) {
     } else if(input_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
       audio_stream_index = i;
       sample_rate = input_ctx->streams[i]->codec->sample_rate;
-      adts_step = 90000*1152 / sample_rate;
     }
       
   }
@@ -100,12 +98,6 @@ int main(int argc, char *argv[]) {
   AVCodecContext *venc_ctx = NULL, *aenc_ctx = NULL;
   // AVAudioResampleContext *avr = avresample_alloc_context();
 
-  // av_opt_set_int(avr, "in_channel_layout",  AV_CH_LAYOUT_STEREO, 0);
-  // av_opt_set_int(avr, "out_channel_layout", AV_CH_LAYOUT_STEREO, 0);
-  // av_opt_set_int(avr, "in_sample_rate",     input_ctx->streams[audio_stream_index]->codec->sample_rate,                0);
-  // av_opt_set_int(avr, "out_sample_rate",    input_ctx->streams[audio_stream_index]->codec->sample_rate,                0);
-  // av_opt_set_int(avr, "in_sample_fmt",      AV_SAMPLE_FMT_S16,   0);
-  // av_opt_set_int(avr, "out_sample_fmt",     AV_SAMPLE_FMT_S16,    0);
 
 
   // AVPacket out_pkt;
@@ -124,6 +116,9 @@ int main(int argc, char *argv[]) {
   int64_t first_adts = -1;
   uint64_t acount = 0;
   AVFrame *raw_video, *raw_audio;
+  uint32_t audio_capacity = 1152*2*2*4;
+  uint8_t *audio_buffer = (uint8_t *)malloc(audio_capacity);
+  uint32_t audio_size = 0;
   raw_video = avcodec_alloc_frame();
   raw_audio = avcodec_alloc_frame();
 
@@ -141,13 +136,16 @@ int main(int argc, char *argv[]) {
     int decoded = 0;
     int encoded = 0;
     if(packet.stream_index == video_stream_index) {
-      if(first_vdts == -1) first_vdts = (packet.dts / vdts_step)*vdts_step;
-      while(packet.dts >= first_vdts + vcount*vdts_step + vdts_step) {
-        printf("missed video frame %llu\n", (unsigned long long)vcount);
-        vcount++;
-      }
+      // if(first_vdts == -1) first_vdts = (packet.dts / vdts_step)*vdts_step;
+      if(first_vdts == -1) first_vdts = packet.dts - first_dts;
+      // while(packet.dts >= first_vdts + vcount*vdts_step + vdts_step) {
+      //   printf("missed video frame %llu\n", (unsigned long long)vcount);
+      //   vcount++;
+      // }
       avcodec_decode_video2(tracks[packet.stream_index].ctx, raw_video, &decoded, &packet);
       raw_video->pts = first_vdts + vcount*vdts_step;
+      // printf("video %llu\n", raw_video->pts);
+
 
       if(decoded && !venc) {
         venc = avcodec_find_encoder_by_name("libx264");
@@ -178,22 +176,28 @@ int main(int argc, char *argv[]) {
         if(encoded < 0)
           error("Failed to encode h264");
         
-        //if(encoded)
-        //  printf("h264 dts: %10llu, bytes: %d\n", venc_ctx->coded_frame->pts, encoded);
+        if(encoded) {
+          printf("h264 dts: %10llu, bytes: %d\n", venc_ctx->coded_frame->pts, encoded);
+        }
       }
 
       vcount++;
-    } else {
-      if(first_adts == -1) first_adts = (packet.dts / adts_step)*adts_step;
-      while(packet.dts >= first_adts + acount*adts_step + adts_step) {
-        printf("missed audio frame %llu\n", (unsigned long long)acount);
-        acount++;
+    } else if(packet.stream_index == audio_stream_index) {
+      // if(first_adts == -1) first_adts = (packet.dts / adts_step)*adts_step;
+      if(first_dts == -1) first_adts = packet.dts - first_dts;
+      // while(packet.dts >= first_adts + acount*adts_step + adts_step) {
+      //   printf("missed audio frame %llu\n", (unsigned long long)acount);
+      //   acount++;
+      // }
+      decoded = 0;
+      if(avcodec_decode_audio4(tracks[packet.stream_index].ctx, raw_audio, &decoded, &packet) < 0) {
+        printf("failed to decode\n");
       }
-      avcodec_decode_audio4(tracks[packet.stream_index].ctx, raw_audio, &decoded, &packet);
-      raw_audio->pts = first_adts + acount*adts_step;
+      // *1152 / sample_rate
+      // raw_audio->pts = first_adts + acount*adts_step;
 
       if(decoded && !aenc) {
-        aenc = avcodec_find_decoder_by_name("aac");
+        aenc = avcodec_find_encoder_by_name("libfaac");
         assert(aenc);
         aenc_ctx = avcodec_alloc_context3(aenc);
         assert(aenc_ctx);
@@ -201,20 +205,71 @@ int main(int argc, char *argv[]) {
         aenc_ctx->channels = input_ctx->streams[audio_stream_index]->codec->channels;
         aenc_ctx->sample_rate = input_ctx->streams[audio_stream_index]->codec->sample_rate;
         aenc_ctx->bit_rate = 64;
+        // aenc_ctx->frame_size = 1024;
+        // aenc_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
+        aenc_ctx->sample_fmt = AV_SAMPLE_FMT_S16;
+        aenc_ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+
 
         if(avcodec_open2(aenc_ctx, aenc, NULL) < 0)
           error("failed to allocate audio encoder");
+
+        // av_opt_set_int(avr, "in_channel_layout",  AV_CH_LAYOUT_STEREO, 0);
+        // av_opt_set_int(avr, "out_channel_layout", AV_CH_LAYOUT_STEREO, 0);
+        // av_opt_set_int(avr, "in_sample_rate",     input_ctx->streams[audio_stream_index]->codec->sample_rate,                0);
+        // av_opt_set_int(avr, "out_sample_rate",    input_ctx->streams[audio_stream_index]->codec->sample_rate,                0);
+        // av_opt_set_int(avr, "in_sample_fmt",      input_ctx->streams[audio_stream_index]->codec->sample_fmt,   0);
+        // av_opt_set_int(avr, "out_sample_fmt",     AV_SAMPLE_FMT_FLTP,    0);
+      }
+
+      acount += tracks[packet.stream_index].ctx->frame_size;
+
+      if(!decoded) {
+        int linesize = 2*tracks[packet.stream_index].ctx->frame_size*tracks[packet.stream_index].ctx->channels;
+        bzero(audio_buffer + audio_size, linesize);
+        audio_size += linesize;
+        printf("filling audio with silence\n");
       }
  
-      if(decoded) {
-        // if(avcodec_encode_audio2(aenc_ctx, &out_pkt, raw_audio, &encoded) < 0)
-        //   error("Failed to encode aac");
+      memmove(audio_buffer + audio_size, raw_audio->data[0], raw_audio->linesize[0]);
+      audio_size += raw_audio->linesize[0];
+      // short samples = 0;
+      // int ret = 0;
+      // if((ret = avcodec_encode_audio(aenc_ctx, audio_buffer, audio_capacity, &samples)) < 0) {
+      //   1;
+      // }
+      int audio_frame_size = aenc_ctx->frame_size*aenc_ctx->channels*2;
 
-        // if(encoded)
-        //   printf(" aac dts: %10llu, bytes: %d\n", out_pkt.dts, out_pkt.size);
+      while(audio_size >= audio_frame_size) {
+        AVPacket out_pkt;
+        av_init_packet(&out_pkt);
+        out_pkt.data = 0;
+        out_pkt.size = 0;
+        raw_audio->pts = first_adts + (acount - (audio_size / 4))*90000 / sample_rate;
+        // printf("audio %llu\n", raw_audio->pts);
+        // printf("%d, %d, %d, %d\n", acount, audio_size / 4, sample_rate, (acount - (audio_size / 4))*90000 / sample_rate);
+        if(!raw_audio->data[0]) {
+          raw_audio->data[0] = av_malloc(audio_frame_size);
+          raw_audio->linesize[0] = audio_frame_size;
+        }
+        memmove(raw_audio->data[0], audio_buffer, audio_frame_size);
+        audio_size -= audio_frame_size;
+
+        memmove(audio_buffer, audio_buffer + audio_frame_size, audio_size);
+        raw_audio->linesize[0] = audio_frame_size;
+        raw_audio->nb_samples = aenc_ctx->frame_size;
+
+        encoded = 0;
+
+        if(avcodec_encode_audio2(aenc_ctx, &out_pkt, raw_audio, &encoded) < 0)
+          error("Failed to encode aac");
+
+
+        if(encoded) {
+          printf(" aac dts: %10llu, bytes: %d\n", raw_audio->pts, out_pkt.size);
+        }
       }
 
-      acount++;
     }
     // if(!got_picture) {
     //   printf("%10s %8lld failed to decode frame\n", tracks[packet.stream_index].codec->name, (long long int)(packet.dts - first_dts));
