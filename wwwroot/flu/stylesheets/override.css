@@ -77,6 +77,14 @@
 }
 
 
+#pulse-stats {
+  margin-left: 40px;
+}
+
+#pulse-tab {
+  padding-bottom: 40px;
+
+}
 
 #traffic-stats table {
   display: none;

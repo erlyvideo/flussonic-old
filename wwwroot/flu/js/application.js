@@ -8,6 +8,10 @@ if($.fn.simpleDatepicker) {
 }
 
 Erlyvideo = {
+
+// Templates for players
+
+  // HDS player  
   osmf_player: function(element, url) {
     var width = 640;
     var height = 480;
@@ -27,6 +31,7 @@ Erlyvideo = {
       flashvars, paramObj, {name: "StrobeMediaPlayback"});
   },
   
+  // RTMP JWplayer
   jwplayer: function(element, url) {
     var app = "live";
     if(url.indexOf("vod/") == 0) {
@@ -48,11 +53,39 @@ Erlyvideo = {
       );
   },
   
+
+  // HLS player
   hls: function(element, stream) {
     $(element).html("<video width=640 height=480 src=\""+stream+"?session="+((new Date()).getTime())+"\" autoplay controls></video>");
   },
 
 
+// Tab control
+
+  enable_tabs: function() {
+    $(".tabbed-menu a, a.link-button").live('click', function() {
+      Erlyvideo.activate_tab($(this).attr('href').substring(1));
+    });
+  },
+
+  activate_tab: function(tabname) {
+    Erlyvideo.stop_periodic_stream_loader();
+    Erlyvideo.stop_periodic_pulse_loader();
+    $(".tabbed-menu li").removeClass("active");
+    $("#main .content").hide();
+    $("#"+tabname+"-tab").show();
+    $(".tabbed-menu a[href=#"+tabname+"]").parent().addClass("active");
+    
+    if(tabname == "streams") Erlyvideo.load_stream_info();
+    // if(tabname == "license") Erlyvideo.load_license_info();
+    if(tabname == "pulse") Erlyvideo.load_pulse();
+    return false;
+  },
+  
+
+// Flussonic connectivity
+
+  // try to maintain persistent connection with flussonic via websockets
   connect: function() {
     if(!Erlyvideo.stream_ws && window.WebSocket && !Erlyvideo.disabled_ws) {
       Erlyvideo.stream_ws = new WebSocket("ws://"+window.location.host+"/erlyvideo/api/events");
@@ -73,6 +106,7 @@ Erlyvideo = {
     }
   },
 
+  // make request to flussonic via websocket or comet
   request: function(resource) {
     Erlyvideo.connect();
     if(Erlyvideo.stream_ws) {
@@ -90,6 +124,7 @@ Erlyvideo = {
     }
   },
 
+  // Messages from flussonic are routed here. Either from WS, either from comet - doesn't matter 
   dump_events: false,
 
   on_message: function(message) {
@@ -107,11 +142,17 @@ Erlyvideo = {
       case "user.list":
         Erlyvideo.draw_clients(message);
         break;
+      case "pulse.traffic":
+        Erlyvideo.draw_pulse_traffic(message);
+        break;
       default:
         console.log(message);
     }
   },
 
+
+
+  // Streams main panel. Drawing list of streams, dvr record status, etc
   add_dvr_fragment: function(message) {
     var minute = Math.floor(message.options.time / 60)*60;
     $("div[time=\""+minute+"\"]").addClass("ok").removeClass("fail");
@@ -158,48 +199,6 @@ Erlyvideo = {
     $("#dvr-list").showDVR(name, opts || {});
   },
   
-  show_clients: function(name) {
-    $("#clients-"+name.replace(/\//g, "_")).show();
-    Erlyvideo.request("sessions?name="+name);
-    Erlyvideo.session_load_timer = setTimeout(function() { Erlyvideo.show_clients(name); }, 2000);
-  },
-
-  hide_clients: function(vname) {
-    Erlyvideo.stop_periodic_session_loader();
-    $("#clients-"+vname).hide();
-  },
-
-  stop_periodic_session_loader: function() {
-    if(Erlyvideo.session_load_timer) clearTimeout(Erlyvideo.session_load_timer);
-    Erlyvideo.session_load_timer = undefined;
-  },
-
-
-  draw_clients: function(message) {
-    var name = message.name;
-    var sessions = message.sessions;
-    var new_sessions = {};
-    var vname = name.replace(/\//g, "_");
-    var list = $("#clients-list-"+vname);
-    for(var i = 0; i < sessions.length; i++) {
-      if(sessions[i].name == name) {
-        new_sessions[sessions[i].id] = true;
-        sessions[i].duration = Math.round(sessions[i].duration / 1000);
-        var h = $("#session-"+sessions[i].id);
-        if(h.length > 0) {
-          h.find(".duration").html(sessions[i].duration);
-        } else {
-          list.append(Mustache.to_html(Erlyvideo.session_template, sessions[i]));
-        }
-      }
-    }
-    list.find("tr").each(function() {
-      if(!new_sessions[$(this).attr('data-id')]) {
-        $(this).remove();
-      }
-    })
-  },
-
   current_streams: {},
 
   draw_stream_info: function(streams) {
@@ -217,30 +216,7 @@ Erlyvideo = {
       var s = streams["streams"][i];
       s.vname = s.name.replace(/\//g, "_");
       s.play_name = s.name;
-      if(s.lifetime > 0) {
-        s.lifetime = Math.round(s.lifetime / 1000);
-        var lt = s.lifetime;
-        var pad = function(number, width) {
-          var input = number + "";  // make sure it's a string
-          return("00000000000000000000".slice(0, width - input.length) + input);
-        }
-        var lt_s = pad(lt % 60, 2); lt = Math.floor(lt / 60);
-        if(lt > 0) {
-          lt_s = pad(lt % 60,2) + ":" + lt_s;
-          lt = Math.floor(lt / 60);
-        }
-        if(lt > 0) {
-          lt_s = pad(lt % 24,2) + ":"  + lt_s;
-          lt = Math.floor(lt / 24);
-        }
-        if(lt > 0) {
-          lt_s = lt + "d " + lt_s;
-        }
-        s.lifetime = lt_s;
-      } else {
-        s.lifetime = 0;
-      }
-
+      s.lifetime = Erlyvideo.format_seconds(s.lifetime / 1000);
 
       s.ts_delay = s.ts_delay < 5000 ? 0 : Math.round(s.ts_delay / 1000);
       if(s.type == "file") {
@@ -284,47 +260,122 @@ Erlyvideo = {
   stop_periodic_stream_loader: function() {
     if(Erlyvideo.stream_load_timer) clearTimeout(Erlyvideo.stream_load_timer);
     Erlyvideo.stream_load_timer = undefined;
+  },  
+
+
+// Show stream clients list
+
+  show_clients: function(name) {
+    $("#clients-"+name.replace(/\//g, "_")).show();
+    Erlyvideo.request("sessions?name="+name);
+    Erlyvideo.session_load_timer = setTimeout(function() { Erlyvideo.show_clients(name); }, 2000);
   },
-  
-  load_license_info: function() {
-    $.get("/erlyvideo/api/licenses", {}, function(licenses) {
-      licenses = licenses["licenses"];
-      var i,j;
-      for(i = 0; i < licenses.length; i++) {
-        var vers = [];
-        var name = licenses[i].name;
-        for(j = 0; j < licenses[i].versions.length; j++) {
-          var ver = licenses[i].versions[j];
-          vers[vers.length] = {
-            version: ver,
-            name: name,
-            checked: licenses[i].current_version == ver
-          };
-        }
-        licenses[i].versions = vers;
-      }
-      if(licenses.length > 0) {
-        $("#license-list").html(Mustache.to_html(Erlyvideo.license_template, {"licenses" : licenses}));
-      }
-    });
+
+  hide_clients: function(vname) {
+    Erlyvideo.stop_periodic_session_loader();
+    $("#clients-"+vname).hide();
   },
-  
-  enable_licenses: function() {
-    $("#license-save-form").submit(function() {
-      $.post(this.action, $(this).serialize(), function(reply) {
-        reply = eval('('+reply+')');
-        if(reply) {
-          alert("Licenses loaded, restart erlyvideo to see effects");
+
+  stop_periodic_session_loader: function() {
+    if(Erlyvideo.session_load_timer) clearTimeout(Erlyvideo.session_load_timer);
+    Erlyvideo.session_load_timer = undefined;
+  },
+
+
+  draw_clients: function(message) {
+    var name = message.name;
+    var sessions = message.sessions;
+    var new_sessions = {};
+    var vname = name.replace(/\//g, "_");
+    var list = $("#clients-list-"+vname);
+    for(var i = 0; i < sessions.length; i++) {
+      if(sessions[i].name == name) {
+        new_sessions[sessions[i].id] = true;
+        sessions[i].duration = Erlyvideo.format_seconds(sessions[i].duration / 1000);
+        var h = $("#session-"+sessions[i].id);
+        if(h.length > 0) {
+          h.find(".duration").html(sessions[i].duration);
         } else {
-          alert("Failed to select software versions. Consult logs for details");
+          list.append(Mustache.to_html(Erlyvideo.session_template, sessions[i]));
         }
-      });
-      return false;
-    });
+      }
+    }
+    list.find("tr").each(function() {
+      if(!new_sessions[$(this).attr('data-id')]) {
+        $(this).remove();
+      }
+    })
   },
+
+  format_seconds: function(sec) {
+    if(! (sec > 0)) {
+      return 0;
+    }
+
+    sec = Math.round(sec);
+    var lt = sec;
+    var pad = function(number, width) {
+      var input = number + "";  // make sure it's a string
+      return("00000000000000000000".slice(0, width - input.length) + input);
+    }
+    var lt_s = pad(lt % 60, 2); lt = Math.floor(lt / 60);
+    if(lt > 0) {
+      lt_s = pad(lt % 60,2) + ":" + lt_s;
+      lt = Math.floor(lt / 60);
+    }
+    if(lt > 0) {
+      lt_s = pad(lt % 24,2) + ":"  + lt_s;
+      lt = Math.floor(lt / 24);
+    }
+    if(lt > 0) {
+      lt_s = lt + "d " + lt_s;
+    }
+    return lt_s;
+  },
+
+
+// Licenses on server. Disable it
+  
+  // load_license_info: function() {
+  //   $.get("/erlyvideo/api/licenses", {}, function(licenses) {
+  //     licenses = licenses["licenses"];
+  //     var i,j;
+  //     for(i = 0; i < licenses.length; i++) {
+  //       var vers = [];
+  //       var name = licenses[i].name;
+  //       for(j = 0; j < licenses[i].versions.length; j++) {
+  //         var ver = licenses[i].versions[j];
+  //         vers[vers.length] = {
+  //           version: ver,
+  //           name: name,
+  //           checked: licenses[i].current_version == ver
+  //         };
+  //       }
+  //       licenses[i].versions = vers;
+  //     }
+  //     if(licenses.length > 0) {
+  //       $("#license-list").html(Mustache.to_html(Erlyvideo.license_template, {"licenses" : licenses}));
+  //     }
+  //   });
+  // },
+  
+  // enable_licenses: function() {
+  //   $("#license-save-form").submit(function() {
+  //     $.post(this.action, $(this).serialize(), function(reply) {
+  //       reply = eval('('+reply+')');
+  //       if(reply) {
+  //         alert("Licenses loaded, restart erlyvideo to see effects");
+  //       } else {
+  //         alert("Failed to select software versions. Consult logs for details");
+  //       }
+  //     });
+  //     return false;
+  //   });
+  // },
   
   
-  
+// Play tab
+
   enable_play_tab: function() {
     $("#play-tab form").submit(function() {
       return false;
@@ -352,27 +403,11 @@ Erlyvideo = {
     $("#block-login").dialog('open');
   },
   
-  activate_tab: function(tabname) {
-    Erlyvideo.stop_periodic_stream_loader();
-    Erlyvideo.stop_periodic_traffic_loader();
-    $(".tabbed-menu li").removeClass("active");
-    $("#main .content").hide();
-    $("#"+tabname+"-tab").show();
-    $(".tabbed-menu a[href=#"+tabname+"]").parent().addClass("active");
-    
-    if(tabname == "streams") Erlyvideo.load_stream_info();
-    // if(tabname == "license") Erlyvideo.load_license_info();
-    // if(tabname == "stats") Erlyvideo.load_traffic_stat();
-    return false;
-  },
+
+
+// Statistics tab
   
-  enable_tabs: function() {
-    $(".tabbed-menu a, a.link-button").live('click', function() {
-      Erlyvideo.activate_tab($(this).attr('href').substring(1));
-    });
-  },
-  
-  traffic_template: "<table><caption>Traffic statistics for {{iface}}</caption> \
+  pulse_traffic_template: "<table><caption>Traffic statistics for {{iface}} in kbits/s</caption> \
   <thead><tr><td></td>\
   {{#traffic}}<th>{{time}}</th>{{/traffic}}\
   </tr></thead>\
@@ -386,18 +421,23 @@ Erlyvideo = {
   </tbody>\
   </table>",
   
-  load_traffic_stat: function() {
-    $.get("/erlyvideo/api/traffic", {}, function(traffic) {
-      $("#traffic-stats").html(Mustache.to_html(Erlyvideo.traffic_template, traffic));
-      $('#traffic-stats table').visualize({type: 'line', width: '800px'});
-    });
-    Erlyvideo.traffic_load_timer = setTimeout(Erlyvideo.load_traffic_stat, 3000);
+  load_pulse: function() {
+    Erlyvideo.request("pulse");
+    Erlyvideo.pulse_load_timer = setTimeout(Erlyvideo.load_pulse, 2000);
   },
-  
-  stop_periodic_traffic_loader: function() {
-    if(Erlyvideo.traffic_load_timer) clearTimeout(Erlyvideo.traffic_load_timer);
-    Erlyvideo.traffic_load_timer = undefined;
-  }
+
+  draw_pulse_traffic: function(message) {
+    $("#pulse-stats").html(Mustache.to_html(Erlyvideo.pulse_traffic_template, message));
+    $('#pulse-stats table').visualize({type: 'line', width: '800px'}).trigger("visualizeRefresh");
+    $('#pulse-stats table').hide();
+  },
+
+  stop_periodic_pulse_loader: function() {
+    if(Erlyvideo.pulse_load_timer) clearTimeout(Erlyvideo.pulse_load_timer);
+    Erlyvideo.pulse_load_timer = undefined;
+  },
+
+  last_function: function() {}
 
 };
 
@@ -414,7 +454,7 @@ $(function() {
   // Erlyvideo.comet.onmessage = Erlyvideo.on_message;
   
   Erlyvideo.enable_tabs();
-  Erlyvideo.enable_licenses();
+  // Erlyvideo.enable_licenses();
   if(window.location.hash != "") {
     Erlyvideo.activate_tab(window.location.hash.substring(1));
   } else if(params["file"] && params["file"].length > 0) {

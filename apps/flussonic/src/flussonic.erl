@@ -117,6 +117,7 @@ start(_Options) ->
   start_app(erlmedia),
   try_start_app(http_file),
   try_start_app(playlist),
+  try_start_app(pulse),
   start_app(mpegts),
   start_app(flussonic),
   flussonic_app:load_config(),
