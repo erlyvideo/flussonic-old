@@ -25,7 +25,7 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 
 -export([init/3, handle/2, terminate/2]).
--export([read_loop/4]).
+-export([read_loop/3]).
 -export([write_loop/3]).
 -export([null_packet/1]).
 
@@ -66,6 +66,8 @@ handle(Req, #mpegts{name = undefined} = State) ->
 
 handle(Req, State) ->
   try handle0(Req, State) of
+    {ok, Req1, _} ->
+      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req1), undefined};      
     ok ->
       {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined}
   catch
@@ -85,9 +87,8 @@ handle(Req, State) ->
 
 
 handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _State) ->
-  Socket = cowboy_req:get(socket,Req),
-  Transport = cowboy_req:get(transport,Req),
-  
+  {ok, Transport, Socket} = cowboy_req:transport(Req),
+
   {ok, _} = media_handler:check_sessions(Req, Name, Options),
 
   OurName = iolist_to_binary(io_lib:format("mpegts_client(~s)", [Name])),
@@ -105,18 +106,23 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
   Started = length([S || #stream_info{content = video} = S <- Streams]) == 0,
   ?MODULE:write_loop(Req, Mpegts, Started);
 
-handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"PUT">>} = State) ->
-  Socket = cowboy_http:get(socket,Req),
-  Transport = cowboy_http:get(transport,Req),
-  
+handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>}) ->  
+  throw(mpegts_input_disabled),
+
   ?D({mpegts_input,StreamName}),
-  
-  {ok, Recorder} = flu_stream:autostart(StreamName, Options),
-  {ok, Reader} = mpegts_decoder:init(),
-  
-  ?MODULE:read_loop(Recorder, Reader, Transport, Socket),
-  ?D({exit,mpegts_reader}),
-  {ok, Req, State}.
+
+  case cowboy_req:header(<<"transfer-encoding">>, Req) of
+    {<<"chunked">>, Req1} ->
+      {ok, Recorder} = flu_stream:find(StreamName),
+      flu_stream:set_source(Recorder, self()),
+      {ok, Req2} = ?MODULE:read_loop(Recorder, mpegts_decoder:init(), Req1),
+      flu_stream:set_source(Recorder, undefined),
+      ?D({exit,mpegts_reader}),
+      {ok, Req2, undefined};
+    {_, Req1} ->
+      {ok, Req2} = cowboy_req:reply(401, [], <<"need body">>, Req1),
+      {ok, Req2, undefined}    
+  end.
 
 
 await_media_info(Name, Req) ->
@@ -140,16 +146,26 @@ terminate(_,_) -> ok.
 
   
   
-read_loop(Recorder, Reader, Transport, Socket) ->
-  case Transport:recv(Socket, 16*1024, 10000) of
-    {ok, Bin} ->
-      {ok, Reader1, Frames} = mpegts_decoder:decode(Bin, Reader),
-      [Recorder ! Frame || Frame <- Frames],
-      ?MODULE:read_loop(Recorder, Reader1, Transport, Socket);
-    Else ->
-      Else
+read_loop(Recorder, Reader, Req) ->
+  {ok, _Transport, Socket} = cowboy_req:transport(Req),
+  inet:setopts(Socket, [{active,false},{packet,line}]),
+  {ok, BinLen} = gen_tcp:recv(Socket, 0, 5000),
+  Size = size(BinLen) - 2,
+  <<BinLen1:Size/binary, "\r\n">> = BinLen,
+  Len = list_to_integer(binary_to_list(BinLen1), 16),
+  inet:setopts(Socket, [{packet,raw}]),
+  case gen_tcp:recv(Socket, Len) of
+    {ok, Chunk} ->
+      {ok, Reader1, Frames} = mpegts_decoder:decode(Chunk, Reader),
+      [flu_stream:send_frame(Recorder, Frame) || Frame <- Frames],
+      {ok, <<"\r\n">>} = gen_tcp:recv(Socket, 2),
+      ?MODULE:read_loop(Recorder, Reader1, Req);
+    {done, Req1} ->
+      {ok, Req1};
+    {error, Error} ->
+      lager:error("http error capturing mpegts over http: ~p", [Error]),
+      {ok, Req}
   end.
-
     
 
 write_loop(Req, Mpegts, Started) ->

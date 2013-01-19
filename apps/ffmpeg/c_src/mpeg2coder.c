@@ -14,32 +14,50 @@
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavfilter/avcodec.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/avfiltergraph.h>
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
 // #include <libavresample/avresample.h>
 #include <assert.h>
 
 #include "compat.h"
 
 typedef struct Track {
-  AVCodec *codec;
-  AVCodecContext *ctx;
   int track_id;
   enum AVMediaType content;
   enum AVCodecID codec_id;
   int width;
   int height;
   AVRational time_base;
+  AVCodecContext *venc_ctx;
+  AVFormatContext* output_ctx;
+  AVStream *vout_st;
+  AVStream *aout_st;
 } Track;
 
 void error(const char *fmt, ...);
+
+
+
+typedef struct H264BSFContext {
+    uint8_t  length_size;
+    uint8_t  first_idr;
+    int      extradata_parsed;
+} H264BSFContext;
+
+
 
 int main(int argc, char *argv[]) {
   av_register_all();
   avcodec_register_all();
   avformat_network_init();
+  avfilter_register_all();
   av_log_set_level(AV_LOG_ERROR);
 
-  if(argc < 2) {
-    error("%s input-ts", argv[0]);
+  if(argc < 3) {
+    error("%s input-ts output-ts", argv[0]);
   }
 
   AVFormatContext* input_ctx = avformat_alloc_context();
@@ -59,55 +77,202 @@ int main(int argc, char *argv[]) {
 
   int sample_rate;
 
+
+
   Track tracks[input_ctx->nb_streams];
+  int nb_tracks = input_ctx->nb_streams;
 
-  // if((video_stream_id = av_find_best_stream(input_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0)) < 0) {
-  //   printf("no video input\n");
-  //   exit(4);
-  // } else {
-  //   tracks[video_stream_id].codec = vdec;
-  // }
 
-  // if((audio_stream_id = av_find_best_stream(input_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0)) < 0) {
-  //   printf("no audio input\n");
-  //   exit(5);
-  // }
+  AVCodec *venc = avcodec_find_encoder_by_name("libx264");
+  if(!venc) error("failed to find libx264 encoder");
+
+  AVCodec *aenc = avcodec_find_encoder_by_name("aac");
+  if(!aenc) error("failed to find aac encoder");
+
+
+  AVCodecContext *aenc_ctx = NULL;
+
+  AVCodec *vdec = NULL, *adec = NULL;
+  AVCodecContext *vdec_ctx = NULL, *adec_ctx = NULL;
 
   int i;
   for(i =0;i<input_ctx->nb_streams;i++){
 
-    tracks[i].codec = avcodec_find_decoder(input_ctx->streams[i]->codec->codec_id);
-    fprintf(stderr, "stream %d: %s (%d)\r\n", i, tracks[i].codec->name, input_ctx->streams[i]->codec->sample_rate);
-    tracks[i].ctx = avcodec_alloc_context3(tracks[i].codec);
-    if(avcodec_open2(tracks[i].ctx, tracks[i].codec, NULL) < 0) {
-      error("Failed to open decoder %s", tracks[i].codec->name);
-    }
+    tracks[i].content = input_ctx->streams[i]->codec->codec_type;
     tracks[i].time_base = input_ctx->streams[i]->time_base;
-    if(input_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
+    if(tracks[i].content == AVMEDIA_TYPE_VIDEO) {
+      vdec = avcodec_find_decoder(input_ctx->streams[i]->codec->codec_id);
+      fprintf(stderr, "stream %d: %s (%d)\r\n", i, vdec->name, input_ctx->streams[i]->codec->sample_rate);
+      vdec_ctx = avcodec_alloc_context3(vdec);
+      if(avcodec_open2(vdec_ctx, vdec, NULL) < 0) {
+        error("Failed to open decoder %s", vdec->name);
+      }
+
+
       video_stream_index = i;
       vdts_step = 3600;
-    } else if(input_ctx->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
+      tracks[i].output_ctx = avformat_alloc_context();
+      tracks[i].output_ctx->oformat = av_guess_format("mpegts", NULL, NULL);
+
+      AVCodecContext* venc_ctx = avcodec_alloc_context3(venc);
+      if(!venc_ctx) error("failed to allocate video encoding context");
+      venc_ctx->width = input_ctx->streams[i]->codec->width;
+      venc_ctx->height = input_ctx->streams[i]->codec->height;
+      venc_ctx->bit_rate = 300000;
+      venc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+      // venc_ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+      venc_ctx->time_base = (AVRational){1,90};
+      venc_ctx->thread_count = 0;
+      AVDictionary *opts = NULL;
+      av_dict_set(&opts, "preset", "fast", 0);
+      av_dict_set(&opts, "profile", "main", 0);
+      av_dict_set(&opts, "qmin", "26", 0);
+      av_dict_set(&opts, "qmax", "50", 0);
+
+      if(avcodec_open2(venc_ctx, venc, &opts) < 0)
+        error("failed to open video encoder");
+
+      printf("Open libx264: %dx%d, %d bytes config, %d bps\r\n", venc_ctx->width, venc_ctx->height, venc_ctx->extradata_size, venc_ctx->bit_rate);
+
+      if(avformat_alloc_output_context2(&tracks[i].output_ctx, tracks[i].output_ctx->oformat, 
+        NULL, argv[2]) < 0) {
+        error("Failed to open output context %s", argv[2]);
+      }
+
+      if(avio_open2(&tracks[i].output_ctx->pb, argv[2], AVIO_FLAG_WRITE,
+        &tracks[i].output_ctx->interrupt_callback, NULL) < 0)
+        error("failed to open %s for writing", argv[2]);
+
+      tracks[i].venc_ctx = venc_ctx;
+      tracks[i].vout_st = avformat_new_stream(tracks[i].output_ctx, venc);
+      tracks[i].vout_st->codec = venc_ctx;
+    } else if(tracks[i].content == AVMEDIA_TYPE_AUDIO) {
+      adec = avcodec_find_decoder(input_ctx->streams[i]->codec->codec_id);
+      fprintf(stderr, "stream %d: %s (%d)\r\n", i, adec->name, input_ctx->streams[i]->codec->sample_rate);
+      adec_ctx = avcodec_alloc_context3(adec);
+      if(avcodec_open2(adec_ctx, adec, NULL) < 0) {
+        error("Failed to open decoder %s", adec->name);
+      }
+
+
       audio_stream_index = i;
+      tracks[i].output_ctx = NULL;
       sample_rate = input_ctx->streams[i]->codec->sample_rate;
+
+      aenc_ctx = avcodec_alloc_context3(aenc);
+      if(!aenc_ctx) error("failed to alloc audio context");
+
+      aenc_ctx->channels = input_ctx->streams[i]->codec->channels;
+      aenc_ctx->sample_rate = sample_rate;
+      aenc_ctx->bit_rate = 64;
+      // aenc_ctx->frame_size = 1024;
+      aenc_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
+      aenc_ctx->channel_layout = AV_CH_LAYOUT_STEREO;
+      aenc_ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
+
+
+      if(avcodec_open2(aenc_ctx, aenc, NULL) < 0)
+        error("failed to initialize audio encoder");
+
     }
       
   }
 
-
-  AVCodec *venc = NULL, *aenc = NULL;
-  AVCodecContext *venc_ctx = NULL, *aenc_ctx = NULL;
-  // AVAudioResampleContext *avr = avresample_alloc_context();
-
-
-
-  // AVPacket out_pkt;
-  // av_init_packet(&out_pkt);
-  // out_pkt.data = NULL;
-  // out_pkt.size = 0;
-  int out_size = 1024*1024;
-  uint8_t *out_buf = av_malloc(out_size);
+  for(i = 0; i < nb_tracks; i++) {
+    if(tracks[i].content == AVMEDIA_TYPE_VIDEO) {
+      tracks[i].aout_st = avformat_new_stream(tracks[i].output_ctx, aenc);
+      tracks[i].aout_st->codec = aenc_ctx;
+      if(avformat_write_header(tracks[i].output_ctx, NULL) < 0) 
+        error("Failed to start output format");
+    }
+  }
 
 
+
+  AVFilterContext *buffersink_ctx;
+  AVFilterContext *buffersrc_ctx;
+  AVFilterGraph *filter_graph;
+  const char *filters_descr = "aresample=48000,aconvert=s16:stereo";
+
+
+{
+    AVCodecContext *dec_ctx = input_ctx->streams[audio_stream_index]->codec;
+    char args[512];
+    int ret;
+    AVFilter *abuffersrc  = avfilter_get_by_name("abuffer");
+    AVFilter *abuffersink = avfilter_get_by_name("ffabuffersink");
+    AVFilterInOut *outputs = avfilter_inout_alloc();
+    AVFilterInOut *inputs  = avfilter_inout_alloc();
+    const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_FLTP, -1 };
+    AVABufferSinkParams *abuffersink_params;
+    const AVFilterLink *outlink;
+    AVRational time_base = input_ctx->streams[audio_stream_index]->time_base;
+
+    filter_graph = avfilter_graph_alloc();
+
+    /* buffer audio source: the decoded frames from the decoder will be inserted here. */
+    snprintf(args, sizeof(args),
+            "time_base=%d/%d:sample_rate=%d:sample_fmt=%s:channel_layout=0x%"PRIx64,
+             time_base.num, time_base.den, dec_ctx->sample_rate,
+             av_get_sample_fmt_name(dec_ctx->sample_fmt), dec_ctx->channel_layout);
+    ret = avfilter_graph_create_filter(&buffersrc_ctx, abuffersrc, "in",
+                                       args, NULL, filter_graph);
+    if (ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot create audio buffer source\n");
+        return ret;
+    }
+
+    /* buffer audio sink: to terminate the filter chain. */
+    abuffersink_params = av_abuffersink_params_alloc();
+    abuffersink_params->sample_fmts     = sample_fmts;
+    ret = avfilter_graph_create_filter(&buffersink_ctx, abuffersink, "out",
+                                       NULL, abuffersink_params, filter_graph);
+    av_free(abuffersink_params);
+    if (ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot create audio buffer sink\n");
+        return ret;
+    }
+
+    /* Endpoints for the filter graph. */
+    outputs->name       = av_strdup("in");
+    outputs->filter_ctx = buffersrc_ctx;
+    outputs->pad_idx    = 0;
+    outputs->next       = NULL;
+
+    inputs->name       = av_strdup("out");
+    inputs->filter_ctx = buffersink_ctx;
+    inputs->pad_idx    = 0;
+    inputs->next       = NULL;
+
+    if ((ret = avfilter_graph_parse(filter_graph, filters_descr,
+                                    &inputs, &outputs, NULL)) < 0)
+        return ret;
+
+    if ((ret = avfilter_graph_config(filter_graph, NULL)) < 0)
+        return ret;
+
+    /* Print summary of the sink buffer
+     * Note: args buffer is reused to store channel layout string */
+    outlink = buffersink_ctx->inputs[0];
+    av_get_channel_layout_string(args, sizeof(args), -1, outlink->channel_layout);
+    av_log(NULL, AV_LOG_INFO, "Output: srate:%dHz fmt:%s chlayout:%s\n",
+           (int)outlink->sample_rate,
+           (char *)av_x_if_null(av_get_sample_fmt_name(outlink->format), "?"),
+           args);
+
+}
+
+  if(aenc_ctx) {
+    av_buffersink_set_frame_size(buffersink_ctx, aenc_ctx->frame_size);
+    printf("aenc frame_size %d\n", aenc_ctx->frame_size);
+  }
+
+
+
+  // ssize_t out_size = 1024*1024;
+  // uint8_t *out_data = av_malloc(out_size);
+  // out_pkt.data = out_data;
+  // out_pkt.size = out_size;
 
 
   int64_t first_dts = -1;
@@ -115,10 +280,8 @@ int main(int argc, char *argv[]) {
   uint64_t vcount = 0;
   int64_t first_adts = -1;
   uint64_t acount = 0;
+
   AVFrame *raw_video, *raw_audio;
-  uint32_t audio_capacity = 1152*2*2*4;
-  uint8_t *audio_buffer = (uint8_t *)malloc(audio_capacity);
-  uint32_t audio_size = 0;
   raw_video = avcodec_alloc_frame();
   raw_audio = avcodec_alloc_frame();
 
@@ -128,6 +291,12 @@ int main(int argc, char *argv[]) {
     packet.data = NULL;
     packet.size = 0;
 
+    AVPacket out_pkt;
+    av_init_packet(&out_pkt);
+
+    // out_pkt.data = NULL;
+    // out_pkt.size = 0;
+
 
     if(av_read_frame(input_ctx, &packet) < 0) 
       error("eof");
@@ -136,48 +305,49 @@ int main(int argc, char *argv[]) {
     int decoded = 0;
     int encoded = 0;
     if(packet.stream_index == video_stream_index) {
+      int i = packet.stream_index;
       // if(first_vdts == -1) first_vdts = (packet.dts / vdts_step)*vdts_step;
       if(first_vdts == -1) first_vdts = packet.dts - first_dts;
+
       // while(packet.dts >= first_vdts + vcount*vdts_step + vdts_step) {
       //   printf("missed video frame %llu\n", (unsigned long long)vcount);
       //   vcount++;
       // }
-      avcodec_decode_video2(tracks[packet.stream_index].ctx, raw_video, &decoded, &packet);
+      avcodec_decode_video2(vdec_ctx, raw_video, &decoded, &packet);
       raw_video->pts = first_vdts + vcount*vdts_step;
       // printf("video %llu\n", raw_video->pts);
 
-
-      if(decoded && !venc) {
-        venc = avcodec_find_encoder_by_name("libx264");
-        if(!venc) error("failed to open video encoder");
-        venc_ctx = avcodec_alloc_context3(venc);
-        if(!venc_ctx) error("failed to allocate video encoding context");
-        venc_ctx->width = raw_video->width;
-        venc_ctx->height = raw_video->height;
-        venc_ctx->bit_rate = 300000;
-        venc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-        venc_ctx->flags |= CODEC_FLAG_GLOBAL_HEADER;
-        venc_ctx->time_base = (AVRational){1,90};
-        venc_ctx->thread_count = 0;
-        AVDictionary *opts = NULL;
-        av_dict_set(&opts, "preset", "fast", 0);
-        av_dict_set(&opts, "profile", "main", 0);
-        av_dict_set(&opts, "qmin", "26", 0);
-        av_dict_set(&opts, "qmax", "50", 0);
-
-        if(avcodec_open2(venc_ctx, venc, &opts) < 0)
-          error("failed to open video encoder");
-
-        printf("Open libx264: %dx%d, %d bytes config, %d bps\r\n", venc_ctx->width, venc_ctx->height, venc_ctx->extradata_size, venc_ctx->bit_rate);
-      }
-
       if(decoded) {
-        encoded = avcodec_encode_video(venc_ctx, out_buf, out_size, raw_video);
-        if(encoded < 0)
+        // deinterlace!
+
+        AVPicture picture2;
+        AVCodecContext *dec = vdec_ctx;
+        uint8_t *deinterlaced = av_malloc(avpicture_get_size(dec->pix_fmt, dec->width, dec->height));
+        avpicture_fill(&picture2, deinterlaced, dec->pix_fmt, dec->width, dec->height);
+        avpicture_deinterlace(&picture2, (AVPicture *)raw_video, dec->pix_fmt, dec->width, dec->height);
+        *(AVPicture *)raw_video = picture2;
+
+        encoded = 0;
+        av_init_packet(&out_pkt);
+
+        if(avcodec_encode_video2(tracks[i].venc_ctx, &out_pkt, raw_video, &encoded) < 0)
           error("Failed to encode h264");
         
         if(encoded) {
-          printf("h264 dts: %10llu, bytes: %d\n", venc_ctx->coded_frame->pts, encoded);
+          printf("h264 dts: %10llu, bytes: %d\n", out_pkt.dts, out_pkt.size);
+
+          // WTF!!! libx264 generates AnnexB but with short startcode 0,0,1. mpegts.c required long startcode 0,0,0,1
+          if(out_pkt.data[0] == 0 && out_pkt.data[1] == 0 && out_pkt.data[2] == 1) {
+            memmove(out_pkt.data + 1, out_pkt.data, out_pkt.size);
+            out_pkt.data[0] = 0;
+          }
+          // int k;
+          // for(k = 0; k < 16; k++) printf("%x,", out_pkt.data[k]);
+          // printf("\n");
+          if(av_interleaved_write_frame(tracks[packet.stream_index].output_ctx, &out_pkt) < 0)
+            1;
+            // error("failed to write output video frame");
+          av_free_packet(&out_pkt);
         }
       }
 
@@ -190,92 +360,60 @@ int main(int argc, char *argv[]) {
       //   acount++;
       // }
       decoded = 0;
-      if(avcodec_decode_audio4(tracks[packet.stream_index].ctx, raw_audio, &decoded, &packet) < 0) {
+      if(avcodec_decode_audio4(adec_ctx, raw_audio, &decoded, &packet) < 0) {
         printf("failed to decode\n");
       }
       // *1152 / sample_rate
       // raw_audio->pts = first_adts + acount*adts_step;
 
-      if(decoded && !aenc) {
-        aenc = avcodec_find_encoder_by_name("libfaac");
-        assert(aenc);
-        aenc_ctx = avcodec_alloc_context3(aenc);
-        assert(aenc_ctx);
-
-        aenc_ctx->channels = input_ctx->streams[audio_stream_index]->codec->channels;
-        aenc_ctx->sample_rate = input_ctx->streams[audio_stream_index]->codec->sample_rate;
-        aenc_ctx->bit_rate = 64;
-        // aenc_ctx->frame_size = 1024;
-        // aenc_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;
-        aenc_ctx->sample_fmt = AV_SAMPLE_FMT_S16;
-        aenc_ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
-
-
-        if(avcodec_open2(aenc_ctx, aenc, NULL) < 0)
-          error("failed to allocate audio encoder");
-
-        // av_opt_set_int(avr, "in_channel_layout",  AV_CH_LAYOUT_STEREO, 0);
-        // av_opt_set_int(avr, "out_channel_layout", AV_CH_LAYOUT_STEREO, 0);
-        // av_opt_set_int(avr, "in_sample_rate",     input_ctx->streams[audio_stream_index]->codec->sample_rate,                0);
-        // av_opt_set_int(avr, "out_sample_rate",    input_ctx->streams[audio_stream_index]->codec->sample_rate,                0);
-        // av_opt_set_int(avr, "in_sample_fmt",      input_ctx->streams[audio_stream_index]->codec->sample_fmt,   0);
-        // av_opt_set_int(avr, "out_sample_fmt",     AV_SAMPLE_FMT_FLTP,    0);
-      }
-
-      acount += tracks[packet.stream_index].ctx->frame_size;
-
       if(!decoded) {
-        int linesize = 2*tracks[packet.stream_index].ctx->frame_size*tracks[packet.stream_index].ctx->channels;
-        bzero(audio_buffer + audio_size, linesize);
-        audio_size += linesize;
         printf("filling audio with silence\n");
       }
  
-      memmove(audio_buffer + audio_size, raw_audio->data[0], raw_audio->linesize[0]);
-      audio_size += raw_audio->linesize[0];
-      // short samples = 0;
-      // int ret = 0;
-      // if((ret = avcodec_encode_audio(aenc_ctx, audio_buffer, audio_capacity, &samples)) < 0) {
-      //   1;
-      // }
-      int audio_frame_size = aenc_ctx->frame_size*aenc_ctx->channels*2;
-
-      while(audio_size >= audio_frame_size) {
-        AVPacket out_pkt;
-        av_init_packet(&out_pkt);
-        out_pkt.data = 0;
-        out_pkt.size = 0;
-        raw_audio->pts = first_adts + (acount - (audio_size / 4))*90000 / sample_rate;
-        // printf("audio %llu\n", raw_audio->pts);
-        // printf("%d, %d, %d, %d\n", acount, audio_size / 4, sample_rate, (acount - (audio_size / 4))*90000 / sample_rate);
-        if(!raw_audio->data[0]) {
-          raw_audio->data[0] = av_malloc(audio_frame_size);
-          raw_audio->linesize[0] = audio_frame_size;
+      if(decoded) {
+        if (av_buffersrc_add_frame(buffersrc_ctx, raw_audio, AV_BUFFERSRC_FLAG_PUSH) < 0) {
+          error("Error while feeding the audio filtergraph");
         }
-        memmove(raw_audio->data[0], audio_buffer, audio_frame_size);
-        audio_size -= audio_frame_size;
+        AVFilterBufferRef *samplesref;
+        int ret = 0;
+        while (1) {
+          ret = av_buffersink_get_buffer_ref(buffersink_ctx, &samplesref, AV_BUFFERSINK_FLAG_NO_REQUEST);
+          if(ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+            break;
+          if(ret < 0)
+            error("failed to pass audio through filter");
+          if (samplesref) {
+            const AVFilterBufferRefAudioProps *props = samplesref->audio;
+            AVFrame *filtered_frame = avcodec_alloc_frame();
+            avcodec_get_frame_defaults(filtered_frame);
+            avfilter_copy_buf_props(filtered_frame, samplesref);
+            filtered_frame->pts = first_adts + acount*90000 / sample_rate;
+            acount += props->nb_samples;
 
-        memmove(audio_buffer, audio_buffer + audio_frame_size, audio_size);
-        raw_audio->linesize[0] = audio_frame_size;
-        raw_audio->nb_samples = aenc_ctx->frame_size;
+            encoded = 0;
+            av_init_packet(&out_pkt);
 
-        encoded = 0;
+            if(avcodec_encode_audio2(aenc_ctx, &out_pkt, filtered_frame, &encoded) < 0)
+              error("Failed to encode aac");
 
-        if(avcodec_encode_audio2(aenc_ctx, &out_pkt, raw_audio, &encoded) < 0)
-          error("Failed to encode aac");
+            if(encoded) {
+              printf(" aac dts: %10llu, bytes: %d\n", out_pkt.dts, out_pkt.size);
+              for(i = 0; i < nb_tracks; i++) {
+                if(tracks[i].content == AVMEDIA_TYPE_VIDEO) {
+                  av_interleaved_write_frame(tracks[i].output_ctx, &out_pkt);                  
+                }
+              }
+              av_free_packet(&out_pkt);
+            }
 
-
-        if(encoded) {
-          printf(" aac dts: %10llu, bytes: %d\n", raw_audio->pts, out_pkt.size);
+            avcodec_free_frame(&filtered_frame);
+            avfilter_unref_bufferp(&samplesref);
+          }
         }
+
       }
 
     }
-    // if(!got_picture) {
-    //   printf("%10s %8lld failed to decode frame\n", tracks[packet.stream_index].codec->name, (long long int)(packet.dts - first_dts));
-    // } else {
-    //   printf("%10s %8lld %d, %d\n", tracks[packet.stream_index].codec->name, (long long int)(packet.dts - first_dts), got_picture, decoded);
-    // }
     av_free_packet(&packet);
     av_init_packet(&packet);
   }

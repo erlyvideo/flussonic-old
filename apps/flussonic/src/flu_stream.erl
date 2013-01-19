@@ -254,7 +254,7 @@ subscribe(Pid, _Options) when is_pid(Pid) ->
   erlang:monitor(process, Pid),
   gen_server:call(Pid, {subscribe, self()}).
 
-set_source(Stream, Source) when is_pid(Stream) andalso is_pid(Source) ->
+set_source(Stream, Source) when is_pid(Stream) andalso (is_pid(Source) orelse Source == undefined) ->
   gen_server:call(Stream, {set_source, Source}).
 
 set_last_dts(DTS, Now) ->
@@ -424,10 +424,17 @@ handle_call({subscribe, Pid}, _From, #stream{monotone = Monotone} = Stream) ->
   Reply = flu_monotone:subscribe(Monotone, Pid),
   {reply, Reply, Stream};
 
+handle_call({set_source, undefined}, _From, #stream{source_ref = Ref} = Stream) ->
+  case Ref of
+    undefined -> ok;
+    _ -> erlang:demonitor(Ref, [flush])
+  end,
+  {reply, ok, Stream#stream{source = undefined, source_ref = undefined}};
+
 handle_call({set_source, Source}, _From, #stream{source = OldSource} = Stream) ->
   OldSource == undefined orelse error({reusing_source,Stream#stream.name,OldSource,Source}),
-  erlang:monitor(process, Source),
-  {reply, ok, Stream#stream{source = Source}};
+  Ref = erlang:monitor(process, Source),
+  {reply, ok, Stream#stream{source = Source, source_ref = Ref}};
 
 handle_call({set, #media_info{} = MediaInfo}, _From, #stream{} = Stream) ->
   {noreply, Stream1} = handle_info(MediaInfo, Stream),
@@ -515,13 +522,12 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
   end,
   case Result of
     {ok, Source} -> 
-      erlang:monitor(process, Source),
-      {noreply, Stream#stream{source = Source}};
+      Ref = erlang:monitor(process, Source),
+      {noreply, Stream#stream{source = Source, source_ref = Ref}};
     {ok, Source, MediaInfo} -> 
-      erlang:monitor(process, Source),
-      {noreply, Stream0} = handle_info(MediaInfo, Stream#stream{media_info = undefined}),
+      Ref = erlang:monitor(process, Source),
+      {noreply, Stream1} = handle_info(MediaInfo, Stream#stream{media_info = undefined, source = Source, source_ref = Ref}),
       Configs = video_frame:config_frames(MediaInfo),
-      Stream1 = Stream0#stream{source = Source},
       Stream2 = lists:foldl(fun(C, Stream_) ->
         {_,Stream1_} = flu_stream_frame:save_config(C, Stream_),
         Stream1_
