@@ -1,0 +1,215 @@
+flussonic (3.66.1)
+
+  * initial commit for publishing video via mpegts_handler
+  * remove source of flu_stream
+  * show traffic in admin panel
+  * collect traffic statistics to pulse subsystem
+  * switch to lager logging with new log layout
+
+flussonic (3.65.7)
+
+  * fixed monotonic RTMP frame sending
+  * start RTMP stream from keyframe
+  * API to restart stream via HTTP
+  * frames reordering in RTSP reader
+
+
+flussonic (3.65.6)
+
+  * timeshift:// fix for handling broken archive files
+
+
+flussonic (3.65.5)
+
+  * change output stream if input stream is changing (audio added, etc.)
+  * mpegts_handler now doesn't stop and sends null-packets
+  * fixed bug when flu_rtmp playing started invalid stream names
+  * stream now doesn't die directly after publisher exits
+  * added timeshift:// source type
+  * visualize clearing DVR in admin panel
+  * fixed auth_http_backend and flu_rtmp integration
+
+flussonic (3.65.4)
+
+  * added support for h264 yuv422 sps parsing
+  * kill old connections if new connection with the same user_id is unique
+  * RTSP should skip RTCP properly
+
+flussinic (3.65.3)
+
+  * return user_id in flu_session:list() and show it in admin panel
+  * fixed parsing of m3u8 playlists with CRLF
+
+flussonic (3.65.2)
+
+  * session list in admin panel should update, not reload
+  * fixed rtmp disconnect handling in flu_sessions
+
+flussonic (3.65.1)
+
+  * show opened user sessions in admin panel
+  * properly handle {rtmp,Port} config change
+  * flu_stream now makes frame flow monotonic via flu_monotone
+  * flu_stream now bypasses media_info to handle stream changes
+  * mpegts_reader now sends updated media_info if stream changing
+
+flussonic (3.64.11)
+
+  * rtsp interleaved output
+  * try not to fail server if recofiguring takes a lot of time
+
+flussonic (3.64.10)
+
+  * timeshift_rel now reads whole segment to lower CPU usage
+
+flussonic (3.64.9)
+
+  * mp4 should read tracks without keyframes
+  * mp4 should read files with invalid duration
+  * added several ways to stop node
+
+flussonic (3.64.8)
+
+  * change pidfile location in debian init file
+  * refuse from explicit distribution start
+
+flussonic (3.64.7)
+
+  * properly encode URL in auth_http_backend
+
+flussonic (3.64.6)
+
+  * switch to explicit distribution start
+  * flu_session sends full file path to backend with virtual prefix
+  * new started flussonic now kills old instance
+
+flussonic (3.64.5)
+
+  * unique user_id support in flu_session
+  * fixed reject connections for rtmp source
+
+flussonic (3.64.4)
+
+  * added support for streams where h264 nals are going in different PES
+
+flussonic (3.64.3)
+
+  * flv now reads file by GOP. Compatible with HDS and HLS
+  * flv_reader is now back working
+
+flussonic (3.64.2)
+
+  * dont send metadata on hds lang segments
+  * use deprecated system_flag call, not +sbt command line param
+  * dont fail on audio-only mp4 files
+
+flussonic (3.64.1)
+
+  * file formats now switch from read_frame to read_gop
+  * New mp4 reader: faster and better than old
+  * per-stream RTMP publish password
+  * RTSP now synchronously sends frames
+  * HLS now reuse mpegts_decoder between differen segments
+
+flussonic (3.63.3)
+
+  * disksup refresh is done via separate process in DVR
+
+flussonic (3.63.2)
+
+  * mpegts_reader sends now frames synchronously
+  * fix DVR slowness: don't refresh disksup too often
+  * init script fixed: timeout for start
+  * fix OSMF buffering in the end of file
+
+flussonic (3.63.1)
+
+  * properly show RTMP client ip address
+  * tag flu_file name in process dictionary to debug it
+  * refactoring in RTMP: now socket is gen_server with explicit initialization
+  * show retry count in admin panel
+
+flussonic (3.62.16)
+
+  * fixed mpegts_udp descriptor leak
+  * mpegts_reader now is a named supervisor child
+
+flussonic (3.62.15) 
+
+  * debian startup script now depends on $syslog
+
+flussonic (3.62.14)
+
+  * switch to prim_file in dvr:scan to make it load 20 times faster
+
+flussonic (3.62.13)
+
+  * fixed deploying mpegts_udp driver
+
+flussonic (3.62.12)
+
+  * fix dvr file URL generation
+  * m3u8 parsing
+  * Strobe player now resends http request
+
+flussonic (3.62.11)
+
+  * fix HDS bootstrap generation when choosing duration and last keyframe
+  * RTMP publish creates prefixed streams
+  * fixed dvr_session handling empty segments
+  * reenable mpegts_reader udp input
+
+flussonic (3.62.10)
+
+  * mpegts_udp now doesn't fail on minor errors
+
+flussonic (3.62.9)
+
+  * updated bundled debian mpegts_udp driver
+
+flussonic (3.62.8)
+
+  * mpegts_decoder now resyncs if 16#47 lost
+  * mpegts_reader now can use mpegts_udp driver
+  * mpegts_udp overflow protection ({active,once} mode)
+
+flussonic (3.62.7)
+
+  * fix mpegts_handler error when not-existing stream requested
+
+flussonic (3.62.6)
+
+  * introducing mpegts_udp: special udp multicast reader for MPEG-TS
+
+flussonic (3.62.5)
+
+  * /etc/init.d/flussonic reload added
+
+flussonic (3.62.4)
+
+  * capture udp multicast input
+  * handling lack of timestamps in mpegts stream
+
+flussonic (3.62.3)
+
+  * don't loose last AAC frame in mpegts file
+  * enable autoswitch between rtsp udp and rtsp interleaved tcp
+
+flussonic (3.62.2)
+
+  * play files via RTSP
+  * flu_session now validates input
+
+flussonic (3.62.1)
+
+  * RTSP play/pause
+  * RTSP authorization
+
+flussonic (3.62)
+
+  * iptv module fetches status from telecasts
+  * HLS reader can select bitrate
+  * new mpegts_decoder code
+
+
+

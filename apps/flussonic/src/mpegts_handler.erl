@@ -106,7 +106,7 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
   Started = length([S || #stream_info{content = video} = S <- Streams]) == 0,
   ?MODULE:write_loop(Req, Mpegts, Started);
 
-handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>}) ->  
+handle0(Req, #mpegts{name = StreamName, options = _Options, method = <<"POST">>}) ->  
   throw(mpegts_input_disabled),
 
   ?D({mpegts_input,StreamName}),
