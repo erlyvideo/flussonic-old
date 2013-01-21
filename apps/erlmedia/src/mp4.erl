@@ -443,10 +443,10 @@ trak(<<>>, MediaInfo) ->
   MediaInfo;
   
 trak(Atom, #mp4_media{tracks = Tracks, duration = Duration} = Media) ->
-  #mp4_track{codec = Codec, duration = TrackDuration} =Track = parse_atom(Atom, #mp4_track{number = size(Tracks)+1}),
+  #mp4_track{codec = Codec, duration = TrackDuration, timescale = Timescale} =Track = parse_atom(Atom, #mp4_track{number = size(Tracks)+1}),
   case Codec of
     undefined -> ?D({skip_mp4_track, undefined_codec}),Media;
-    _ -> Media#mp4_media{tracks = erlang:append_element(Tracks,Track), duration = lists:max([Duration,TrackDuration])}
+    _ -> Media#mp4_media{tracks = erlang:append_element(Tracks,Track), duration = lists:max([Duration,TrackDuration*1000/Timescale])}
   end.
 
 
@@ -561,7 +561,7 @@ stbl(Atom, #mp4_track{} = Mp4Track1) ->
   % {_T2, {Frames, IndexInfo}} = timer:tc(fun() -> fill_track(TrackId, SampleSizes, ChunkOffsets, ChunkSizes, Keyframes, Timestamps, Compositions, Timescale) end),
   
   % [{Duration,_}|_] = IndexInfo,
-  TrackDuration = lists:max([Duration, lists:last([0|Keyframes1]) + 1000])*1000/Timescale,
+  TrackDuration = lists:max([Duration, lists:last([0|Keyframes1]) + 1000]),
   R = Mp4Track3#mp4_track{keyframes = Keyframes, bitrate = Bitrate, duration = TrackDuration},
 
   _T4 = erlang:now(),
@@ -790,6 +790,7 @@ lookup_adts(<<Count:32, Duration:32, STTS/binary>>, StartDTS, EndDTS, DTS, First
   end,
   Start = Before + FirstId,
   RealStartDTS = Before*Duration + DTS,
+  % ?debugFmt("~B + ~B*~B = ~B <?> ~B", [DTS, Count, Duration, DTS + Count*Duration, EndDTS]),
   if DTS + Count*Duration < EndDTS ->
     OurTimestamps = lists:seq(RealStartDTS, DTS + (Count-1)*Duration, Duration),
     {_, End, NextTimestamps} = lookup_adts(STTS, DTS + Count*Duration, EndDTS, DTS + Count*Duration, FirstId + Count),
@@ -861,6 +862,9 @@ co64(<<0:8, _Flags:3/binary, OffsetCount:32, Offsets/binary>>, Mp4Track) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+read_gop(#mp4_media{} = _, N, _) when N =< 0 ->
+  {error, no_segment};
+
 read_gop(#mp4_media{} = Media, N, TrackIds) ->
   try read_gop0(Media, N, TrackIds)
   catch
@@ -896,7 +900,7 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module,Device}} = Media, N, [A_]
 read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_]) when (element(V_,Tracks))#mp4_track.content == video ->
   #mp4_track{content = video, keyframes = Keyframes1, sample_count = VideoCount} = V = element(V_, Tracks),
   Keyframes = video_frame:reduce_keyframes(Keyframes1),
-  N < length(Keyframes) orelse throw({error, no_segment}),
+  N =< length(Keyframes) orelse throw({error, no_segment}),
   
   {{_VStartDTS, VStart}, {_VEndDTS, VEnd}} = case lists:nthtail(N-1, Keyframes) of
     [K1,K2|_] -> {K1,K2};
@@ -920,7 +924,7 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
   #mp4_track{content = video, keyframes = Keyframes1, sample_count = VideoCount} = V = element(V_, Tracks),
   #mp4_track{content = audio, sample_dts = ATimestamps, timescale = AScale, codec = ACodec, duration = Duration} = A = element(A_, Tracks),
   Keyframes = video_frame:reduce_keyframes(Keyframes1),
-  N < length(Keyframes) orelse throw({error, no_segment}),
+  N =< length(Keyframes) orelse throw({error, no_segment}),
   
   {{VStartDTS, VStart}, {VEndDTS, VEnd}} = case lists:nthtail(N-1, Keyframes) of
     [K1,K2|_] -> {K1,K2};
@@ -931,6 +935,8 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
   VideoFrames3 = [F#video_frame{body = unok(Module:pread(Device, Offset, Size))} || #video_frame{body = {Offset,Size}} = F <- VideoFrames2],
   VideoFrames = VideoFrames3,
 
+  % ?debugFmt("lookup aframes in (~.1f,~.1f) -> (~B,~B) (dur: ~p)", 
+  %   [VStartDTS, VEndDTS, round(VStartDTS*AScale/1000), round(VEndDTS*AScale/1000), Duration]),
   {AStart, AEnd, TSList} = lookup_audio_dts(ATimestamps, round(VStartDTS*AScale/1000), round(VEndDTS*AScale/1000)),
   AOffsets = lookup_offsets(A, AStart, AEnd),
   length(TSList) == length(AOffsets) orelse error({bad_audio,length(TSList), length(AOffsets)}),

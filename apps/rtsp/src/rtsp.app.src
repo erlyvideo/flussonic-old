@@ -3,5 +3,5 @@
  {vsn, "3.1"},
  {registered,[rtsp]},
  {applications, [kernel,stdlib,ranch]},
- {mod, {rtsp,[]}}
+ {mod, {rtsp_app,[]}}
 ]}.

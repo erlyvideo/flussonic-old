@@ -7,84 +7,139 @@
 %%%
 %%% This file is part of erlang-rtsp.
 %%%
-%%% erlang-rtsp is free software: you can redistribute it and/or modify
-%%% it under the terms of the GNU General Public License as published by
-%%% the Free Software Foundation, either version 3 of the License, or
-%%% (at your option) any later version.
-%%%
-%%% erlang-rtsp is distributed in the hope that it will be useful,
-%%% but WITHOUT ANY WARRANTY; without even the implied warranty of
-%%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-%%% GNU General Public License for more details.
-%%%
-%%% You should have received a copy of the GNU General Public License
-%%% along with erlang-rtsp.  If not, see <http://www.gnu.org/licenses/>.
-%%%
+%%% License is GPL
 %%%---------------------------------------------------------------------------------------
 -module(rtsp).
 -author('Max Lapshin <max@maxidoors.ru>').
--behaviour(application).
 -include("log.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 
--export([start/0, stop/0, start/2, stop/1, config_change/3]).
--export([start_server/3, stop_server/1, behaviour_info/1, test/1]).
+-export([start_server/3, stop_server/1]).
+-export([read/2]).
 
-
-start() ->
-  application:start(rtsp).
-
-stop() ->
-  application:stop(rtsp).
-
-%%--------------------------------------------------------------------
-%% @spec (Type::any(), Args::list()) -> any()
-%% @doc Starts RTSP library
-%% @end
-%%--------------------------------------------------------------------
-start(_Type, _Args) ->
-  rtsp_sup:start_link().
-
-
-
-%%--------------------------------------------------------------------
-%% @spec (Any::any()) -> ok()
-%% @doc Stop RTSP library
-%% @end
-%%--------------------------------------------------------------------
-stop(_S) ->
-  ok.
-
-
-%%--------------------------------------------------------------------
-%% @spec (Any::any(),Any::any(),Any::any()) -> any()
-%% @doc Reload RTSP config
-%% @end
-%%--------------------------------------------------------------------
-config_change(_Changed, _New, _Remove) ->
-  ok.
-
-
-
-%%-------------------------------------------------------------------------
-%% @spec (Callbacks::atom()) -> CallBackList::list()
-%% @doc  List of require functions in a video file reader
-%% @hidden
-%% @end
-%%-------------------------------------------------------------------------
-behaviour_info(callbacks) -> [{record,2}, {announce,3}];
-behaviour_info(_Other) -> undefined.
-
+-define(TIMEOUT, 1000).
 
 start_server(Port, Name, Callback) ->
   ranch:start_listener(Name, 10, ranch_tcp, [{port, Port}], rtsp_listener, [Callback, []]).
 
-
 stop_server(Name) ->
   ranch:stop_listener(Name).
 
+-type rtsp_request() :: {rtsp,request, {Method::binary(), URL::binary()}, Headers::list(), Body::binary() | undefined}.
+-type rtsp_response() :: {rtsp,response, {Code::integer(), Status::binary()}, Headers::list(), Body::binary() | undefined}.
+-type rtsp_rtp() :: {rtsp, rtp, Channel::integer(), undefined, Body::binary()}.
 
 
-test(Camera) ->
-  rtsp_tests:test_camera(Camera).
+-spec read(Socket::inet:socket(), Data::binary()) -> 
+  {ok, rtsp_request(), Rest::binary()} | 
+  {ok, rtsp_response(), Rest::binary()} | 
+  {ok, rtsp_rtp(), Rest::binary()} | 
+  {error, Error::term()}.
+
+read(_Socket, <<$$, Channel, Length:16, RTP:Length/binary, Rest/binary>>) ->
+  {ok, {rtsp, rtp, Channel, undefined, RTP}, Rest};
+
+read(Socket, <<$$, _>> = Data) ->
+  RequiredBytes = case Data of
+    _ when size(Data) < 4 -> 4 - size(Data);
+    <<$$, _Channel, Length:16, Rest/binary>> -> Length - size(Rest)
+  end,
+  {ok, Bin} = gen_tcp:recv(Socket, RequiredBytes, ?TIMEOUT),
+  read(Socket, <<Data/binary, Bin/binary>>);
+
+
+read(Socket, Data) when is_port(Socket), is_binary(Data) ->
+  case binary:split(Data, <<"\r\n">>) of
+    [<<"RTSP/1.0 ", Response/binary>>, After] -> read_response(Socket, Response, After);
+    [RequestLine, After] -> read_request(Socket, RequestLine, After);
+    [_] ->
+      inet:setopts(Socket, [{packet,line},{active,false}]),
+      case gen_tcp:recv(Socket, 0, ?TIMEOUT) of
+        {ok, Line} when size(Data) > 0 ->
+          read(Socket, <<Data/binary, Line/binary>>);
+        {ok, Line} when size(Data) == 0 ->
+          read(Socket, Line)
+      end
+  end.
+
+
+read_request(Socket, RequestLine, Data) ->
+  case binary:split(RequestLine, <<" ">>, [global]) of
+    [Request, URL, _Protocol] ->
+      {Headers, Rest} = read_headers(Socket, Data),
+      inet:setopts(Socket, [{active,false},{packet,raw}]),
+      {Body, Rest1} = read_body(Socket, Headers, Rest),
+      {ok, {rtsp,request, {Request, URL}, Headers, Body}, Rest1};
+    _Else ->
+      {error, {invalid_rtsp_request, RequestLine}}
+  end.
+
+read_response(Socket, ResponseLine, Data) ->
+  case re:run(ResponseLine, "(\\d+) (.*)$", [{capture,all_but_first,binary}]) of
+    {match, [Code_, Message]} ->
+      Code = list_to_integer(binary_to_list(Code_)),
+      {Headers, Rest} = read_headers(Socket, Data),
+      inet:setopts(Socket, [{active,false},{packet,raw}]),
+      {Body, Rest1} = read_body(Socket, Headers, Rest),
+      {ok, {rtsp,response,{Code,Message},Headers,Body}, Rest1};
+    nomatch ->
+      {error, {invalid_rtsp_response, ResponseLine}}
+  end.
+
+
+read_body(Socket, Headers, Data) ->
+  case proplists:get_value(<<"Content-Length">>, Headers) of
+    undefined -> {undefined, Data};
+    Length_ ->
+      Length = list_to_integer(binary_to_list(Length_)),
+      if Data == <<>> ->
+        {ok, B} = gen_tcp:recv(Socket, Length, 3*?TIMEOUT),
+        {B, <<>>};
+      size(Data) == Length ->
+        {Data, <<>>};
+      size(Data) < Length ->
+        {ok, B} = gen_tcp:recv(Socket, Length - size(Data), 3*?TIMEOUT),
+        {<<Data/binary, B/binary>>, <<>>};
+      size(Data) > Length ->
+        erlang:split_binary(Data, Length)
+      end
+  end.
+
+
+
+
+read_headers(_Socket, <<"\r\n", Rest/binary>>) ->
+  {[], Rest};
+
+read_headers(Socket, Data) ->
+  case binary:split(Data, <<"\r\n">>) of
+    [Header, After] ->
+      [Key, Value] = binary:split(Header, <<": ">>),
+      {Headers, Rest} = read_headers(Socket, After),
+      {[{Key,Value}|Headers], Rest};
+    [_] ->
+      inet:setopts(Socket, [{packet,line},{active,false}]),
+      case gen_tcp:recv(Socket, 0, ?TIMEOUT) of
+        {ok, Line} when size(Data) > 0 ->
+          read_headers(Socket, <<Data/binary, Line/binary>>);
+        {ok, Line} when size(Data) == 0 ->
+          read_headers(Socket, Line)
+      end
+  end.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

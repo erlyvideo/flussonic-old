@@ -1,3 +1,8 @@
+flussonic (3.66.2)
+
+  * Mpegts handler disconnects old connection with same user_id. EV:25120
+  * Fixed bug with mp4 last gop. EV:25123
+
 flussonic (3.66.1)
 
   * initial commit for publishing video via mpegts_handler

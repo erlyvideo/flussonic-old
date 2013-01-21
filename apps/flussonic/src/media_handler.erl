@@ -311,10 +311,10 @@ retrieve_token(Req0) ->
 check_sessions(Req, Name, Opts) ->
   case proplists:get_value(sessions, Opts) of
     undefined -> {ok, undefined};    % no backend specified
-    URL -> check_sessions0(URL, Name, Req, proplists:get_value(type, Opts, <<"http">>))
+    URL -> check_sessions0(URL, Name, Req, proplists:get_value(type, Opts, <<"http">>), Opts)
   end.
 
-check_sessions0(URL, Name0, Req0, Type) ->
+check_sessions0(URL, Name0, Req0, Type, Opts) ->
   % case cowboy_req:qs_val(<<"session">>, Req0, undefined) of
   case retrieve_token(Req0) of
     {undefined, _} -> throw({return, 403, "no_token_passed"}); % no token specified
@@ -326,6 +326,9 @@ check_sessions0(URL, Name0, Req0, Type) ->
       Options = [{type,Type}] ++ case Referer of
         undefined -> [];
         _ -> [{referer,Referer}]
+      end ++ case proplists:get_value(pid, Opts) of
+        undefined -> [];
+        Pid -> [{pid,Pid}]
       end,
       case flu_session:verify(URL, Identity, Options) of
         {ok, _} ->

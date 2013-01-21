@@ -22,7 +22,6 @@
 %%%
 %%%---------------------------------------------------------------------------------------
 -module(rtsp_example_callback).
--behaviour(rtsp).
 -author('Max Lapshin <max@maxidoors.ru>').
 -include("log.hrl").
 

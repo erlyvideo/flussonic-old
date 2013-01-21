@@ -123,14 +123,14 @@ media_info(Stream, Count) ->
 
 
 describe(URL, Headers, _Body) ->
-  ?D({describe,URL}),
   {rtsp, _, _Host, _Port, "/"++Path, _} = http_uri2:parse(URL),
   case Path of
     "archive" -> describe_archive(Headers);
     _ -> 
       case flu_media:find_or_open(list_to_binary(Path)) of
-        {ok, {file, File}} -> {ok, flu_file:media_info(File)};
-        {ok, {stream, Stream}} -> media_info(Stream)
+        {ok, {file, File}} -> lager:info("RTSP DESCRIBE file ~p", [Path]), {ok, flu_file:media_info(File)};
+        {ok, {stream, Stream}} -> lager:info("RTSP DESCRIBE stream ~p", [Path]), media_info(Stream);
+        {error, enoent} -> lager:info("RTSP DESCRIBE 404 ~p", [Path]), {error, enoent}
       end
   end.
 

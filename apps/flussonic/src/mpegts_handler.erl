@@ -89,7 +89,7 @@ handle(Req, State) ->
 handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _State) ->
   {ok, Transport, Socket} = cowboy_req:transport(Req),
 
-  {ok, _} = media_handler:check_sessions(Req, Name, Options),
+  {ok, _} = media_handler:check_sessions(Req, Name, [{pid,self()}|Options]),
 
   OurName = iolist_to_binary(io_lib:format("mpegts_client(~s)", [Name])),
   erlang:put(name, OurName),

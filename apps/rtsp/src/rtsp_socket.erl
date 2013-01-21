@@ -238,6 +238,8 @@ handle_request(<<"DESCRIBE">>, URL1, Headers, Body, #rtsp{callback = Callback} =
       reply(401, [{"WWW-Authenticate", "Basic realm=\"Flussonic Streaming Server\""}], RTSP);
     {error, no_media_info} ->
       reply(404, [], RTSP);
+    {error, enoent} ->
+      reply(404, [], RTSP);
     {ok, #media_info{streams = Streams} = MediaInfo1} ->
       MediaInfo = MediaInfo1#media_info{streams = 
         [S#stream_info{options = []} 

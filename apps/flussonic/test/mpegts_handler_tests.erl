@@ -14,6 +14,7 @@ mpegts_test_() ->
       {rewrite, "testlivestream", "/dev/null"},
       {stream, "channel0", "passive://ok"},
       {stream, "channel1", "passive://ok"},
+      {stream, "channel2", "passive://ok", [{sessions, "http://127.0.0.1:5555/auth"}]},
       {mpegts, "mpegts"}
     ],
     {ok, Config} = flu_config:parse_config(Conf, undefined),
@@ -26,7 +27,7 @@ mpegts_test_() ->
 
     cowboy:start_http(fake_http, 3, 
       [{port,5555}],
-      [{dispatch,[{'_',flu_config:parse_routes(Config)}]}]
+      [{dispatch,[{'_',[{[<<"auth">>], fake_auth, [unique_user_id]}] ++ flu_config:parse_routes(Config)}]}]
     ),
     {ok, _Pid} = flu_stream:autostart(<<"channel0">>),
     % [Pid ! F || F <- lists:sublist(flu_rtmp_tests:h264_aac_frames(), 1, 50)],
@@ -39,6 +40,7 @@ mpegts_test_() ->
     application:stop(ranch),
     application:stop(cowboy),
     application:stop(gen_tracker),
+    application:stop(inets),
     error_logger:add_report_handler(error_logger_tty_h),
     ok
   end,
@@ -49,6 +51,8 @@ mpegts_test_() ->
     ,{"test_mpegts2", fun test_mpegts2/0}
     ,{"test_null_packets_when_frames_delay", fun test_null_packets_when_frames_delay/0}
     ,{"test_change_media_info", fun test_change_media_info/0}
+    ,{"test_unauthorized_access", fun test_unauthorized_access/0}
+    ,{"test_authorized_access_with_unique_user_id", fun test_authorized_access_with_unique_user_id/0}
   ]
   }.
 
@@ -163,6 +167,41 @@ test_change_media_info() ->
   ?assertMatch(Len when Len > 10, length([F || #video_frame{content = audio} = F <- OutFrames2])),
 
   ok.
+
+
+test_unauthorized_access() ->
+  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock1, ["GET /channel2/mpegts HTTP/1.0\r\n\r\n"]),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0),
+  ?assertEqual(403, Code),
+  gen_tcp:close(Sock1),
+  ok.
+
+
+test_authorized_access_with_unique_user_id() ->
+
+  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock1, ["GET /channel2/mpegts?token=123 HTTP/1.0\r\n\r\n"]),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0),
+  ?assertEqual(200, Code),
+  read_headers(Sock1),
+
+
+  {ok, Sock2} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock2, ["GET /channel2/mpegts?token=456 HTTP/1.0\r\n\r\n"]),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock2, 0),
+  read_headers(Sock2),
+  ?assertEqual(200, Code),
+
+  inet:setopts(Sock1, [{active,true}]),
+  receive
+    {tcp_closed, Sock1} -> ok
+  after
+    500 -> error(previous_socket_not_closed)
+  end,
+  gen_tcp:close(Sock2),
+  ok.
+
 
 
 

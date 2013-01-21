@@ -10,13 +10,33 @@ keyframes_test() ->
   {ok, F} = file:open("../../../priv/bunny.mp4", [read,binary,raw]),
   {ok, R} = mp4:open({file,F}, []),
   [io:format("{~B,~B},~n", [round(T),I]) || {T,I} <- mp4:keyframes(R, [1,2])],
-  ?assertMatch([{0,_},{2000,_},{4000,_},{6000,_},{8000,_},
-{10000,_},{11875,_},{13875,_},{15750,_},{17750,_},{19750,_},
-{21750,_},{23042,_},{25042,_},{27042,_},{29042,_},{31042,_},{33042,_},
-{35042,_},{37042,_},{39042,_},{41042,_},{43042,_},{45042,_},{47042,_},
-{49042,_},{51042,_},{53042,_},{55042,_},{56083,_},{58083,_}], 
+  ?assertMatch([
+{0,_},    {2000,_}, {4000,_}, {6000,_}, {8000,_}, {10000,_},
+{11875,_},{13875,_},{15750,_},{17750,_},{19750,_},{21750,_},
+{23042,_},{25042,_},{27042,_},{29042,_},{31042,_},{33042,_},
+{35042,_},{37042,_},{39042,_},{41042,_},{43042,_},{45042,_},
+{47042,_},{49042,_},{51042,_},{53042,_},{55042,_},{56083,_},{58083,_}], 
 [{round(T), I} || {T,I} <- mp4:keyframes(R, [1,2])]),
   file:close(F),
+  ok.
+
+last_gop_test() ->
+  {ok, F} = file:open("../../../priv/bunny.mp4", [read,binary,raw]),
+  {ok, R} = mp4:open({file,F}, []),
+
+  ?assertEqual({error, no_segment}, mp4:read_gop(R,0,[1,2])),
+
+
+  ?assertEqual(16, length(video_frame:reduce_keyframes(mp4:keyframes(R, [1])))),
+  ?assertMatch({ok, [#video_frame{}|_]}, mp4:read_gop(R,16,[1])),
+
+  ?assertEqual(16, length(video_frame:reduce_keyframes(mp4:keyframes(R, [1,2])))),
+  ?assertMatch({ok, [#video_frame{}|_]}, mp4:read_gop(R,16,[1,2])),
+
+  % ?assertEqual(16, length(video_frame:reduce_keyframes(mp4:keyframes(R, [2])))),
+  % ?assertMatch({ok, [#video_frame{}|_]}, mp4:read_gop(R,16,[2])),
+
+  ?assertEqual({error, no_segment}, mp4:read_gop(R,17,[1,2])),
   ok.
 
 missing_gop_test() ->

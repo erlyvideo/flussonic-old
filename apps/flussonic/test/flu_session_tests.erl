@@ -462,7 +462,32 @@ test_unique_session_with_persistent_connection_same_ip() ->
   ok.
 
 
+% Perhaps we should recheck authorization once in some time for persistent connections
+%
+% test_periodic_refresh_of_auth() ->
+%   meck:expect(flu_session, backend_request, fun(_, _, _) ->
+%     {ok,[{access,granted},{user_id,14},{unique,true}]} 
+%   end),
 
+%   Pid1 = spawn(fun() ->
+%     receive Msg -> Msg end
+%   end),
+
+%   ?assertEqual({ok, <<"cam0">>},
+%     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"1">>},{name,<<"cam0">>}], [{pid,Pid1}])),
+%   ?assertMatch([#session{ip = <<"127.0.0.1">>, pid = Pid1}], 
+%     ets:select(flu_session:table(), ets:fun2ms(fun(#session{user_id = 14, access= granted} = E) -> E end))),
+
+%   ?assert(erlang:is_process_alive(Pid1)),
+
+%   ?assertEqual({ok, <<"cam0">>},
+%     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"1">>},{name,<<"cam0">>}], [{pid,Pid1}])),
+%   ?assertMatch([#session{ip = <<"127.0.0.1">>, pid = Pid1}], 
+%     ets:select(flu_session:table(), ets:fun2ms(fun(#session{user_id = 14, access= granted} = E) -> E end))),
+%   ?assert(erlang:is_process_alive(Pid1)),
+  
+%   Pid1 ! stop,
+%   ok.
 
 
 
