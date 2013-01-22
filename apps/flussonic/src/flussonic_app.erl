@@ -27,7 +27,7 @@
 
 %% Application callbacks
 -export([start/2, stop/1]).
--export([load_config/0, unload_config/0]).
+-export([read_config/0, load_config/0]).
 % -export([current_cowboy_port/1]).
 -include("log.hrl").
 
@@ -48,10 +48,6 @@ stop(_State) ->
   ok.
 
 
-unload_config() ->
-  flu_event:remove_handler(flu_session_log),
-  ok.
-
 
 
 % current_cowboy_port(Name) ->
@@ -69,34 +65,42 @@ unload_config() ->
 %   [_Count, cowboy_tcp_transport, Opts|_] = A,
 %   proplists:get_value(port, Opts).
 
-load_config() ->
+
+read_config() ->
   case flu_config:load_config() of
     {ok, Env1, ConfigPath} ->
       flu_config:set_config(Env1),
-      {ok, Vsn} = application:get_key(flussonic, vsn),
-	    error_logger:info_msg("Loading config for version ~s from ~s", [Vsn, ConfigPath]),
-	    ok;
+      application:load(flussonic),
+      Vsn = case application:get_key(flussonic, vsn) of
+        {ok, V} -> V;
+        undefined -> undefined
+      end,
+      case application:get_env(flussonic, config) of
+        undefined -> error_logger:info_msg("Loading config for version ~s from ~s", [Vsn, ConfigPath]);
+        {ok, _} -> ok
+      end,
+      flu_config:get_config();
     {error, enoent} ->
       error_logger:error_msg("Can't find flussonic.conf in any folder~n"),
-      timer:sleep(2000),
-      erlang:halt(1);
+      throw(invalid_config);
+    {error, {Line,erl_parse,Message}} ->
+      error_logger:error_msg("flussonic.conf has invalid syntax on line ~B. Error is: ~s, but is may be earlier~n", [Line,Message]),
+      throw(invalid_config);
     {error, Else} ->
       error_logger:error_msg("Can't open flussonic.conf: ~p~n", [Else]),
-      timer:sleep(2000),
-      erlang:halt(1)
-	end,  
-  Env = flu_config:get_config(),
-  Routes = flu_config:parse_routes(Env),
-  Dispatch = [{'_', Routes}],
-  {http, HTTPPort} = lists:keyfind(http, 1, Env),
-  application:start(cowboy),
+      throw(invalid_config)
+  end.
 
+load_config() ->
+  Env = read_config(),  
+
+  Dispatch = [{'_', flu_config:parse_routes(Env)}],
+  {http, HTTPPort} = lists:keyfind(http, 1, Env),
 
   ProtoOpts = [{dispatch, Dispatch},{max_keepalive,4096}],
   
-  stop_http(flu_http),
   start_http(flu_http, 100, 
-    [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
+    [{port,HTTPPort},{backlog,4096},{max_connections,32768}],
     ProtoOpts
   ),
 
@@ -107,11 +111,6 @@ load_config() ->
   %   cowboy_http_protocol, ProtoOpts
   % ),
   % end,
-  
-  
-  [catch flu_stream:update_options(Stream, [{url,URL}|StreamOpts]) || {stream, Stream, URL, StreamOpts} <- Env],
-  ConfigStreams = [Stream || {stream, Stream, _URL, _StreamOpts} <- Env],
-  [catch flu_stream:non_static(Name) || {Name, _} <- flu_stream:list(), not lists:member(Name, ConfigStreams)],
   
   
   case proplists:get_value(rtmp, Env) of
@@ -139,12 +138,20 @@ load_config() ->
       false -> ok
     end
   end || {plugin, Plugin, Options} <- flu_config:get_config()],
+
+  [catch flu_stream:update_options(Stream, [{url,URL}|StreamOpts]) || {stream, Stream, URL, StreamOpts} <- Env],
+  ConfigStreams = [Stream || {stream, Stream, _URL, _StreamOpts} <- Env],
+  [catch flu_stream:non_static(Name) || {Name, _} <- flu_stream:list(), not lists:member(Name, ConfigStreams)],  
+
   ok.
 
 
-start_http(Ref, NbAcceptors, TransOpts, ProtoOpts)
-    when is_integer(NbAcceptors) ->
-  cowboy:start_http(Ref, NbAcceptors, TransOpts, ProtoOpts).
+start_http(Ref, NbAcceptors, TransOpts, ProtoOpts) when is_integer(NbAcceptors) ->
+  {port, Port} = lists:keyfind(port, 1, TransOpts),
+  case (catch ranch:get_port(Ref)) of
+    Port -> ranch:set_protocol_options(Ref, ProtoOpts);
+    _ -> 
+      cowboy:stop_listener(Ref),
+      cowboy:start_http(Ref, NbAcceptors, TransOpts, ProtoOpts)
+  end.
 
-stop_http(Ref) ->
-  cowboy:stop_listener(Ref).

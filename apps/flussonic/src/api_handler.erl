@@ -41,7 +41,10 @@ init({_Any,http}, Req, Opts) ->
   {Upgrade, Req1} = cowboy_req:header(<<"upgrade">>, Req),
   case to_lower(Upgrade) of
     <<"websocket">> ->
-      {upgrade, protocol, cowboy_websocket};
+      % check_auth(Req, Opts, http_auth, init, fun() ->
+        {upgrade, protocol, cowboy_websocket}
+      % end)
+      ;
     undefined ->
       Mode = proplists:get_value(mode, Opts),
       {ok, Req1, {Mode,Opts}}
@@ -70,8 +73,20 @@ handle(Req, {events, _Opts}) ->
   end;
 
 
+handle(Req, {mainpage, Opts}) ->
+  check_auth(Req, Opts, http_auth, fun() ->
+    case file:read_file("priv/index.html") of
+      {ok, HTML} ->
+        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"text/html">>}], HTML, Req),
+        {ok, R1, undefined};
+      {error, enoent} ->
+        {ok, R1} = cowboy_req:reply(404, [{<<"Content-Type">>, <<"text/plain">>}], "not found\n", Req),
+        {ok, R1, undefined}
+    end
+  end);
+
 handle(Req, {sessions, Opts}) ->
-  check_auth(Req, Opts, viewer, fun() ->
+  check_auth(Req, Opts, http_auth, fun() ->
     {Name, Req1} = cowboy_req:qs_val(<<"name">>,Req),
     List = case Name of
       undefined -> flu_session:json_list();
@@ -83,7 +98,7 @@ handle(Req, {sessions, Opts}) ->
 
 
 handle(Req, {pulse, Opts}) ->
-  check_auth(Req, Opts, viewer, fun() ->
+  check_auth(Req, Opts, http_auth, fun() ->
     case erlang:function_exported(pulse, json_list, 1) of
       true ->
         {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(pulse:json_list(traffic)), "\n"], Req),
@@ -96,7 +111,7 @@ handle(Req, {pulse, Opts}) ->
 
 
 handle(Req, {streams, Opts}) ->
-  check_auth(Req, Opts, viewer, fun() ->
+  check_auth(Req, Opts, http_auth, fun() ->
     {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(flu_stream:json_list()), "\n"], Req),
     {ok, R1, undefined}
   end);
@@ -119,7 +134,7 @@ handle(Req, {stream_restart, Opts}) ->
 
 
 handle(Req, {health, Opts}) ->
-  check_auth(Req, Opts, viewer, fun() ->
+  check_auth(Req, Opts, http_auth, fun() ->
     {PathInfo, _} = cowboy_req:path_info(Req),
     Name = flu:join(PathInfo, "/"),
     StreamInfo = proplists:get_value(Name, flu_stream:list(), []),
@@ -215,7 +230,7 @@ check_password(Req, Login, Password, Caller, Fun) ->
   GoodAuth = iolist_to_binary(["Basic ", base64:encode_to_string(Login++":"++Password)]),
   if Auth == GoodAuth -> Fun();
   true -> 
-    {ok, Req2} = cowboy_req:reply(401, [], "401 Forbidden\n", Req1),
+    {ok, Req2} = cowboy_req:reply(401, [{<<"Www-Authenticate">>, <<"Basic realm=Flussonic">>}], "401 Forbidden\n", Req1),
     case Caller of
       handle -> {ok, Req2, undefined};
       init -> {shutdown, Req2, undefined}

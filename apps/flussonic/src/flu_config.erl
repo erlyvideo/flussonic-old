@@ -112,7 +112,7 @@ to_b(undefined) -> undefined;
 to_b(Atom) when is_atom(Atom) -> binary_to_atom(Atom, latin1).
 
 expand_options(Env) ->
-  GlobalKeys = [sessions],
+  GlobalKeys = [sessions,http_auth],
   GlobalOptions = [Entry || Entry <- Env, is_tuple(Entry) andalso lists:member(element(1,Entry),GlobalKeys)],
 
   [expand_entry(Entry,GlobalOptions) || Entry <- Env].
@@ -127,7 +127,8 @@ expand_entry({live, Prefix},GlobalOptions) -> {live, to_b(Prefix), GlobalOptions
 expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merge(Options,GlobalOptions)};
 expand_entry({file, Prefix, Root},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), GlobalOptions};
 expand_entry({file, Prefix, Root, Options},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), merge(Options,GlobalOptions)};
-expand_entry(api, _GlobalOptions) -> {api, []};
+expand_entry(api, GlobalOptions) -> {api, GlobalOptions};
+expand_entry({api, Options}, GlobalOptions) -> {api, merge(Options,GlobalOptions)};
 expand_entry({plugin, Plugin},_GlobalOptions) -> {plugin, Plugin, []};
 expand_entry(Entry,_GlobalOptions) -> Entry.
 
@@ -164,11 +165,6 @@ parse_routes([{root, Root}|Env]) ->
     false -> cowboy_static
   end,
   [
-  {[], Module, [
-    {directory, Root},
-    {mimetypes, [{<<".html">>,[<<"text/html">>]}]},
-    {file, <<"index.html">>}
-  ]},
   {['...'], Module, [
     {directory,Root},
     {mimetypes, {fun mimetypes:path_to_mimes/2, default}}
@@ -181,6 +177,7 @@ parse_routes([{mpegts,Prefix,Options}|Env]) ->
 
 parse_routes([{api,Options}|Env]) ->
   [
+    {[], api_handler, [{mode,mainpage}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"reload">>], api_handler, [{mode,reload}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"events">>], api_handler, [{mode,events}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"streams">>], api_handler, [{mode,streams}|Options]},

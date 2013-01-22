@@ -426,7 +426,7 @@ flu_file_http_test_() ->
     ok = application:stop(ranch),
     ok = application:stop(flussonic),
     ok = application:stop(cowboy),
-    % ok = application:stop(inets),
+    application:stop(inets),
     ok = application:stop(gen_tracker),
     error_logger:add_report_handler(error_logger_tty_h),
     ok
@@ -461,7 +461,7 @@ test_answer_404_on_no_file() ->
   ?assertMatch({ok, {_, 404, _, _}}, Result).
 
 test_answer_404_on_no_file_with_auth() ->
-  set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:5555/index.html"}]},{root, "../../../wwwroot"}]),
+  set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:5555/crossdomain.xml"}]},{root, "../../../wwwroot"}]),
 
   Result1 = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m",[{keepalive,false}]),
   ?assertMatch({error, {http_code, 403}}, Result1),

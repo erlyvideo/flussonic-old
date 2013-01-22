@@ -70,8 +70,21 @@ loop_readline() ->
 
 start() ->
   start([]).
-  
-start(_Options) ->
+
+start(Options) ->
+  try start0(Options)
+  catch
+    throw:{stop,_Code} -> init:stop()
+  end.
+
+
+
+start0(_Options) ->
+  try flussonic_app:read_config()
+  catch
+    invalid_config -> timer:sleep(2000), throw({stop,2})
+  end,
+
   catch erlang:system_flag(scheduler_bind_type, spread),
   application:start(compiler),
   application:load(lager),
@@ -85,7 +98,7 @@ start(_Options) ->
 
   {FileLogger, CrashLogger} = case os:getenv("LOGDIR") of
     false ->
-      {[], false};
+      {[], undefined};
     LogDir ->
       {[{lager_file_backend, [[{LogDir++"/flussonic.log", info, 10485760, "$D04", 40},{lager_default_formatter, FileFormat}]]}], LogDir++"/crash.log"}
   end,

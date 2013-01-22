@@ -37,6 +37,12 @@ expand_entry_test_() ->
   ?_assertEqual({ok, [{api, [{pass,"admin","passw"}]}]}, 
     flu_config:parse_config([{api,[{pass,"admin","passw"}]}], undefined)),
 
+  ?_assertEqual({ok, [{api, [{http_auth,"user", "zzz"}]},{http_auth,"user", "zzz"}]},
+    flu_config:parse_config([api,{http_auth,"user", "zzz"}], undefined)),
+  ?_assertEqual({ok, [{api, [{http_auth,"user", "zzz"},{pass,"admin","passw"}]},{http_auth,"user", "zzz"}]}, 
+    flu_config:parse_config([{api,[{pass,"admin","passw"}]},{http_auth,"user", "zzz"}], undefined)),
+
+
   ?_assertEqual({ok, [{plugin, iptv, []}]}, 
     flu_config:parse_config([{plugin, iptv}], undefined)),
   ?_assertEqual({ok, [{plugin, iptv, [{cas,none}]}]}, 

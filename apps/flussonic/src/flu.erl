@@ -49,8 +49,10 @@ rebuild() ->
 
 reconf() ->
   error_logger:info_msg("Reloading config"),
-  flussonic_app:unload_config(),
-  flussonic_app:load_config().
+  try flussonic_app:load_config()
+  catch
+    throw:invalid_config -> {error, invalid_config}
+  end.
 
 reload(App) ->
 	application:load(App),
