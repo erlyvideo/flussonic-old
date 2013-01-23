@@ -2,6 +2,9 @@
 
 -include_lib("erlmedia/include/video_frame.hrl").
 
+% sublime: syntax Erlang
+
+
 prepare(Path) ->
   Root = filename:join(filename:dirname(escript:script_name()), ".."),
   [code:add_pathz(Path_) || Path_ <- filelib:wildcard(Root ++ "/apps/*/ebin")],

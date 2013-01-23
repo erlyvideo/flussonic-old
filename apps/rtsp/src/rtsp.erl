@@ -17,6 +17,7 @@
 
 -export([start_server/3, stop_server/1]).
 -export([read/2]).
+-export([header/2, to_lower/1, dump/1]).
 
 -define(TIMEOUT, 1000).
 
@@ -40,11 +41,12 @@ stop_server(Name) ->
 read(_Socket, <<$$, Channel, Length:16, RTP:Length/binary, Rest/binary>>) ->
   {ok, {rtsp, rtp, Channel, undefined, RTP}, Rest};
 
-read(Socket, <<$$, _>> = Data) ->
+read(Socket, <<$$, _/binary>> = Data) ->
   RequiredBytes = case Data of
     _ when size(Data) < 4 -> 4 - size(Data);
     <<$$, _Channel, Length:16, Rest/binary>> -> Length - size(Rest)
   end,
+  inet:setopts(Socket, [{packet,raw},{active,false}]),
   {ok, Bin} = gen_tcp:recv(Socket, RequiredBytes, ?TIMEOUT),
   read(Socket, <<Data/binary, Bin/binary>>);
 
@@ -129,10 +131,28 @@ read_headers(Socket, Data) ->
   end.
 
 
+to_lower(Atom) when is_atom(Atom) -> to_lower(atom_to_binary(Atom, latin1) );
+to_lower(Bin) -> << <<(if C >= $A andalso C =< $Z -> C bor 2#00100000; true -> C end)/integer>> || <<C>> <= Bin >>.
+
+header(Header, Headers) when is_atom(Header) ->
+  header(atom_to_binary(Header, latin1), Headers);
+header(Header, Headers) when is_binary(Header) ->
+  header0(to_lower(Header), Headers).
+
+header0(_, []) -> undefined;
+header0(Header, [{K,V}|Headers]) ->
+  case to_lower(K) of
+    Header -> V;
+    _ -> header0(Header, Headers)
+  end.
 
 
-
-
+dump({rtsp, response, {Code, Status}, Headers, Body}) ->
+  iolist_to_binary(["RTSP/1.0 ", integer_to_list(Code), " ", Status, "\n",
+    [[K, ": ",V,"\n"] || {K,V} <- Headers],
+    "\n",
+    case Body of undefined -> ""; _ -> Body end
+  ]).
 
 
 

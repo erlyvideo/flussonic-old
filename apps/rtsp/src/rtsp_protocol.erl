@@ -13,7 +13,6 @@
 
 -export([to_hex/1, digest_auth/5]).
 
--export([collect_headers/1, collect_body/2, collect_headers_and_body/1]).
 
 -define(RTCP_SR, 200).
 -define(RTCP_RR, 201).
@@ -65,6 +64,7 @@ sync(Proto, Channel, Sync) ->
   get_parameter,
   auth,
   dump = true,
+  last_request,
   chan1,
   chan2,
   rtp_chan1,
@@ -157,14 +157,13 @@ handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetPar
   end,
   {noreply, RTSP#rtsp{url = CleanURL, socket = Socket, auth_info = AuthInfo, auth = Auth, auth_type = AuthType}};
 
-handle_info({request, Ref, Request, RequestHeaders}, #rtsp{socket = Socket, consumer = Consumer} = RTSP) ->
-  {RTSP2, Code, Headers, Body} = call_with_authenticate(RTSP, Request, RequestHeaders),
-  Consumer ! {response, Ref, Code, Headers, Body},
+handle_info({request, Ref, Request, RequestHeaders}, #rtsp{socket = Socket} = RTSP) ->
+  RTSP1 = send(RTSP, Request, RequestHeaders),
   inet:setopts(Socket, [{active,once},{packet,raw}]),
-  {noreply, RTSP2};
+  {noreply, RTSP1#rtsp{last_request = {Ref, Request, RequestHeaders}}};
 
 handle_info(keepalive, #rtsp{socket = Socket, dump = Dump} = RTSP) ->
-  {RTSP2, _, _, _} = call_with_authenticate(RTSP#rtsp{dump = false}, 'GET_PARAMETER', []),
+  RTSP2 = send(RTSP#rtsp{dump = false}, 'GET_PARAMETER', []),
   inet:setopts(Socket, [{active,once},{packet,raw}]),
   erlang:send_after(?KEEPALIVE*3, self(), keepalive),
   {noreply, RTSP2#rtsp{dump = Dump}};
@@ -220,22 +219,10 @@ handle_info({udp, S, _, _, RTP}, #rtsp{rtcp_chan2 = S, chan1 = Chan} = RTSP) ->
   inet:setopts(S, [{active,once}]),
   {noreply, RTSP#rtsp{chan2 = Chan_}};
 
-handle_info({tcp, Socket, <<$$, _/binary>> = Bin}, #rtsp{} = RTSP) ->
-  {ok, RTSP1, <<>>} = read_rtp_packets(Bin, RTSP),
-  inet:setopts(Socket, [{active,once}]),
-  {noreply, RTSP1};
-
 handle_info({tcp, Socket, Bin}, #rtsp{} = RTSP) ->
-  lager:error("read strange RTSP/RTP data: ~240p", [Bin]),
-  RTSP1 = case binary:split(Bin, <<$$>>) of
-    [Bin] -> RTSP;
-    [_Junk, Rest] ->
-      {ok, RTSP_, <<>>} = read_rtp_packets(<<$$, Rest/binary>>, RTSP),
-      RTSP_
-  end,
+  {ok, RTSP1} = handle_input_tcp(Bin, RTSP),
   inet:setopts(Socket, [{active,once}]),
   {noreply, RTSP1};
-
 
 handle_info({tcp_closed, _Socket}, #rtsp{} = RTSP) ->
   {stop, normal, RTSP};
@@ -249,26 +236,6 @@ handle_info({'DOWN', _, _, _Consumer, _}, #rtsp{} = RTSP) ->
 
 
 
-call_with_authenticate(#rtsp{} = RTSP, Request, RequestHeaders) ->
-  RTSP0 = flush_rtp_packets(RTSP),
-  RTSP1 = send(RTSP0, Request, RequestHeaders),
-
-  case recv(RTSP1) of
-    {#rtsp{auth_type = OldType, auth_info = AuthInfo} = RTSP2, 401, Headers, _} = Response when OldType =/= digest ->
-      case parse_auth_headers(Headers) of
-        undefined ->
-          Response;
-        [digest|Digest] -> 
-          [Username, Password] = string:tokens(AuthInfo, ":"),
-          DigestAuth = fun(ReqName, URL) ->
-            digest_auth(Digest, Username, Password, URL, ReqName)
-          end,
-          call_with_authenticate(RTSP2#rtsp{auth_type = digest, auth = DigestAuth}, Request, RequestHeaders)
-      end;
-    Response ->
-      Response
-  end.
-
 
 decode_rtcp(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _PktCount:32, _OctCount:32, _/binary>>, #rtp{} = Chan) ->
   WallClock = round((NTP / 16#100000000 - ?YEARS_70) * 1000),
@@ -279,15 +246,14 @@ decode_rtcp(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _Pkt
 decode_rtcp(_, #rtp{} = Chan) ->
   Chan.
 
-
-read_rtp_packets(<<$$, ChannelId, Length:16, RTCP:Length/binary, Rest/binary>>, #rtsp{} = RTSP) when ChannelId rem 2 == 1 ->
+handle_input_rtp(ChannelId, RTCP, RTSP) when ChannelId rem 2 == 1 ->
   ChannelId_ = ChannelId div 2,
   Chan = (element(#rtsp.chan1 + ChannelId_, RTSP)),
   Chan1 = decode_rtcp(RTCP, Chan),
   RTSP1 = setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan1),
-  read_rtp_packets(Rest, RTSP1);
+  RTSP1;
 
-read_rtp_packets(<<$$, ChannelId, Length:16, RTP:Length/binary, Rest/binary>>, #rtsp{consumer = Consumer} = RTSP) ->
+handle_input_rtp(ChannelId, RTP, #rtsp{consumer = Consumer} = RTSP) ->
   % <<2:2, 0:1, _Extension:1, 0:4, _Marker:1, _PayloadType:7, Sequence:16, Timecode:32, _StreamId:32, Data/binary>>
   ChannelId_ = ChannelId div 2,
   ChannelId_ == 0 orelse ChannelId_ == 1 orelse throw({stop, {unknown_rtp_channel, ChannelId}, RTSP}),
@@ -298,30 +264,63 @@ read_rtp_packets(<<$$, ChannelId, Length:16, RTP:Length/binary, Rest/binary>>, #
       RTSP;
     _ ->
       {ok, Chan2, Frames} = decode_rtp(RTP, Chan1),
+      % if length(Frames) > 0 andalso ChannelId =/= 0 -> ?D({ChannelId, size(RTP), length(Frames), 
+      %   [{C,round(T)} || #video_frame{codec = C, dts = T} <- Frames]}); true -> ok end,
+
       [Consumer ! Frame || Frame <- Frames],
       % <<_:32, TC:32, _/binary>> = RTP,
-      % [?DBG("~4s ~8s ~B ~B", [Codec, Flavor, round(DTS), TC]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS, body = Body} <- Frames],
+      % [lager:info("~4s ~8s ~B ~B", [Codec, Flavor, round(DTS), TC]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS, body = Body} <- Frames],
       setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan2)
   end,
-  read_rtp_packets(Rest, RTSP1);
+  RTSP1.
 
-read_rtp_packets(<<$$, _ChannelId, Length:16, RTP/binary>> = Bin, #rtsp{socket = Socket} = RTSP) ->
-  {ok, Rest} = gen_tcp:recv(Socket, Length - size(RTP), 10000),
-  read_rtp_packets(<<Bin/binary, Rest/binary>>, RTSP);
 
-read_rtp_packets(<<$$, _/binary>> = Bin, #rtsp{socket = Socket} = RTSP) when size(Bin) < 4 ->
-  {ok, Rest} = gen_tcp:recv(Socket, 4 - size(Bin), 10000),
-  read_rtp_packets(<<Bin/binary, Rest/binary>>, RTSP);
+handle_input_tcp(<<>>, RTSP) ->
+  {ok, RTSP};
 
-read_rtp_packets(<<"RTSP", _/binary>> = Bin, RTSP) ->
-  {ok, RTSP, Bin};
+handle_input_tcp(Bin, #rtsp{socket = S, dump = NeedToDump} = RTSP) ->
+  case rtsp:read(S, Bin) of
+    {ok, {rtsp, rtp, ChannelId, undefined, RTP}, Rest} ->
+      handle_input_tcp(Rest, handle_input_rtp(ChannelId, RTP, RTSP));
+    {ok, {rtsp, response, {Code, _Status}, Headers, Body} = Response, Rest} ->
+      Dump = NeedToDump andalso RTSP#rtsp.last_request =/= undefined,
+      if Dump -> io:format("<<<<<< RTSP IN (~p:~p) <<<<<~n~s~n", [?MODULE, ?LINE, rtsp:dump(Response)]);
+      true -> ok end,    
+      handle_input_tcp(Rest, handle_response(Code, Headers, Body, RTSP));
+    {ok, {rtsp, request, {Method, URL}, _Headers, _Body}, Rest} ->
+      lager:error("Input socket doesn't know how to handle request ~s ~s", [Method, URL]),
+      handle_input_tcp(Rest, RTSP)
+  end.
 
-read_rtp_packets(<<>>, RTSP) ->
-  {ok, RTSP, <<>>};
 
-read_rtp_packets(Bin, RTSP) ->
-  lager:error("Invalid TCP data: ~240p", [Bin]),
-  throw({stop, normal, RTSP}).
+handle_response(_Code, _Headers, _Body, #rtsp{last_request = undefined} = RTSP) ->
+  RTSP;
+
+handle_response(401 = Code, Headers, Body, #rtsp{auth_type = Auth, auth_info = AuthInfo, consumer = Pid} = RTSP) when Auth =/= digest ->
+  {Ref, Request, RequestHeaders} = RTSP#rtsp.last_request,
+  case parse_auth_headers(Headers) of
+    undefined ->
+      Pid ! {response, Ref, Code, Headers, Body},
+      RTSP#rtsp{last_request = undefined};
+    [digest|Digest] -> 
+      [Username, Password] = string:tokens(AuthInfo, ":"),
+      DigestAuth = fun(ReqName, URL) ->
+        digest_auth(Digest, Username, Password, URL, ReqName)
+      end,
+      RTSP1 = send(RTSP#rtsp{auth_type = digest, auth = DigestAuth}, Request, RequestHeaders),
+      RTSP1
+  end;
+
+handle_response(Code, Headers, Body, #rtsp{consumer = Pid, last_request = {Ref,_,_}} = RTSP) ->
+  RTSP2 = case proplists:get_value(<<"Session">>, Headers) of
+    undefined -> RTSP;
+    SessToken -> RTSP#rtsp{session = hd(binary:split(SessToken, <<";">>))}
+  end,
+  Pid ! {response, Ref, Code, Headers, Body},
+  RTSP2#rtsp{last_request = undefined}.
+
+
+
 
 
 decode_rtp(<<_:8, _Marker:1, _:7, Seq:16, _Timecode:32, _/binary>> = RTP, #rtp{decoder = Decoder1} = Chan1) ->
@@ -333,95 +332,10 @@ decode_rtp(<<_:8, _Marker:1, _:7, Seq:16, _Timecode:32, _/binary>> = RTP, #rtp{d
 
 
 
-flush_rtp_packets(#rtsp{socket = Socket} = RTSP) ->
-  inet:setopts(Socket, [{active,false},{packet,raw}]),
-  receive
-    {tcp, Socket, Bin} -> {ok, RTSP1, <<>>} = read_rtp_packets(Bin, RTSP), RTSP1
-  after
-    0 -> RTSP
-  end.
-
-
-
-read_response_code(#rtsp{socket = Socket, url = URL} = RTSP) ->
-  inet:setopts(Socket, [{packet, line},{active,false}]),
-  case gen_tcp:recv(Socket, 0, 10000) of
-    {error, closed} ->
-      lager:warning("Remote server '~s' closed socket", [URL]),
-      throw({stop, normal, RTSP});
-    {error, Error} ->
-      throw({stop, {error, {socket_recv, Error, URL}}, RTSP});
-    {ok, Bin} ->
-      inet:setopts(Socket, [{packet,raw}]),
-      case read_rtp_packets(Bin, RTSP) of
-        {ok, RTSP1, <<"RTSP", _/binary>> = Line} ->
-          case re:run(Line, "RTSP/1.0 (\\d+) .*", [{capture,all_but_first,list}]) of
-            {match, [Code_]} -> {list_to_integer(Code_), Line, RTSP1};
-            nomatch -> throw({stop, {error, {response_line, Line, URL}}, RTSP1})
-          end;
-        {ok, RTSP1, <<>>} ->
-          read_response_code(RTSP1)
-      end
-  end.
-
-recv(#rtsp{socket = Socket, dump = NeedToDump, url = URL} = RTSP) ->
-  {Code, Dump1, RTSP1} = read_response_code(RTSP),
-  {Headers, Dump2} = collect_headers(Socket),
-  if NeedToDump ->
-  io:format(">>>>>> RTSP IN (~p:~p) >>>>>~n~s~s~n", [?MODULE, ?LINE, Dump1, Dump2]);
-  true -> ok end,
-  is_list(Headers) orelse throw({stop, {error, {headers, Headers, URL}}, RTSP1}),
-  Body = try collect_body(Socket, Headers)
-  catch
-    throw:{error, Error} -> throw({stop, {error, Error, URL}, RTSP1})
-  end,
-  if NeedToDump andalso is_binary(Body) -> io:format("~s~n", [Body]); true -> ok end,
-
-  RTSP2 = case proplists:get_value(<<"Session">>, Headers) of
-    undefined -> RTSP1;
-    SessToken -> RTSP1#rtsp{session = hd(binary:split(SessToken, <<";">>))}
-  end,
-  {RTSP2, Code, Headers, Body}.
-
-
-collect_headers_and_body(Socket) ->
-  {Headers, Dump} = collect_headers(Socket),
-  Body = collect_body(Socket, Headers),
-  {Headers, Body, Dump}.
-
-
-collect_body(Socket, Headers) ->
-  Body = case proplists:get_value('Content-Length', Headers) of
-    undefined -> undefined;
-    ContentLength_ ->
-      inet:setopts(Socket, [{packet, raw}]),
-      ContentLength = list_to_integer(binary_to_list(ContentLength_)),
-      if ContentLength > 0 ->
-        case gen_tcp:recv(Socket, ContentLength, 10000) of
-          {ok, Bin} -> Bin;
-          {error, Err} -> throw({error, {read_body, ContentLength, Err}})
-        end;
-      true -> undefined end
-  end,
-  Body.
-
-collect_headers(Socket) ->
-  inet:setopts(Socket, [{packet, httph_bin}]),
-  collect_headers(Socket, [], []).
-
-collect_headers(Socket, Acc, Dump) ->
-  case gen_tcp:recv(Socket, 0, 10000) of
-    {ok, {http_header, _, Key, _, Value}} ->
-      D = io_lib:format("~s: ~s~n", [Key, Value]),
-      collect_headers(Socket, [{Key,Value}|Acc], [D|Dump]);
-    {ok, http_eoh} -> {lists:reverse(Acc), lists:reverse(Dump)};
-    {error, closed} -> {lists:reverse(Acc), lists:reverse(Dump)};
-    {error, Error} -> {{error, read_headers, Error}, lists:reverse(Dump)}
-  end.
 
 
 parse_auth_headers(Headers) ->
-  case proplists:get_value('Www-Authenticate', Headers) of
+  case rtsp:header(<<"Www-Authenticate">>, Headers) of
     undefined -> undefined;
     WwwAuthenticate -> parse_auth_header(WwwAuthenticate)
   end.

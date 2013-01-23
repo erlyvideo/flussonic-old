@@ -1,3 +1,8 @@
+flussonic (3.66.4)
+
+  * Added all interfaces to traffic pulse
+  * New RTSP reader code
+
 flussonic (3.66.3)
 
   * Added disk index to archive files for fast load

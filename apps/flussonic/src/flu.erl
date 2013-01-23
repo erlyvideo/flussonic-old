@@ -48,8 +48,20 @@ rebuild() ->
   ok.
 
 reconf() ->
-  error_logger:info_msg("Reloading config"),
-  try flussonic_app:load_config()
+  lager:info("Reloading config"),
+  try flussonic_app:load_config() of
+    _ ->
+      case lists:keyfind({ranch_listener_sup,flu_http}, 1, supervisor:which_children(ranch_sup)) of
+        {_, ListenerSup, _, _} ->
+          case lists:keyfind(ranch_acceptors_sup, 1, supervisor:which_children(ListenerSup)) of
+            {_, AcceptorSup, _, _} ->
+              [erlang:exit(Pid,normal) || {_,Pid,_,_} <- supervisor:which_children(AcceptorSup)],
+              ok;
+            false ->
+              ok
+          end;
+        false -> ok
+      end
   catch
     throw:invalid_config -> {error, invalid_config}
   end.

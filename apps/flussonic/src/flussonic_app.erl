@@ -128,7 +128,10 @@ load_config() ->
 
   case proplists:get_value(sessions_log, Env) of
     undefined -> ok;
-    SessionLog -> flu_event:add_handler(flu_session_log, SessionLog)
+    SessionLog -> case lists:member(flu_session_log, gen_event:which_handlers(flu_event)) of
+      true -> ok;
+      false -> flu_event:add_handler(flu_session_log, SessionLog)
+    end
   end,
 
   [begin

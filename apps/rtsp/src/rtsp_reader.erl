@@ -47,11 +47,14 @@ handle_info(work, #rtsp{} = RTSP) ->
 
 handle_info(#video_frame{codec = Codec} = Frame, #rtsp{consumer = Consumer, queue = Queue1} = RTSP) when 
   Codec == h264 orelse Codec == aac orelse Codec == mp3 ->
-  % #video_frame{content = Content, codec = Codec, flavor = Flavor, dts = DTS} = Frame,
-  % io:format("~6s ~4s ~10s ~B~n", [Content, Codec, Flavor, round(DTS)]),
+  % #video_frame{content = Content, codec = Codec, flavor = Flavor, dts = DTS, body = Body} = Frame,
+  % io:format("~6s ~4s ~10s ~B ~B~n", [Content, Codec, Flavor, round(DTS), size(Body)]),
   Queue2 = case frame_queue:push(Frame, Queue1) of
     {undefined, Q} -> Q;
     {#video_frame{} = Out, Q} ->
+  % #video_frame{content = Content, codec = Codec, flavor = Flavor, dts = DTS, body = Body} = Out,
+  % io:format("~6s ~4s ~10s ~B ~B~n", [Out#video_frame.content, Out#video_frame.codec, Out#video_frame.flavor, round(Out#video_frame.dts), 
+  %   size(Out#video_frame.body)]),
       flu_stream:send_frame(Consumer, Out),
       Q
   end,
@@ -62,6 +65,9 @@ handle_info(#video_frame{}, #rtsp{} = RTSP) ->
 
 handle_info({'DOWN', _, _, _,_}, #rtsp{} = RTSP) ->
   {stop, normal, RTSP};
+
+handle_info({response, _Ref, _Code, _Headers, _Body}, #rtsp{} = RTSP) ->
+  {noreply, RTSP};
 
 handle_info(teardown, #rtsp{proto = Proto} = RTSP) ->
   rtsp_protocol:call(Proto, 'TEARDOWN', []),
@@ -147,7 +153,7 @@ control_url(_ContentBase, "rtsp://" ++ _ = ControlUrl) -> ControlUrl;
 control_url(ContentBase, ControlUrl) -> ContentBase ++ ControlUrl.
 
 parse_content_base(Headers, URL, OldContentBase) ->
-  case proplists:get_value('Content-Base', Headers) of
+  case rtsp:header(<<"Content-Base">>, Headers) of
     undefined -> OldContentBase;
     NewContentBase -> % Here we must handle important case when Content-Base is given with local network
       URL1 = case re:run(NewContentBase, "rtsp://([^/]+)(/.*)$", [{capture,all_but_first,list}]) of
@@ -169,11 +175,8 @@ parse_content_base(Headers, URL, OldContentBase) ->
 
 
 parse_rtp_info(Headers) ->
-  case proplists:get_value(<<"Rtp-Info">>, Headers) of
-    undefined -> case proplists:get_value(<<"RTP-Info">>, Headers) of
-      undefined -> [];
-      S -> parse_rtp_info_header(S)
-    end;
+  case rtsp:header(<<"Rtp-Info">>, Headers) of
+    undefined -> [];
     S ->parse_rtp_info_header(S)
   end. 
 

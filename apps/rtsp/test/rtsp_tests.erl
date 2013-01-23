@@ -169,6 +169,18 @@ test_interleaved4() ->
   gen_tcp:close(S2).
 
 
+test_interleaved5() ->
+  {ok, S1, S2} = pair(),
+  gen_tcp:send(S1, [rtp1(), response_no_body()]),
+  {ok, R1} = gen_tcp:recv(S2, 11),
+  {ok, {rtsp, rtp, 1, _, <<1,2,3,4,"\r\n", 5,6,7,8>>}, R3} = rtsp:read(S2, R1),
+  {ok, {rtsp, response, {200, <<"OK">>}, _, _}, <<>>} = rtsp:read(S2, R3),
+  gen_tcp:close(S1),
+  gen_tcp:close(S2).
+
+
+
+
 
 
 options_request() ->
@@ -189,6 +201,8 @@ Date: Sun, 20 Jan 2013 12:11:04 GMT\r
 
 rtp() -> <<$$, 1, 8:16, 1,2,3,4,5,6,7,8>>.
 
+
+rtp1() -> <<$$, 1, 10:16, 1,2,3,4,"\r\n",5,6,7,8>>.
 
 describe_response() -> 
 <<"RTSP/1.0 200 OK\r

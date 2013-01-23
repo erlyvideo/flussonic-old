@@ -105,6 +105,7 @@ package:
 	git archive master | (cd tmproot/opt/flussonic; tar x)
 	mkdir -p tmproot/opt/flussonic/deps
 	rm -rf tmproot/opt/flussonic/priv/mbr*.mp4
+	rm -rf tmproot/opt/flussonic/test
 	[ -d deps ] && for d in deps/* ; do git clone $$d tmproot/opt/flussonic/deps/`basename $$d`; done || true
 	(cd tmproot/opt/flussonic/ && ./rebar get-deps && ./rebar compile)
 	mkdir -p tmproot/opt/flussonic/apps/flussonic/priv/
@@ -139,6 +140,7 @@ upload:
 	scp flussonic_$(VERSION)_amd64.deb flussonic flussonic-$(VERSION).tgz erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary
 	# scp flussonic erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary/flussonic
 	ssh erlyhub@erlyvideo.org "cd /apps/erlyvideo/debian ; ./update ; cd public/binary ; ln -sf flussonic-$(VERSION).tgz flussonic-latest.tgz "
+	./contrib/send_email.erl erlyvideo-dev@googlegroups.com $(VERSION)
 	@#echo "Erlyvideo version ${VERSION} uploaded to debian repo http://debian.erlyvideo.org/ ." | mail -r "Erlybuild <build@erlyvideo.org>" -s "Erlyvideo version ${VERSION}" -v erlyvideo-dev@googlegroups.com
 
 new_version: tgz package escriptize upload

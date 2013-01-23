@@ -407,19 +407,18 @@ Erlyvideo = {
 
 // Statistics tab
   
-  pulse_traffic_template: "<table><caption>Traffic statistics for {{iface}} in kbits/s</caption> \
+  pulse_traffic_template: "<caption>Traffic statistics for {{iface}} in kbits/s</caption> \
   <thead><tr><td></td>\
   {{#traffic}}<th>{{time}}</th>{{/traffic}}\
   </tr></thead>\
   <tbody>\
-  <tr><td>Input</td>\
+  <tr><th scope='row'>Input</th>\
   {{#traffic}}<td>{{input}}</td>{{/traffic}} \
   </tr>\
-  <tr><td>Output</td>\
+  <tr><th scope='row'>Output</th>\
   {{#traffic}}<td>{{output}}</td>{{/traffic}} \
   </tr>\
-  </tbody>\
-  </table>",
+  </tbody>",
   
   load_pulse: function() {
     Erlyvideo.request("pulse");
@@ -427,9 +426,21 @@ Erlyvideo = {
   },
 
   draw_pulse_traffic: function(message) {
-    $("#pulse-stats").html(Mustache.to_html(Erlyvideo.pulse_traffic_template, message));
-    $('#pulse-stats table').visualize({type: 'line', width: '800px'}).trigger("visualizeRefresh");
-    $('#pulse-stats table').hide();
+    var i;
+    for(i = 0; i < message.traffic.length; i++) {
+      var t = message.traffic[i];
+      var h = Mustache.to_html(Erlyvideo.pulse_traffic_template, t);
+      var el = $("#pulse-stats #stat-"+t.iface)
+      if(el.length > 0) {
+        el.html(h);
+        el.trigger("visualizeRefresh");
+      } else {
+        $("#pulse-stats").append("<table id='stat-"+t.iface+"'>"+h+"</table><hr class='stats-separator'>");    
+        el = $("#pulse-stats #stat-"+t.iface);
+        el.hide();
+        el.visualize({type: 'line', width: '800px', lineWeight : 2, appendKey: true});
+      }
+    }    
   },
 
   stop_periodic_pulse_loader: function() {
