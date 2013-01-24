@@ -103,13 +103,20 @@ handle_call(media_info, _From, #reader{media_info = MI} = Decoder) ->
 
 handle_call(connect, _From, #reader{options = Options, url = URL} = Decoder) ->
   Timeout = proplists:get_value(timeout, Options, 2000),
-  {Schema, _, _Host, _Port, _Path, _Query} = http_uri2:parse(URL),
+  {Schema, AuthInfo, _Host, _Port, _Path, _Query} = http_uri2:parse(URL),
   if Schema == udp orelse Schema == udp2 ->
       {ok, Socket} = connect_udp(URL),
       % ?DBG("MPEG-TS reader connected to \"~s\"", [URL]),
   	  {reply, ok, Decoder#reader{socket = Socket}};
     true ->
-      case  http_stream:request(URL, [{timeout,Timeout}]) of 
+      Auth = case AuthInfo of
+        "" -> [];
+        _ ->
+          [User,Passwd] = string:tokens(AuthInfo, ":"),
+          [{basic_auth, {User, Passwd}}]
+      end,
+
+      case http_stream:request(URL, [{timeout,Timeout}] ++ Auth) of 
       	{ok,{Socket,_Code,_Header}} ->
       	  ok = inet:setopts(Socket, [{packet,raw},{active,once}]),
       	  % ?D({connected, URL, Socket}),

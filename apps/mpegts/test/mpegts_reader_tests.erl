@@ -6,6 +6,17 @@
 -include_lib("erlmedia/include/media_info.hrl").
 -include("../include/mpegts_psi.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("inets/include/httpd.hrl").
+
+
+
+do(Mod) ->
+  case handle_test_req(Mod) of
+    false ->
+      {proceed, Mod#mod.data};
+    Else ->
+      Else
+  end.
 
 
 
@@ -20,7 +31,7 @@ read_http_test_() ->
         {port,9090},
         {server_name,"test_server"},
         {document_root,"../test/fixtures"},
-        {modules,[mod_alias,mod_range, mod_auth, mod_actions, mod_dir, mod_get, mod_head]}
+        {modules,[mod_alias,mod_range, mod_auth, ?MODULE, mod_actions, mod_dir, mod_get, mod_head]}
       ])
   end, 
   fun({ok,Pid}) ->
@@ -36,6 +47,28 @@ read_http_test_() ->
     {ok, _} -> TestSpec;
     {error, _} -> []
   end.
+
+
+handle_test_req(#mod{absolute_uri="127.0.0.1:9090/protected", parsed_header = Headers}) ->
+  case proplists:get_value("authorization", Headers) of
+    "Basic YWRtaW46MTIz" ->
+      {proceed, [{response,{response,[{code,200}],"ok\n"}}]};
+    _ ->
+      {proceed, [{response,{response,[{code,401},{"WWW-Authenticate", "Basic realm=\"mpegts\""}],"forbidden\n"}}]}
+  end;
+
+handle_test_req(_Mod) ->
+  false.
+
+
+httptest_read_protected_basic() ->
+  Options = [{consumer,self()},{url,"tshttp://admin:123@127.0.0.1:9090/protected"}],
+  {ok, State1} = mpegts_reader:init([Options]),
+  Reply = mpegts_reader:handle_call(connect, from, State1),
+  receive {tcp, _, _} -> ok after 5 -> ok end,
+  ?assertMatch({reply, ok, _State2}, Reply).
+
+
 
 
 httptest_have_media_info() ->
@@ -67,7 +100,7 @@ monotone_read_frames(PrevDTS, Count) ->
     #media_info{} ->
       monotone_read_frames(PrevDTS, Count);
     Else ->
-      ?assertEqual(a, Else)
+      error({invalid_message, Else})
   after
     100 -> Count > 40 orelse error(not_enough_monotone_frames)
   end.
