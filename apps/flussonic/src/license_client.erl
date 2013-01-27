@@ -32,7 +32,7 @@
 -define(LICENSE_TABLE, license_storage).
 
 %% External API
--export([load/0, load_code/1]).
+-export([load/0, reload/0, load_code/1]).
 -compile(export_all).
 
 -export([mac/0, macs/0]).
@@ -95,10 +95,13 @@ load() ->
           error_logger:error_msg("Can't find license key for flussonic. Booting in non-licensed mode~n"),
           {error, no_license_key};
         LicenseKey ->
+          license_agent:get(license),
           load_licensed_code(LicenseKey)
       end
   end.
 
+reload() ->
+  load_licensed_code(get_license_key()).
 
 eval_bin(Bin) ->
   {ok, Commands} = unpack_server_response(Bin),
@@ -131,9 +134,12 @@ get_license_key() ->
   
   
 load_licensed_code(LicenseKey) ->
-  case load_code_from_disk(LicenseKey) of
-    undefined ->
-      load_code_from_server(LicenseKey);
+  case load_code_from_server(LicenseKey) of
+    {error, rejected} ->
+      io:format("ZX\n"),
+      {error, rejected};
+    {error, _Error} ->
+      load_code_from_disk(LicenseKey);
     Else ->
       Else
   end.
@@ -161,7 +167,7 @@ load_code_from_disk(LicenseKey) ->
 %%%%
 load_code_from_server(LicenseKey) ->
   case catch construct_url(LicenseKey) of
-    {error,Reason} -> 
+    {error,Reason} ->
       {error,Reason};
     undefined -> 
       {error, no_license};
@@ -239,19 +245,20 @@ construct_url(LicenseKey) when is_list(LicenseKey) ->
       end;
     {ok,{_Socket,403,_Headers,_Body}} ->
       error_logger:error_msg("License server rejected your key ~s: ~p",[LicenseKey, _Body]),
-      undefined;
+      {error, rejected};
     {ok,{_Socket,Code,_Headers,_Body}} ->
       error_logger:error_msg("License server don't know about key ~s: ~p ~p",[LicenseKey, Code, _Body]),
-      undefined;
+      {error, unknown};
 	  % _Error when KeyVersion == 1 ->
    %    find_cached_temp_url();
-    _Error when KeyVersion == 2 ->
+    {error, FetchError} when KeyVersion == 2 ->
       case file:read_file("license-"++Version++".pack") of
         {ok, CachedBody} ->
           error_logger:info_msg("Load license from cached reply"),
           {ok, body, CachedBody};
         {error, _} ->
-          _Error
+          error_logger:error_msg("Failed to load license from server: ~p", [FetchError]),
+          {error, FetchError}
       end
 	end.
 
@@ -329,7 +336,7 @@ execute_commands_v1([{purge,Module}|Commands], Startup) ->
 execute_commands_v1([{load_app, {application,Name,Desc} = AppDescr}|Commands], Startup)  ->
   Version = proplists:get_value(vsn, Desc),
   case application:load(AppDescr) of
-    ok -> error_logger:info_msg("License load application ~p(~p)~n", [Name, Version]);
+    ok -> error_logger:info_msg("License load application ~p(~p)", [Name, Version]);
     {error, {already_loaded, AppDescr}} -> error_logger:info_msg("License already loaded application ~p(~p)", [Name, Version]);
     _Else -> error_logger:error_msg("License failed to load application: ~p", [_Else]), ok
   end,
@@ -344,6 +351,7 @@ execute_commands_v1([{load,ModInfo}|Commands], Startup) ->
     true -> 
       error_logger:info_msg("Licence load ~p(~p)", [Module, Version]),
       code:soft_purge(Module),
+      code:purge(Module),
       code:load_binary(Module, "license/"++atom_to_list(Module)++".erl", Code),
       execute_commands_v1(Commands, [Module|Startup])
   end;

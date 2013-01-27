@@ -1,5 +1,4 @@
 -module(license_agent).
--key({<<"lala",44>>}).
 
 -export([get/1, allow/2, load/1]).
 

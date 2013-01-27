@@ -15,7 +15,10 @@ mpegts_test_() ->
       {stream, "channel0", "passive://ok"},
       {stream, "channel1", "passive://ok"},
       {stream, "channel2", "passive://ok", [{sessions, "http://127.0.0.1:5555/auth"}]},
-      {mpegts, "mpegts"}
+      {stream, "channel3", "passive://ok", [{password,"user1:pass1"}]},
+      {mpegts, "mpegts"},
+      {live, "live"},
+      {live, "liveauth", [{password, "user2:pass2"}]}
     ],
     {ok, Config} = flu_config:parse_config(Conf, undefined),
     application:set_env(flussonic, config, Config),
@@ -53,6 +56,7 @@ mpegts_test_() ->
     ,{"test_change_media_info", fun test_change_media_info/0}
     ,{"test_unauthorized_access", fun test_unauthorized_access/0}
     ,{"test_authorized_access_with_unique_user_id", fun test_authorized_access_with_unique_user_id/0}
+    % ,{"test_publish_mpegts", fun test_publish_mpegts/0}
   ]
   }.
 
@@ -203,6 +207,13 @@ test_authorized_access_with_unique_user_id() ->
   ok.
 
 
+% test_publish_mpegts() ->
+%   {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+%   gen_tcp:send(Sock1, ["POST /channel1/mpegts HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"]),
+%   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0, 200),
+%   ?assertEqual(200, Code),
+%   gen_tcp:close(Sock1),
+%   ok.
 
 
 read_headers(Sock) ->

@@ -8,5 +8,6 @@ case "$1" in
     remove|purge)
   [ -x /etc/init.d/flussonic ] &&
       invoke-rc.d flussonic stop
+      rm -rf /opt/flussonic/license* /opt/flussonic/erl_crash.dump /opt/flussonic/log
   ;;
 esac

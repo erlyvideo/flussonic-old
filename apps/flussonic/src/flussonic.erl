@@ -167,5 +167,5 @@ start_app(App) ->
 
 load_app(App) ->
   {ok, Mods} = application:get_key(App, modules),
-  [code:load_file(Mod) || Mod <- Mods].
+  [code:load_file(Mod) || Mod <- Mods, Mod =/= license_agent].
 

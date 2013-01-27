@@ -1,3 +1,7 @@
+flussonic (3.67.2)
+
+  * Fixes in RTSP path generation EV:25214
+
 flussonic (3.67.1)
 
   * New licensing system

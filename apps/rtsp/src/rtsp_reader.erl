@@ -150,7 +150,26 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
 
 % Axis cameras have "rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1" in SDP
 control_url(_ContentBase, "rtsp://" ++ _ = ControlUrl) -> ControlUrl;
-control_url(ContentBase, ControlUrl) -> ContentBase ++ ControlUrl.
+control_url(ContentBase, "/" ++ _ = ControlUrl) ->
+  {match, [Host]} = re:run(ContentBase, "(rtsp://[^/]+)/.*", [{capture,all_but_first,list}]),
+  Host ++ ControlUrl;
+control_url(ContentBase, ControlUrl) ->
+  case lists:last(ContentBase) of
+    $/ -> ContentBase ++ ControlUrl;
+    _ ->
+      {ok, {rtsp, Auth, Host, Port, Path, Query}} = http_uri:parse(ContentBase, [{scheme_defaults,[{rtsp,554}]}]),
+      URL1 = ["rtsp://", case Auth of
+        "" -> "";
+        _ -> [Auth, "@"]
+      end, Host, case Port of
+        554 -> "";
+        _ -> [":", integer_to_list(Port)]
+      end, filename:dirname(Path), "/", ControlUrl, Query],
+      ?debugFmt("~p", [URL1]),
+      lists:flatten(URL1)
+  end.
+
+
 
 parse_content_base(Headers, URL, OldContentBase) ->
   case rtsp:header(<<"Content-Base">>, Headers) of
@@ -214,4 +233,23 @@ parse_rtp_info_test_() ->
     ?_assertEqual([[{url,"rtsp://75.130.113.168:1025/11/trackID=0"},{seq,0},{rtptime,3051549469}]], 
       parse_rtp_info_header("url=rtsp://75.130.113.168:1025/11/trackID=0;seq=0;rtptime=3051549469 "))
   ].
+
+
+control_url_test_() ->
+  [
+  ?_assertEqual("rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1", 
+    control_url("rtsp://192.168.0.1:554/", "rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1"))
+  % ,?_assertEqual("rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1", 
+  %   control_url("rtsp://192.168.0.1:554/axis-media/media.amp", "trackID=1"))
+  ,?_assertEqual("rtsp://10.15.9.168:8557/PSIA/Streaming/channels/2?videoCodecType=H.264/track1",
+    control_url("rtsp://10.15.9.168:8557/PSIA/Streaming/channels/2?videoCodecType=H.264/", "track1"))
+  
+  ,?_assertEqual("rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1",
+    control_url("rtsp://192.168.0.1:554/axis-media/media.amp/", "trackID=1"))
+  ,?_assertEqual("rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1",
+    control_url("rtsp://192.168.0.1:554/media1/", "/axis-media/media.amp/trackID=1"))
+  ,?_assertEqual("rtsp://192.168.0.1/h264/track2?type=h264",
+    control_url("rtsp://192.168.0.1/h264/?type=h264", "track2"))
+  ].
+
 
