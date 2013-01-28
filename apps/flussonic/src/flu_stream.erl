@@ -276,13 +276,14 @@ touch(Stream) ->
 %%% API
 %%%===================================================================
 start_link(Name,Options) ->
-  gen_server:start_link(?MODULE, [Name,Options], []).
+  proc_lib:start_link(?MODULE, init, [[Name,Options]]).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 init([Name,Options1]) ->
+  put(status, booting),
   Options = lists:ukeymerge(1, lists:ukeysort(1,Options1), [{name,Name}]),
   erlang:put(name, Name),
   Source = proplists:get_value(source, Options1),
@@ -295,11 +296,16 @@ init([Name,Options1]) ->
     check_timer = CheckTimer},
   % timer:send_interval(1000, next_second),
   
+  lager:warning("Initializing stream \"~s\"", [Name]),
+  proc_lib:init_ack({ok, self()}),
+
   Stream2 = set_options(Stream1),
   
   lager:warning("Start stream \"~s\" with url ~p and options: ~p", [Name, Stream2#stream.url, Options]),
-  self() ! reconnect_source,
-  {ok, Stream2}.
+
+  {noreply, Stream3} = ?MODULE:handle_info(reconnect_source, Stream2),
+  gen_server:enter_loop(?MODULE, [], Stream3).
+
 
 set_options(#stream{options = Options, name = Name, url = URL1, source = Source1} = Stream) ->
   {URL, Source} = case proplists:get_value(url, Options) of

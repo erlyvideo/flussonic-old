@@ -113,6 +113,7 @@ start0(_Options) ->
 
 
   lager:start(),
+  lager:warning("Flussonic version ~s is booting", [flu:version()]),
   license_client:load(),
   application:start(sasl),
   error_logger:delete_report_handler(sasl_report_tty_h),

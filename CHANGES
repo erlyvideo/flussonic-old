@@ -1,3 +1,8 @@
+flussonic (3.67.3)
+
+  * flu_stream requests source only after hls dvr startup
+  * better debug in hls_dvr packetizer
+
 flussonic (3.67.2)
 
   * Fixes in RTSP path generation EV:25214
