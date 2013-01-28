@@ -17,20 +17,24 @@
 
 -record(rtsp, {
   socket,
+  seq = 1,
+  url,
+  buffer = <<>>,
+  session,
+
   peer_addr,
   callback,
   timeout,
   args,
   media_info,
-  session,
   media,
+
 
   flow_type = stream :: stream | file,
 
   paused = false,
 
   ticker,
-  url,
 
   first_dts,
 
@@ -52,7 +56,7 @@
 }).
 
 init([Socket, Callback, Args]) ->
-  inet:setopts(Socket, [{active,once},{packet,line}]),
+  inet:setopts(Socket, [{active,once},{packet,raw}]),
   Timeout = 10000,
   {ok, {PeerAddr,_}} = inet:peername(Socket),
   {ok, #rtsp{socket = Socket, callback = Callback, args = Args, timeout = Timeout, peer_addr = PeerAddr}, Timeout}.
@@ -66,29 +70,10 @@ handle_call(Call, _From, #rtsp{timeout = Timeout} = RTSP) ->
   
 
 
-handle_info({tcp, Socket, Bin}, #rtsp{timeout = Timeout} = RTSP) ->
-  inet:setopts(Socket, [{active,false},{packet,raw}]),
-  Line = skip_rtcp(Bin, Socket),
-  case re:run(Line, "^(\\w+) ([^ ]+) (RTSP|HTTP)/1.0", [{capture,all_but_first,binary}]) of
-    {match, [Method, URL_, Proto]} ->
-      {Headers, _Dump} = rtsp_protocol:collect_headers(Socket),
-      Body = rtsp_protocol:collect_body(Socket, Headers),
-      inet:setopts(Socket, [{active,once},{packet,line}]),
-
-      % io:format(">>>>>> RTSP IN (~p:~p) >>>>>~n~s~s~n~s~n", [?MODULE, ?LINE, Line, Dump, case Body of undefined -> ""; _ -> Body end]),
-
-      Len = size(URL_)-1,
-      URL = case URL_ of <<URL__:Len/binary, "/">> -> URL__; _ -> URL_ end,
-
-      RTSP1 = case Proto of
-        <<"RTSP">> -> handle_request(Method, URL, Headers, Body, RTSP);
-        <<"HTTP">> -> handle_http(Method, URL, Headers, Body, RTSP)
-      end,
-      {noreply, RTSP1, Timeout};
-    nomatch ->
-      inet:setopts(Socket, [{active,once},{packet,line}]),
-      {noreply, RTSP, Timeout}
-  end;
+handle_info({tcp, Socket, Bin}, #rtsp{timeout = Timeout, buffer = Buffer} = RTSP) ->
+  inet:setopts(Socket, [{active,once}]),
+  RTSP1 = handle_input_tcp(RTSP, <<Bin/binary, Buffer/binary>>),
+  {noreply, RTSP1, Timeout};
 
 handle_info({tcp_closed, _Socket}, RTSP) ->
   {stop, normal, RTSP};
@@ -151,6 +136,26 @@ handle_info(Info, #rtsp{} = RTSP) ->
   {stop, {unknown_message, Info}, RTSP}.
 
 
+handle_input_tcp(RTSP, <<>>) ->
+  RTSP;
+
+handle_input_tcp(#rtsp{} = RTSP, Bin) ->
+  case rtsp:read(Bin) of
+    {ok, {rtsp, request, {Method, URL_}, Headers, Body}, Rest} ->
+      Len = size(URL_)-1,
+      URL = case URL_ of <<URL__:Len/binary, "/">> -> URL__; _ -> URL_ end,
+      RTSP1 = handle_request(Method, URL, Headers, Body, RTSP),
+      handle_input_tcp(RTSP1, Rest);
+    {ok, {rtsp, rtp, _, _, _}, Rest} ->
+      handle_input_tcp(RTSP, Rest);
+    more ->
+      RTSP#rtsp{buffer = Bin};
+    Else ->
+      lager:warning("rtsp client socket stopped because of: ~p", [Else]),
+      throw({stop, normal, RTSP})
+  end.
+
+
 tcp_send(#rtsp{socket = Socket} = RTSP, IOList) ->
   case gen_tcp:send(Socket, IOList) of
     ok -> ok;
@@ -158,21 +163,6 @@ tcp_send(#rtsp{socket = Socket} = RTSP, IOList) ->
     {error, timeout} -> throw({stop, normal, RTSP});
     {error, Error} -> throw({stop, {tcp,Error}, RTSP})
   end.
-
-
-skip_rtcp(<<$$, _, Length:16, _Bin:Length/binary, Rest/binary>>, Socket) ->
-  skip_rtcp(Rest, Socket);
-
-skip_rtcp(<<$$, _, Length:16, Bin/binary>>, Socket) ->
-  {ok, _Rest} = gen_tcp:recv(Socket, Length - size(Bin), 3000),
-  <<>>;
-
-skip_rtcp(<<$$, _/binary>> = Bin, Socket) ->
-  {ok, Rest} = gen_tcp:recv(Socket, 3, 3000),
-  skip_rtcp(<<Bin/binary, Rest/binary>>, Socket);
-
-skip_rtcp(<<>>, _Socket) -> ok;
-skip_rtcp(Else, _Socket) -> Else.
 
 
 
@@ -384,13 +374,6 @@ handle_request(_Method, _URL, Headers, _Body, RTSP) ->
 
 
 
-handle_http(<<"GET">>, _URL, _Headers, _Body, RTSP) ->
-  reply({http, 500}, [
-    {'Content-Type', "application/x-rtsp-tunnelled"},
-    {'Connection', "close"}
-  ], <<"Not supported">>, RTSP).
-
-
 
 
 extract_url(URL1) ->
@@ -464,7 +447,7 @@ split_h264_frame(<<Size:32, NAL:Size/binary, Rest/binary>>, 4, Acc) ->
 
 
 seq(Headers) ->
-  proplists:get_value(<<"Cseq">>, Headers, 1).
+  rtsp:header(cseq, Headers).
 
 to_s(undefined) -> undefined;
 to_s(Atom) when is_atom(Atom) -> atom_to_binary(Atom, latin1);

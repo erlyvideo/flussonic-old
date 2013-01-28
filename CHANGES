@@ -1,3 +1,7 @@
+flussonic (3.67.4)
+
+  * fixes in RTSP protocol reader
+
 flussonic (3.67.3)
 
   * flu_stream requests source only after hls dvr startup

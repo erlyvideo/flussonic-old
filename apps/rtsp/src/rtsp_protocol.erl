@@ -54,24 +54,32 @@ sync(Proto, Channel, Sync) ->
   gen_server:call(Proto, {sync, Channel, Seq, Time}).
 
 -record(rtsp, {
-  consumer,
   socket,
   seq = 1,
   url,
+  buffer = <<>>,
   session,
+
+  % Here goes reading part
   auth_type = undefined,
   auth_info = "",
+  dump = true,
+
+  consumer,
+  last_request,
   get_parameter,
   auth,
-  dump = true,
-  last_request,
-  chan1,
+
+  % Never ever reorder these fields, because chan1 offset is basic for tricky calculations
+  chan1, 
   chan2,
   rtp_chan1,
   rtp_chan2,
   rtcp_chan1,
   rtcp_chan2
 }).
+
+
 
 -record(rtp, {
   channel,
@@ -136,7 +144,9 @@ handle_call({add_channel, Channel, #stream_info{codec = Codec, timescale = Scale
 
 handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetParameter} = RTSP) when URL =/= undefined ->
   {_, AuthInfo, Host, Port, _, _} = http_uri2:parse(URL),
+  put(host,{Host,Port}),
   {ok, Socket} = case gen_tcp:connect(Host, Port, [binary, {active,false}, {send_timeout, 10000}]) of
+  % {ok, Socket} = case gen_tcp:connect("localhost", 3300, [binary, {active,false}, {send_timeout, 10000}]) of
     {ok, Sock} -> {ok, Sock};
     {error, Error} ->
       lager:error("Failed to connect to \"~s\": ~p", [URL, Error]),
@@ -219,10 +229,10 @@ handle_info({udp, S, _, _, RTP}, #rtsp{rtcp_chan2 = S, chan1 = Chan} = RTSP) ->
   inet:setopts(S, [{active,once}]),
   {noreply, RTSP#rtsp{chan2 = Chan_}};
 
-handle_info({tcp, Socket, Bin}, #rtsp{} = RTSP) ->
-  {ok, RTSP1} = handle_input_tcp(Bin, RTSP),
+handle_info({tcp, Socket, Bin}, #rtsp{buffer = Buffer} = RTSP) ->
+  {ok, RTSP1, Rest} = handle_input_tcp(RTSP, <<Buffer/binary, Bin/binary>>),
   inet:setopts(Socket, [{active,once}]),
-  {noreply, RTSP1};
+  {noreply, RTSP1#rtsp{buffer = Rest}};
 
 handle_info({tcp_closed, _Socket}, #rtsp{} = RTSP) ->
   {stop, normal, RTSP};
@@ -275,21 +285,26 @@ handle_input_rtp(ChannelId, RTP, #rtsp{consumer = Consumer} = RTSP) ->
   RTSP1.
 
 
-handle_input_tcp(<<>>, RTSP) ->
-  {ok, RTSP};
-
-handle_input_tcp(Bin, #rtsp{socket = S, dump = NeedToDump} = RTSP) ->
-  case rtsp:read(S, Bin) of
+handle_input_tcp(#rtsp{socket = _S, dump = NeedToDump} = RTSP, Bin) ->
+  case rtsp:read(Bin) of
     {ok, {rtsp, rtp, ChannelId, undefined, RTP}, Rest} ->
-      handle_input_tcp(Rest, handle_input_rtp(ChannelId, RTP, RTSP));
+      handle_input_tcp(handle_input_rtp(ChannelId, RTP, RTSP), Rest);
     {ok, {rtsp, response, {Code, _Status}, Headers, Body} = Response, Rest} ->
       Dump = NeedToDump andalso RTSP#rtsp.last_request =/= undefined,
       if Dump -> io:format("<<<<<< RTSP IN (~p:~p) <<<<<~n~s~n", [?MODULE, ?LINE, rtsp:dump(Response)]);
       true -> ok end,    
-      handle_input_tcp(Rest, handle_response(Code, Headers, Body, RTSP));
+      handle_input_tcp(handle_response(Code, Headers, Body, RTSP), Rest);
     {ok, {rtsp, request, {Method, URL}, _Headers, _Body}, Rest} ->
       lager:error("Input socket doesn't know how to handle request ~s ~s", [Method, URL]),
-      handle_input_tcp(Rest, RTSP)
+      handle_input_tcp(RTSP, Rest);
+    more ->
+      {ok, RTSP, Bin};
+    {more, _Bytes} ->
+      % {ok, Bin2} = gen_tcp:recv(S, Bytes, ?TIMEOUT),
+      {ok, RTSP, Bin};
+    {error, desync} ->
+      ?D({rtsp_desync,Bin}),
+      throw({stop, normal, RTSP})
   end.
 
 

@@ -16,7 +16,7 @@
 
 
 -export([start_server/3, stop_server/1]).
--export([read/2]).
+-export([read/1]).
 -export([header/2, to_lower/1, dump/1]).
 
 -define(TIMEOUT, 1000).
@@ -32,102 +32,102 @@ stop_server(Name) ->
 -type rtsp_rtp() :: {rtsp, rtp, Channel::integer(), undefined, Body::binary()}.
 
 
--spec read(Socket::inet:socket(), Data::binary()) -> 
+-spec read(Data::binary()) -> 
   {ok, rtsp_request(), Rest::binary()} | 
   {ok, rtsp_response(), Rest::binary()} | 
   {ok, rtsp_rtp(), Rest::binary()} | 
+  {more, Rest::binary()} |
+  {more, Rest::binary(), Bytes::non_neg_integer()} |
   {error, Error::term()}.
 
-read(_Socket, <<$$, Channel, Length:16, RTP:Length/binary, Rest/binary>>) ->
+
+read(Bin) ->
+  try read0(Bin)
+  catch
+    throw:more -> more;
+    throw:{more,Bytes} -> {more, Bytes}
+  end.
+
+
+
+read0(<<$$, Channel, Length:16, RTP:Length/binary, Rest/binary>>) ->
   {ok, {rtsp, rtp, Channel, undefined, RTP}, Rest};
 
-read(Socket, <<$$, _/binary>> = Data) ->
+read0(<<$$, _/binary>> = Data) ->
   RequiredBytes = case Data of
     _ when size(Data) < 4 -> 4 - size(Data);
     <<$$, _Channel, Length:16, Rest/binary>> -> Length - size(Rest)
   end,
-  inet:setopts(Socket, [{packet,raw},{active,false}]),
-  {ok, Bin} = gen_tcp:recv(Socket, RequiredBytes, ?TIMEOUT),
-  read(Socket, <<Data/binary, Bin/binary>>);
+  {more, RequiredBytes};
 
-
-read(Socket, Data) when is_port(Socket), is_binary(Data) ->
+read0(<<"RTSP/1.0 ", _/binary>> = Data) ->
   case binary:split(Data, <<"\r\n">>) of
-    [<<"RTSP/1.0 ", Response/binary>>, After] -> read_response(Socket, Response, After);
-    [RequestLine, After] -> read_request(Socket, RequestLine, After);
-    [_] ->
-      inet:setopts(Socket, [{packet,line},{active,false}]),
-      case gen_tcp:recv(Socket, 0, ?TIMEOUT) of
-        {ok, Line} when size(Data) > 0 ->
-          read(Socket, <<Data/binary, Line/binary>>);
-        {ok, Line} when size(Data) == 0 ->
-          read(Socket, Line)
-      end
+    [<<"RTSP/1.0 ", Response/binary>>, After] -> read_response(Response, After);
+    [_] -> more
+  end;
+
+read0(Data) when size(Data) < 20 ->
+  more;
+
+read0(Data) ->
+  case re:run(Data, "^([A-Z]+) ") of
+    {match, _} ->
+      case binary:split(Data, <<"\r\n">>) of
+        [RequestLine, After] -> read_request(RequestLine, After);
+        [_] -> more
+      end;
+    nomatch ->
+      {error, desync}
   end.
 
 
-read_request(Socket, RequestLine, Data) ->
+read_request(RequestLine, Data) ->
   case binary:split(RequestLine, <<" ">>, [global]) of
     [Request, URL, _Protocol] ->
-      {Headers, Rest} = read_headers(Socket, Data),
-      inet:setopts(Socket, [{active,false},{packet,raw}]),
-      {Body, Rest1} = read_body(Socket, Headers, Rest),
+      {Headers, Rest} = read_headers(Data),
+      {Body, Rest1} = read_body(Headers, Rest),
       {ok, {rtsp,request, {Request, URL}, Headers, Body}, Rest1};
     _Else ->
       {error, {invalid_rtsp_request, RequestLine}}
   end.
 
-read_response(Socket, ResponseLine, Data) ->
+read_response(ResponseLine, Data) ->
   case re:run(ResponseLine, "(\\d+) (.*)$", [{capture,all_but_first,binary}]) of
     {match, [Code_, Message]} ->
       Code = list_to_integer(binary_to_list(Code_)),
-      {Headers, Rest} = read_headers(Socket, Data),
-      inet:setopts(Socket, [{active,false},{packet,raw}]),
-      {Body, Rest1} = read_body(Socket, Headers, Rest),
+      {Headers, Rest} = read_headers(Data),
+      {Body, Rest1} = read_body(Headers, Rest),
       {ok, {rtsp,response,{Code,Message},Headers,Body}, Rest1};
     nomatch ->
       {error, {invalid_rtsp_response, ResponseLine}}
   end.
 
 
-read_body(Socket, Headers, Data) ->
+read_body(Headers, Data) ->
   case proplists:get_value(<<"Content-Length">>, Headers) of
     undefined -> {undefined, Data};
     Length_ ->
       Length = list_to_integer(binary_to_list(Length_)),
-      if Data == <<>> ->
-        {ok, B} = gen_tcp:recv(Socket, Length, 3*?TIMEOUT),
-        {B, <<>>};
-      size(Data) == Length ->
-        {Data, <<>>};
-      size(Data) < Length ->
-        {ok, B} = gen_tcp:recv(Socket, Length - size(Data), 3*?TIMEOUT),
-        {<<Data/binary, B/binary>>, <<>>};
-      size(Data) > Length ->
-        erlang:split_binary(Data, Length)
+      case Data of
+        <<Body:Length/binary, Rest/binary>> -> {Body, Rest};
+        _ -> throw({more, Length - size(Data)})
       end
   end.
 
 
 
 
-read_headers(_Socket, <<"\r\n", Rest/binary>>) ->
+read_headers(<<"\r\n", Rest/binary>>) ->
   {[], Rest};
 
-read_headers(Socket, Data) ->
+read_headers(Data) ->
   case binary:split(Data, <<"\r\n">>) of
     [Header, After] ->
       [Key, Value] = binary:split(Header, <<": ">>),
-      {Headers, Rest} = read_headers(Socket, After),
+      {Headers, Rest} = read_headers(After),
       {[{Key,Value}|Headers], Rest};
     [_] ->
-      inet:setopts(Socket, [{packet,line},{active,false}]),
-      case gen_tcp:recv(Socket, 0, ?TIMEOUT) of
-        {ok, Line} when size(Data) > 0 ->
-          read_headers(Socket, <<Data/binary, Line/binary>>);
-        {ok, Line} when size(Data) == 0 ->
-          read_headers(Socket, Line)
-      end
+      throw(more)
   end.
 
 

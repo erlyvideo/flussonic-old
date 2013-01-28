@@ -4,7 +4,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
-rtsp_parse_test_() ->
+rtsp_parse_test1_() ->
   [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
     lists:prefix("test_", atom_to_list(F))].
 
