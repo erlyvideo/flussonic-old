@@ -1,6 +1,9 @@
 flussonic (3.68.2)
 
   * enhanced DVR migration script to be restartable
+  * migrated to new HTTP server cowboy
+  * fixed bug with HLS segments generation
+  * added preliminary version for HTTP MPEG-TS POST
   
 flussonic (3.68.1)
 

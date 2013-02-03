@@ -108,25 +108,15 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
   ?MODULE:write_loop(Req, Mpegts, Started);
 
 handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>}) ->
-
   proplists:get_value(publish_enabled, Options) == true orelse throw({return,403,<<"publish not enabled">>}),
-
-  ?D(z1),
 
   {TE, Req1} = cowboy_req:header(<<"transfer-encoding">>, Req),
   TE == <<"chunked">> orelse throw({return, 401, <<"need body">>}),
 
-  ?D(z2),
-  [Transport, Socket] = cowboy_req:get([transport, socket], Req),
-  inet:setopts(Socket, [{send_timeout,1000}]),
-  Transport:send(Socket, "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n"),
-  % {ok, Req2} = cowboy_req:reply(200, [], <<>>, Req1),
-  Req2 = Req1,
-  ?D(z3),
+  {ok, Req2} = cowboy_req:reply(200, [], <<>>, Req1),
 
   {ok, Recorder} = flu_stream:find(StreamName),
   flu_stream:set_source(Recorder, self()),
-  ?D(z5),
   {ok, Req3} = ?MODULE:read_loop(Recorder, mpegts_decoder:init(), Req2),
   flu_stream:set_source(Recorder, undefined),
   ?D({exit,mpegts_reader}),
@@ -152,22 +142,35 @@ await_media_info(Name, Req) ->
 
 terminate(_,_,_) -> ok.
 
-  
+
+read_chunk(Req) ->
+  % Socket = cowboy_req:get(socket,Req),
+  % inet:setopts(Socket, [{active,false},{packet,line}]),
+  % {ok, BinLen} = gen_tcp:recv(Socket, 0, 5000),
+  % Size = size(BinLen) - 2,
+  % <<BinLen1:Size/binary, "\r\n">> = BinLen,
+  % Len = list_to_integer(binary_to_list(BinLen1), 16),
+  % inet:setopts(Socket, [{packet,raw}]),
+  % case gen_tcp:recv(Socket, Len) of
+  %   {ok, Chunk} ->
+  %     {ok, Chunk, Req};
+  %   eof ->
+  %     {done, Req};
+  %   {error, tcp_closed} ->
+  %     {done, Req};
+  %   {error, Error} ->
+  %     {error, Error}
+  % end.
+  cowboy_req:stream_body(Req).
+
   
 read_loop(Recorder, Reader, Req) ->
-  {ok, _Transport, Socket} = cowboy_req:transport(Req),
-  inet:setopts(Socket, [{active,false},{packet,line}]),
-  {ok, BinLen} = gen_tcp:recv(Socket, 0, 5000),
-  Size = size(BinLen) - 2,
-  <<BinLen1:Size/binary, "\r\n">> = BinLen,
-  Len = list_to_integer(binary_to_list(BinLen1), 16),
-  inet:setopts(Socket, [{packet,raw}]),
-  case gen_tcp:recv(Socket, Len) of
-    {ok, Chunk} ->
+  case read_chunk(Req) of
+    {ok, Chunk, Req1} ->
       {ok, Reader1, Frames} = mpegts_decoder:decode(Chunk, Reader),
       [flu_stream:send_frame(Recorder, Frame) || Frame <- Frames],
-      {ok, <<"\r\n">>} = gen_tcp:recv(Socket, 2),
-      ?MODULE:read_loop(Recorder, Reader1, Req);
+      % {ok, <<"\r\n">>} = gen_tcp:recv(Socket, 2),
+      ?MODULE:read_loop(Recorder, Reader1, Req1);
     {done, Req1} ->
       {ok, Req1};
     {error, Error} ->
