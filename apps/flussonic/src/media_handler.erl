@@ -28,7 +28,7 @@
 
 
 -behaviour(cowboy_http_handler).
--export([init/3, handle/2, terminate/2]).
+-export([init/3, handle/2, terminate/3]).
 
 -export([check_sessions/3]).
 
@@ -39,7 +39,7 @@
 init({_Any,http}, Req, Opts) ->
   {ok, Req, Opts}.
 
-terminate(_,_) ->
+terminate(_,_,_) ->
   ok.
 
 handle(Req, Opts) ->

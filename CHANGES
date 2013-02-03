@@ -1,3 +1,7 @@
+flussonic (3.68.2)
+
+  * enhanced DVR migration script to be restartable
+  
 flussonic (3.68.1)
 
   * DVR refactoring: new dvr2 storage

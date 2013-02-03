@@ -142,21 +142,18 @@ merge(Opts1, Opts2, Opts3) ->
 parse_routes([]) -> [];
 
 parse_routes([{live, Prefix, Opts}|Env]) ->
-  Tokens = tokens(Prefix),
-  [{Tokens ++ ['...'], media_handler, [{prefix, Prefix}|merge(Opts, [{autostart,false},{dynamic,true},{module,flu_stream}])]}
+  [{<<"/",Prefix/binary, "/[...]">>, media_handler, [{prefix, Prefix}|merge(Opts, [{autostart,false},{dynamic,true},{module,flu_stream}])]}
   |parse_routes(Env)];
 
 parse_routes([{stream, Path, URL, Options}|Env]) ->
-  Tokens2 = tokens(Path),
-  
+  Tokens2 = tokens(Path),  
   [
-    {Tokens2 ++ [<<"mpegts">>], mpegts_handler, merge([{name,Path},{url,URL}], Options)},
-    {Tokens2 ++ ['...'], media_handler, merge([{name,Path},{url,URL},{module,flu_stream},{name_length,length(Tokens2)}], Options)}
+    {<<"/",Path/binary, "/mpegts">>, mpegts_handler, merge([{name,Path},{url,URL}], Options)},
+    {<<"/",Path/binary, "/[...]">>, media_handler, merge([{name,Path},{url,URL},{module,flu_stream},{name_length,length(Tokens2)}], Options)}
   |parse_routes(Env)];
   
 parse_routes([{file, Prefix, Root,Options}|Env]) ->
-  Tokens = tokens(Prefix),
-  [{Tokens ++ ['...'], media_handler, merge([{file_prefix,Prefix},{module,flu_file},{root, Root}],Options)}
+  [{<<"/",Prefix/binary, "/[...]">>, media_handler, merge([{file_prefix,Prefix},{module,flu_file},{root, Root}],Options)}
   |parse_routes(Env)];
 
 parse_routes([{root, Root}|Env]) ->
@@ -165,29 +162,28 @@ parse_routes([{root, Root}|Env]) ->
     false -> cowboy_static
   end,
   [
-  {['...'], Module, [
+  {"/[...]", Module, [
     {directory,Root},
     {mimetypes, {fun mimetypes:path_to_mimes/2, default}}
   ]}|parse_routes(Env)];
 
 parse_routes([{mpegts,Prefix,Options}|Env]) ->
-  Tokens = tokens(Prefix),
-  [{Tokens ++ ['...'], mpegts_handler, Options}
+  [{<<"/",Prefix/binary, "/[...]">>, mpegts_handler, [{publish_enabled,true}|Options]}
   |parse_routes(Env)];
 
 parse_routes([{api,Options}|Env]) ->
   [
-    {[], api_handler, [{mode,mainpage}|Options]},
-    {[<<"admin">>], api_handler, [{mode,mainpage}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"reload">>], api_handler, [{mode,reload}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"events">>], api_handler, [{mode,events}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"streams">>], api_handler, [{mode,streams}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"sessions">>], api_handler, [{mode,sessions}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"pulse">>], api_handler, [{mode,pulse}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"stream_health">>, '...'], api_handler, [{mode,health}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"stream_restart">>, '...'], api_handler, [{mode,stream_restart}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"dvr_status">>, year, month, day, '...'], dvr_handler, [{mode,status}|Options]},
-    {[<<"erlyvideo">>,<<"api">>,<<"dvr_previews">>, year, month, day, hour, minute, '...'], dvr_handler, [{mode,previews}|Options]}
+    {"/", api_handler, [{mode,mainpage}|Options]},
+    {"/admin", api_handler, [{mode,mainpage}|Options]},
+    {"/erlyvideo/api/reload", api_handler, [{mode,reload}|Options]},
+    {"/erlyvideo/api/events", api_handler, [{mode,events}|Options]},
+    {"/erlyvideo/api/streams", api_handler, [{mode,streams}|Options]},
+    {"/erlyvideo/api/sessions", api_handler, [{mode,sessions}|Options]},
+    {"/erlyvideo/api/pulse", api_handler, [{mode,pulse}|Options]},
+    {"/erlyvideo/api/stream_health/[...]", api_handler, [{mode,health}|Options]},
+    {"/erlyvideo/api/stream_restart/[...]", api_handler, [{mode,stream_restart}|Options]},
+    {"/erlyvideo/api/dvr_status/:year/:month/:day/[...]", dvr_handler, [{mode,status}|Options]},
+    {"/erlyvideo/api/dvr_previews/:year/:month/:day/:hour/:minute/[...]", dvr_handler, [{mode,previews}|Options]}
   |parse_routes(Env)];
 
 parse_routes([{plugin,Plugin,Options}|Env]) ->

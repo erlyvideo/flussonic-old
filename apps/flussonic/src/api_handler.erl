@@ -26,7 +26,7 @@
 -include("log.hrl").
 
 -behaviour(cowboy_http_handler).
--export([init/3, handle/2, terminate/2]).
+-export([init/3, handle/2, terminate/3]).
 -export([websocket_init/3, websocket_handle/3,
     websocket_info/3, websocket_terminate/3]).
 -include_lib("eunit/include/eunit.hrl").
@@ -61,7 +61,8 @@ handle(Req, {events, _Opts}) ->
   {Accept, _Req1} = cowboy_req:header(<<"accept">>, Req),
   case Accept of
     <<"text/event-stream">> ->
-      {ok, Transport, Socket} = cowboy_req:transport(Req),
+      % FIXME: migrate to loop handler
+      [Transport, Socket] = cowboy_req:get([transport, socket], Req),
       is_port(Socket) andalso inet:setopts(Socket, [{send_timeout,10000}]),
       Transport:send(Socket, "HTTP 200 OK\r\nConnection: keep-alive\r\n"
         "Cache-Control: no-cache\r\nContent-Type: text/event-stream\r\n\r\n"),
@@ -149,7 +150,7 @@ handle(Req, {health, Opts}) ->
     {ok, R1, undefined}
   end).
 
-terminate(_,_) -> ok.
+terminate(_,_,_) -> ok.
 
 
 events_sse_loop(Transport, Socket) ->

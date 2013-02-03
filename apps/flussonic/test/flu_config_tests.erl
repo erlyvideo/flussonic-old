@@ -61,9 +61,9 @@ global_sessions_test_() ->
 
 parse_route_test_() ->
   [
-    ?_assertMatch([{[<<"live">>,<<"injest">>, '...'], media_handler, [{prefix, <<"live/injest">>}|_]}], 
+    ?_assertMatch([{<<"/live/injest/[...]">>, media_handler, [{prefix, <<"live/injest">>}|_]}], 
       flu_config:parse_routes([{live, <<"live/injest">>, []}])),
-    ?_assertMatch([{[<<"vod">>,<<"mp4">>,'...'], media_handler, [{file_prefix,<<"vod/mp4">>},{module,flu_file},{root,<<"/movies">>}]}],
+    ?_assertMatch([{<<"/vod/mp4/[...]">>, media_handler, [{file_prefix,<<"vod/mp4">>},{module,flu_file},{root,<<"/movies">>}]}],
       flu_config:parse_routes([{file, <<"vod/mp4">>, <<"/movies">>, []}]))
   ].
 
@@ -73,7 +73,7 @@ plugin_route_test_() ->
   fun() ->
     meck:new(fake_plugin),
     meck:expect(fake_plugin, routes, fun(_) -> 
-      [{[<<"plugin">>,<<"api">>,'...'], plugin_api, []}]
+      [{<<"/plugin/api/[...]">>, plugin_api, []}]
     end),
     ok
   end,
@@ -82,7 +82,7 @@ plugin_route_test_() ->
   end,
   [
   fun() ->
-    ?assertMatch([{[<<"plugin">>,<<"api">>,'...'], plugin_api, []}], 
+    ?assertMatch([{<<"/plugin/api/[...]">>, plugin_api, []}], 
       flu_config:parse_routes([{plugin, fake_plugin, []}]))
   end
   ]

@@ -364,12 +364,10 @@ rtmp_session_auth_test_() ->
   {foreach,
   fun() ->
     init_all(),
-    meck:new(fake_auth),
-    meck:expect(fake_auth, init, fun(_, Req, _) -> {ok, Req, state} end),
-    meck:expect(fake_auth, terminate, fun(_,_) -> ok end),
-    Dispatch = [{'_', [{['...'], fake_auth, []}]}],
+    meck:new(fake_auth, [{passthrough,true}]),
+    Dispatch = [{'_', [{"/[...]", fake_auth, []}]}],
     {ok, _} = cowboy:start_http(fake_http, 1, [{port, 6071}],
-      [{dispatch, Dispatch}]),
+      [{env, [{dispatch, cowboy_router:compile(Dispatch)}]}] ),
     ok
   end,
   fun(_) ->
@@ -383,11 +381,10 @@ rtmp_session_auth_test_() ->
 
 test_rtmp_play_protected_stream() ->
   Self = self(),
-  meck:expect(fake_auth, handle, fun(Req, _) ->
+  meck:expect(fake_auth, reply, fun(Req) ->
     {QsVals, _} = cowboy_req:qs_vals(Req),
     Self ! {backend_request, QsVals},
-    {ok, R1} = cowboy_req:reply(200, [], "ok\n", Req),
-    {ok, R1, undefined}
+    {200, [], "ok\n"}
   end),
   set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6071/"}]}]),
   {ok, RTMP, _} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4?token=123",
@@ -417,9 +414,8 @@ test_rtmp_play_protected_stream() ->
 
 test_clients_count_on_rtmp_file() ->
   ?assertEqual([], flu_session:list()),
-  meck:expect(fake_auth, handle, fun(Req, _) ->
-    {ok, R1} = cowboy_req:reply(200, [], "ok\n", Req),
-    {ok, R1, undefined}
+  meck:expect(fake_auth, reply, fun(_Req) ->
+    {200, [], "ok\n"}
   end),
   set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6071/"}]}]),
   {ok, RTMP, _} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4?token=123",

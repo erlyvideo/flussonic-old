@@ -348,7 +348,7 @@ set_config(Env) ->
   (catch cowboy:stop_listener(fake_http)),
   cowboy:start_http(fake_http, 3, 
     [{port,5555}],
-    [{dispatch,[{'_',flu_config:parse_routes(Conf)}]}]
+    [{env,[{dispatch, cowboy_router:compile([{'_',flu_config:parse_routes(Conf)}])}]}]
   ), 
   ok.
 

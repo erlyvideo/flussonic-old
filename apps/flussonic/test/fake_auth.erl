@@ -13,14 +13,14 @@ handle(Req, _) ->
   {ok, R1} = cowboy_req:reply(Code, Headers, Body, Req),
   {ok, R1, undefined}.
 
-terminate(_,_) -> ok.
+terminate(_,_,_) -> ok.
 
 start_http() ->
   application:start(crypto),
   application:start(ranch),
   application:start(cowboy),
-  Dispatch = [{'_', [{[<<"auth">>], fake_auth, []}]}],
+  Dispatch = [{'_', [{"/auth", fake_auth, []}]}],
   {ok, Pid} = cowboy:start_http(fake_http, 1, [{port, 6070}],
-    [{dispatch, Dispatch}]),
+    [{env,[{dispatch, cowboy_router:compile(Dispatch)}]}]),
   {ok, Pid}.
 

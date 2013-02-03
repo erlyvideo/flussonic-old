@@ -97,7 +97,7 @@ load_config() ->
   Dispatch = [{'_', flu_config:parse_routes(Env)}],
   {http, HTTPPort} = lists:keyfind(http, 1, Env),
 
-  ProtoOpts = [{dispatch, Dispatch},{max_keepalive,4096}],
+  ProtoOpts = [{env,[{dispatch, cowboy_router:compile(Dispatch)}]},{max_keepalive,4096}],
   
   start_http(flu_http, 100, 
     [{port,HTTPPort},{backlog,4096},{max_connections,32768}],

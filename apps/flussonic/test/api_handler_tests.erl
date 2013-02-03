@@ -34,7 +34,7 @@ set_config(Conf) ->
   application:set_env(flussonic, config, Config),
   cowboy:start_http(fake_http, 3, 
     [{port,5555}],
-    [{dispatch,[{'_',flu_config:parse_routes(Config)}]}]
+    [{env,[{dispatch, cowboy_router:compile([{'_',flu_config:parse_routes(Config)}])}]}]
   ),
   ok.
 

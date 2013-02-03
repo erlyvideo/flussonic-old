@@ -28,9 +28,13 @@ mpegts_test_() ->
     % application:set_env(lager,crash_log,undefined),
     % lager:start(),
 
+    Dispatch = [{'_',
+      [{<<"/auth">>, fake_auth, [unique_user_id]}] ++ flu_config:parse_routes(Config)
+    }],
+
     cowboy:start_http(fake_http, 3, 
       [{port,5555}],
-      [{dispatch,[{'_',[{[<<"auth">>], fake_auth, [unique_user_id]}] ++ flu_config:parse_routes(Config)}]}]
+      [{env,[{dispatch,cowboy_router:compile(Dispatch)}]}]
     ),
     {ok, _Pid} = flu_stream:autostart(<<"channel0">>),
     % [Pid ! F || F <- lists:sublist(flu_rtmp_tests:h264_aac_frames(), 1, 50)],
@@ -56,6 +60,7 @@ mpegts_test_() ->
     ,{"test_change_media_info", fun test_change_media_info/0}
     ,{"test_unauthorized_access", fun test_unauthorized_access/0}
     ,{"test_authorized_access_with_unique_user_id", fun test_authorized_access_with_unique_user_id/0}
+    ,{"test_publish_mpegts_wrong_url", fun test_publish_mpegts_wrong_url/0}
     % ,{"test_publish_mpegts", fun test_publish_mpegts/0}
   ]
   }.
@@ -207,13 +212,30 @@ test_authorized_access_with_unique_user_id() ->
   ok.
 
 
-% test_publish_mpegts() ->
-%   {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
-%   gen_tcp:send(Sock1, ["POST /channel1/mpegts HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"]),
-%   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0, 200),
-%   ?assertEqual(200, Code),
-%   gen_tcp:close(Sock1),
-%   ok.
+test_publish_mpegts_wrong_url() ->
+  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock1, ["POST /channel1/mpegts HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"]),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0, 200),
+  ?assertEqual(403, Code),
+  gen_tcp:close(Sock1),
+  ok.
+
+
+test_publish_mpegts() ->
+  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false},{send_timeout,500}]),
+  gen_tcp:send(Sock1, ["POST /mpegts/channel1 HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"]),
+  {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0, 200),
+  ?assertEqual(200, Code),
+
+  % {ok, Stream} = flu_stream:autostart(<<"channel1">>),
+  Frames1 = flu_rtmp_tests:h264_aac_frames(),
+  _ = lists:foldl(fun(F, M) ->
+    {M1, D} = mpegts:encode(M,F),
+    ok = gen_tcp:send(Sock1, [io_lib:format("~.16. B\r\n", [iolist_size(D)]),D,"\r\n"]),
+    M1
+  end, mpegts:init([{resync_on_keyframe,true}]), Frames1),
+  gen_tcp:close(Sock1),
+  ok.
 
 
 read_headers(Sock) ->

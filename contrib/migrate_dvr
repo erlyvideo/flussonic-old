@@ -1,5 +1,10 @@
 #!/usr/bin/env escript
 
+% sublime: syntax Erlang
+
+-mode(compile).
+-compile(export_all).
+
 main([Path]) ->
   code:add_pathz("apps/flussonic/ebin"),
   code:add_pathz("/opt/flussonic/apps/flussonic/ebin"),
@@ -9,10 +14,17 @@ main([Path]) ->
     _ -> ok
   end,
   gen_event:start_link({local,flu_event}),
+  gen_event:add_handler(flu_event, ?MODULE, []),
   true = net_kernel:connect('flussonic@127.0.0.1'),
   flu:prepare('flussonic@127.0.0.1', dvr),
   dvr_hour_storage:migrate_from_segments(Path),
   ok.
 
 
+
+init([]) -> {ok, state}.
+
+handle_event(Event, State) ->
+  gen_event:notify({flu_event, 'flussonic@127.0.0.1'}, Event),
+  {ok, State}.
 

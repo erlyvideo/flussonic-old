@@ -24,7 +24,8 @@
 -module(mpegts_handler).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--export([init/3, handle/2, terminate/2]).
+-behaviour(cowboy_http_handler).
+-export([init/3, handle/2, terminate/3]).
 -export([read_loop/3]).
 -export([write_loop/3]).
 -export([null_packet/1]).
@@ -87,7 +88,7 @@ handle(Req, State) ->
 
 
 handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _State) ->
-  {ok, Transport, Socket} = cowboy_req:transport(Req),
+  [Transport, Socket] = cowboy_req:get([transport, socket], Req),
 
   {ok, _} = media_handler:check_sessions(Req, Name, [{pid,self()}|Options]),
 
@@ -106,30 +107,37 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
   Started = length([S || #stream_info{content = video} = S <- Streams]) == 0,
   ?MODULE:write_loop(Req, Mpegts, Started);
 
-handle0(Req, #mpegts{name = StreamName, options = _Options, method = <<"POST">>}) ->  
-  throw(mpegts_input_disabled),
+handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>}) ->
 
-  ?D({mpegts_input,StreamName}),
+  proplists:get_value(publish_enabled, Options) == true orelse throw({return,403,<<"publish not enabled">>}),
 
-  case cowboy_req:header(<<"transfer-encoding">>, Req) of
-    {<<"chunked">>, Req1} ->
-      {ok, Recorder} = flu_stream:find(StreamName),
-      flu_stream:set_source(Recorder, self()),
-      {ok, Req2} = ?MODULE:read_loop(Recorder, mpegts_decoder:init(), Req1),
-      flu_stream:set_source(Recorder, undefined),
-      ?D({exit,mpegts_reader}),
-      {ok, Req2, undefined};
-    {_, Req1} ->
-      {ok, Req2} = cowboy_req:reply(401, [], <<"need body">>, Req1),
-      {ok, Req2, undefined}    
-  end.
+  ?D(z1),
+
+  {TE, Req1} = cowboy_req:header(<<"transfer-encoding">>, Req),
+  TE == <<"chunked">> orelse throw({return, 401, <<"need body">>}),
+
+  ?D(z2),
+  [Transport, Socket] = cowboy_req:get([transport, socket], Req),
+  inet:setopts(Socket, [{send_timeout,1000}]),
+  Transport:send(Socket, "HTTP/1.0 200 OK\r\nConnection: close\r\n\r\n"),
+  % {ok, Req2} = cowboy_req:reply(200, [], <<>>, Req1),
+  Req2 = Req1,
+  ?D(z3),
+
+  {ok, Recorder} = flu_stream:find(StreamName),
+  flu_stream:set_source(Recorder, self()),
+  ?D(z5),
+  {ok, Req3} = ?MODULE:read_loop(Recorder, mpegts_decoder:init(), Req2),
+  flu_stream:set_source(Recorder, undefined),
+  ?D({exit,mpegts_reader}),
+  {ok, Req3, undefined}.
 
 
 await_media_info(Name, Req) ->
   case flu_stream_data:get(Name, media_info) of
     undefined ->
       null_packet(Req),
-      {ok, _Transport, Socket} = cowboy_req:transport(Req),
+      Socket = cowboy_req:get(socket, Req),
       inet:setopts(Socket, [{active,once}]),
       receive
         {tcp_closed, Socket} -> throw(stop)
@@ -142,7 +150,7 @@ await_media_info(Name, Req) ->
   end.
 
 
-terminate(_,_) -> ok.
+terminate(_,_,_) -> ok.
 
   
   
@@ -226,7 +234,7 @@ null_packet(Req) ->
 
 
 tcp_send(Req, Bin) ->
-  {ok, Transport, Socket} = cowboy_req:transport(Req),
+  [Transport, Socket] = cowboy_req:get([transport, socket], Req),
   case Transport:send(Socket, Bin) of
     ok -> ok;
     {error, closed} -> exit(normal);
