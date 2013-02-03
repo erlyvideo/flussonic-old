@@ -8,8 +8,8 @@
 mpegts_test_() ->
   {foreach,
   fun() ->
-    Apps = [ranch, gen_tracker, cowboy, flussonic],
-    [ok = application:start(App) || App <- Apps],
+    Apps = [crypto, ranch, gen_tracker, cowboy, flussonic],
+    [application:start(App) || App <- Apps],
     Conf = [
       {rewrite, "testlivestream", "/dev/null"},
       {stream, "channel0", "passive://ok"},

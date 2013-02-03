@@ -14,7 +14,6 @@ rtsp_out_test_() ->
   end, fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
     application:stop(ranch),
-    application:stop(crypto),
     error_logger:add_report_handler(error_logger_tty_h),
   ok
   end, [
