@@ -41,6 +41,9 @@ media_handler_test_() ->
     ,{"test_archive_mpeg_file", fun test_archive_mpeg_file/0}
     ,{"test_archive_timeshift_abs", fun test_archive_timeshift_abs/0}
     ,{"test_archive_timeshift_rel", fun test_archive_timeshift_rel/0}
+
+
+    ,{"test_wrong_path1", fun test_wrong_path1/0}
   ]}.
 
 
@@ -237,6 +240,10 @@ test_archive_timeshift_rel() ->
     test_lookup_by_path("/livestream/timeshift_rel/1234567")).  
 
 
+
+test_wrong_path1() ->
+  set_config([{stream, "chan0", "fake://url", []}]),
+  ?assertMatch({return, 415, _}, test_lookup_by_path("/chan0/archive/1359421400/manifest.f4m")).
 
 
 

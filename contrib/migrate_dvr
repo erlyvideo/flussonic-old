@@ -1,0 +1,18 @@
+#!/usr/bin/env escript
+
+main([Path]) ->
+  code:add_pathz("apps/flussonic/ebin"),
+  code:add_pathz("/opt/flussonic/apps/flussonic/ebin"),
+  net_kernel:start(['migrate@127.0.0.1', longnames]),
+  case file:read_file("/etc/flussonic/cookie") of
+    {ok, Cookie} -> erlang:set_cookie(node(), binary_to_atom(Cookie, latin1) );
+    _ -> ok
+  end,
+  gen_event:start_link({local,flu_event}),
+  true = net_kernel:connect('flussonic@127.0.0.1'),
+  flu:prepare('flussonic@127.0.0.1', dvr),
+  dvr_hour_storage:migrate_from_segments(Path),
+  ok.
+
+
+

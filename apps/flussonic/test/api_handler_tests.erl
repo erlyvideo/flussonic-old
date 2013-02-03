@@ -7,9 +7,8 @@
 api_handler_test_() ->
   {foreach,
   fun() ->
-      Apps = [ranch, gen_tracker, cowboy, flussonic],
-      [application:stop(App) || App <- Apps],
-      [ok = application:start(App) || App <- Apps],
+      Apps = [crypto, ranch, gen_tracker, cowboy, flussonic],
+      [application:start(App) || App <- Apps],
       meck:new([flu], [{passthrough,true}]),
       inets:start(),
       ok

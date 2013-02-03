@@ -512,7 +512,15 @@ depacketize([<<0:1, _NRI:2, _Type:5, _/binary>> = NAL|List], undefined, NALS) ->
 
 
 unpack_rtp_list(Buffer, DTS) ->
-  NALS = depacketize(Buffer),
+  NALS1 = depacketize(Buffer),
+
+  % Some cameras send AnnexB inside FUA. Need to check it
+  NALS = case NALS1 of
+    [<<0,0,0,1,_/binary>>] -> [N || N <- binary:split(hd(NALS1), [<<0,0,0,1>>, <<0,0,1>>], [global]), N =/= <<>>];
+    [<<0,0,1,_/binary>>] -> [N || N <- binary:split(hd(NALS1), [<<0,0,0,1>>, <<0,0,1>>], [global]), N =/= <<>>];
+    _ -> NALS1
+  end,
+  % ?D(NALS),
   H264 = #h264{
     sps = [SPS || <<_:3, ?NAL_SPS:5, _/binary>> = SPS <- NALS],
     pps = [SPS || <<_:3, ?NAL_PPS:5, _/binary>> = SPS <- NALS]

@@ -178,6 +178,7 @@ parse_routes([{mpegts,Prefix,Options}|Env]) ->
 parse_routes([{api,Options}|Env]) ->
   [
     {[], api_handler, [{mode,mainpage}|Options]},
+    {[<<"admin">>], api_handler, [{mode,mainpage}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"reload">>], api_handler, [{mode,reload}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"events">>], api_handler, [{mode,events}|Options]},
     {[<<"erlyvideo">>,<<"api">>,<<"streams">>], api_handler, [{mode,streams}|Options]},

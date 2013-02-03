@@ -224,7 +224,14 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {{dvr_session, hds_fragment, [to_b(Root), to_i(From), to_duration(Duration), to_i(Fragment)]}, [{<<"Content-Type">>, <<"video/f4f">>}], name_or_pi(Opts, Acc)};
     [Else|PathInfo1] ->
-      lookup_name(PathInfo1, Opts, Req, [Else|Acc]);
+      case proplists:get_value(static, Opts) of
+        true ->
+          % Temporary hack to protect from requests like
+          % http://localhost:8080/cam0/archive/1359421400/manifest.f4m
+          throw({return, 415, ["undefined postfix"]});
+        _ ->
+          lookup_name(PathInfo1, Opts, Req, [Else|Acc])
+      end;
     [] ->
       throw({return, 415, ["undefined postfix ", name_or_pi([], Acc)]})
   end.

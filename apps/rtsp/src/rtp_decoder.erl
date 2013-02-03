@@ -147,8 +147,13 @@ decode_aac(<<>>, <<>>, _RTP, _) ->
   [];
 
 decode_aac(AudioData, <<AUSize:13, _Delta:3, AUHeaders/bitstring>>, RTP, Timecode) ->
-  <<Body:AUSize/binary, Rest/binary>> = AudioData,
+  <<Body1:AUSize/binary, Rest/binary>> = AudioData,
   DTS = timecode_to_dts(RTP, Timecode),
+  % Some cameras pack aac to adts. Check it
+  Body = case Body1 of
+    <<16#FFF:12, _/bitstring>> -> {ok, AAC, <<>>} = aac:unpack_adts(Body1), AAC;
+    _ -> Body1
+  end,
   Frame = #video_frame{
     content = audio,
     dts     = DTS,

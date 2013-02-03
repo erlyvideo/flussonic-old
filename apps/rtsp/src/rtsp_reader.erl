@@ -165,7 +165,6 @@ control_url(ContentBase, ControlUrl) ->
         554 -> "";
         _ -> [":", integer_to_list(Port)]
       end, filename:dirname(Path), "/", ControlUrl, Query],
-      ?debugFmt("~p", [URL1]),
       lists:flatten(URL1)
   end.
 

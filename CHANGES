@@ -1,6 +1,16 @@
+flussonic (3.68.1)
+
+  * DVR refactoring: new dvr2 storage
+  * admin panel is accessed via /admin
+
+flussonic (3.67.5)
+
+  * RTSP now can consume frames with ADTS and AnnexB
+  * Correctly handles such broken urls like /chan0/archive/1359421400/manifest.f4m
+
 flussonic (3.67.4)
 
-  * fixes in RTSP protocol reader
+  * fixes in RTSP protocol reader.  It uses stateless parser now
 
 flussonic (3.67.3)
 

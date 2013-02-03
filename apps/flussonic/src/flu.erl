@@ -11,7 +11,7 @@
 -export([to_hex/1]).
 -export([version/0]).
 -export([default_file_access/0]).
-
+-export([prepare/2]).
 
 version() ->
   application:load(flussonic),
@@ -113,3 +113,20 @@ hex(N) when N < 10 ->
   $0+N;
 hex(N) when N >= 10, N < 16 ->
   $a + (N-10).
+
+
+prepare(Node, App) ->
+  {ok, Mods} = rpc:call(Node, application, get_key, [App, modules]),
+  [begin
+    {M,B,F} = rpc:call(Node, code, get_object_code, [M]),
+    {module,M} = code:load_binary(M,F,B)
+  end || M <- Mods],
+  {ok,Mods}.
+
+
+
+
+
+
+
+

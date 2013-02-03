@@ -303,7 +303,7 @@ handle_input_tcp(#rtsp{socket = _S, dump = NeedToDump} = RTSP, Bin) ->
       % {ok, Bin2} = gen_tcp:recv(S, Bytes, ?TIMEOUT),
       {ok, RTSP, Bin};
     {error, desync} ->
-      ?D({rtsp_desync,Bin}),
+      lager:error("RTSP desync on ~s", [RTSP#rtsp.url]),
       throw({stop, normal, RTSP})
   end.
 
