@@ -174,7 +174,6 @@ encode_frame(#streamer{media_info = #media_info{streams = Infos}, warning_count 
   Closing = NextId == last_frame,
   case lists:keyfind(TrackId, #stream_info.track_id, Infos) of
     false ->
-      % FIXME
       if WarningCount < 10 ->
         ?D({unknown_mpegts_track, TrackId, Infos, {video_frame, Frame#video_frame.track_id, Frame#video_frame.codec}, get(name)});
       true -> ok end, 

@@ -87,6 +87,7 @@ tgz:
 	find flussonic-$(VERSION) -name *.app.src -exec perl -pi -e s,git,'"v1.0"',g {} \;
 	find flussonic-$(VERSION) -name .gitignore -delete
 	cat rebar.config |grep -v meck > flussonic-$(VERSION)/rebar.config
+	rm -rf flussonic-$(VERSION)/test
 	rm -rf flussonic-$(VERSION)/deps/meck
 	rm -rf flussonic-$(VERSION)/deps/cowboy/test
 	rm -rf flussonic-$(VERSION)/deps/cowboy/examples

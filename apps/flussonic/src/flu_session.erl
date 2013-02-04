@@ -16,7 +16,7 @@
 -export([verify/3]).
 
 -export([backend_request/3]).
-
+-export([recheck_connected/0]).
 
 -export([timeout/0]).
 
@@ -202,11 +202,16 @@ table() ->
 
 
 
+recheck_connected() ->
+  gen_server:call(?MODULE, recheck_connected).
 
 init([]) ->
   ets:new(flu_session:table(), [public, named_table, {keypos, #session.session_id}]),
   timer:send_interval(5000, clean),
   {ok, state}.
+
+handle_call(recheck_connected, _From, State) ->
+  {reply, ok, recheck_connected(State)};
 
 handle_call({register, Pid}, _From, State) when is_pid(Pid) ->
   Ref = erlang:monitor(process, Pid),
@@ -243,6 +248,17 @@ handle_info(_Info, State) ->
 
 
 terminate(_,_) -> ok.
+
+recheck_connected(State) ->
+  Now = flu:now_ms(),
+  Refreshing = ets:select(flu_session:table(), ets:fun2ms(
+    fun(#session{auth_time = A, last_access_time = Last, pid = P} = S) 
+      when P =/= undefined andalso Now > Last + A -> S
+    end
+  )),
+
+  ?debugFmt("going to refresh: ~p", [Refreshing]),
+  State.
 
 
 

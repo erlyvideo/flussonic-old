@@ -1,3 +1,9 @@
+flussonic (3.68.3)
+
+  * fixed 'now' timeshift
+  * fixed routing in iptv
+  * fixed logging subsystem, broken in 3.68.2
+
 flussonic (3.68.2)
 
   * enhanced DVR migration script to be restartable
