@@ -79,6 +79,12 @@ case $1 in
   COOKIE=`cat $COOKIEFILE`
   echo `erl_call -a 'flu reconf' -n flussonic@127.0.0.1 -c "$COOKIE"`
   ;;
+"status")
+  COOKIE=`cat $COOKIEFILE`
+  eval "STATUS=`erl_call -a 'flu status' -n flussonic@127.0.0.1 -c "$COOKIE"`"
+  # echo `erl_call -a 'flu status' -n flussonic@127.0.0.1 -c "$COOKIE"`
+  echo -e $STATUS
+  ;;
 "restart")
   echo "Restarting"
   $0 stop
@@ -99,9 +105,6 @@ case $1 in
   echo "Force reload"
   $0 stop
   $0 start
-  ;;
-"status")
-  echo "Status unimplemented"
   ;;
 *)
   echo "$0 start|stop|run|reload|restart|attach|shell"

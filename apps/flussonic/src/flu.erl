@@ -12,11 +12,21 @@
 -export([version/0]).
 -export([default_file_access/0]).
 -export([prepare/2]).
+-export([status/0]).
 
 version() ->
   application:load(flussonic),
   {ok, Version} = application:get_key(flussonic,vsn),
   Version.
+
+
+status() ->
+  S = [io_lib:format("Flussonic ~s is running with streams:\n", [flu:version()]),
+  [io_lib:format("~s(~s) with delay:~p~n", [Name,proplists:get_value(url,Info),proplists:get_value(ts_delay,Info)]) ||
+    {Name,Info} <- flu_stream:list()]
+  ],
+  lists:flatten(S).
+
 
 
 extract_config_if_required() ->
