@@ -25,8 +25,12 @@ main([Path]) ->
       io:format("Failed to connect to running instance of flussonic\n"),
       erlang:halt(2)
   end,
-  flu:prepare('flussonic@127.0.0.1', dvr),
-  dvr_hour_storage:migrate_from_segments(Path),
+  % flu:prepare('flussonic@127.0.0.1', dvr),
+  % dvr_hour_storage:migrate_from_segments(Path),
+
+  Pid = proc_lib:spawn_link('flussonic@127.0.0.1', dvr_hour_storage, migrate_from_segments, [Path]),
+  erlang:monitor(process, Pid),
+  receive {'DOWN', _, _, Pid, _} -> ok end,
   ok.
 
 

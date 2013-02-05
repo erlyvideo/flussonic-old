@@ -110,6 +110,18 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
 handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>}) ->
   proplists:get_value(publish_enabled, Options) == true orelse throw({return,403,<<"publish not enabled">>}),
 
+  case proplists:get_value(password, Options) of
+    undefined -> ok;
+    GoodPassword ->
+      {Password, _} = cowboy_req:qs_val(<<"password">>, Req),
+      case iolist_to_binary(GoodPassword) of
+        Password -> ok;
+        _ ->
+          lager:info("invalid MPEG-TS publish password: ~p", [Password]),
+          throw({return,403,<<"invalid password">>})
+      end
+  end,
+
   {TE, Req1} = cowboy_req:header(<<"transfer-encoding">>, Req),
   TE == <<"chunked">> orelse throw({return, 401, <<"need body">>}),
 

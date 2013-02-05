@@ -97,7 +97,12 @@ load_config() ->
   Dispatch = [{'_', flu_config:parse_routes(Env)}],
   {http, HTTPPort} = lists:keyfind(http, 1, Env),
 
-  ProtoOpts = [{env,[{dispatch, cowboy_router:compile(Dispatch)}]},{max_keepalive,4096}],
+  RateLimit = proplists:get_value(rate_limit, Env),
+  Middlewares = case RateLimit of
+    undefined -> [];
+    _ -> [rate_limiter]
+  end ++ [cowboy_router, cowboy_handler],
+  ProtoOpts = [{env,[{dispatch, cowboy_router:compile(Dispatch)},{rate_limit,RateLimit}]},{max_keepalive,4096},{middlewares, Middlewares}],
   
   start_http(flu_http, 100, 
     [{port,HTTPPort},{backlog,4096},{max_connections,32768}],

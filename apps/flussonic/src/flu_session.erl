@@ -201,30 +201,47 @@ table() ->
   ?MODULE.
 
 
+-define(REFRESH, 1237).
+-define(CLEAN, 4759).
 
 recheck_connected() ->
   gen_server:call(?MODULE, recheck_connected).
 
+
+-record(sess, {
+  clean_timer,
+  check_timer
+}).
+
 init([]) ->
   ets:new(flu_session:table(), [public, named_table, {keypos, #session.session_id}]),
-  timer:send_interval(5000, clean),
-  {ok, state}.
+  C = erlang:send_after(?CLEAN, self(), clean),
+  T = erlang:send_after(?REFRESH, self(), recheck_connected),
+  {ok, #sess{check_timer = T, clean_timer = C}}.
 
-handle_call(recheck_connected, _From, State) ->
+handle_call(recheck_connected, _From, #sess{} = State) ->
   {reply, ok, recheck_connected(State)};
 
-handle_call({register, Pid}, _From, State) when is_pid(Pid) ->
+handle_call({register, Pid}, _From, #sess{} = State) when is_pid(Pid) ->
   Ref = erlang:monitor(process, Pid),
   {reply, {ok, Ref}, State};
 
-handle_call({unregister, Ref}, _From, State) when is_reference(Ref) ->
+handle_call({unregister, Ref}, _From, #sess{} = State) when is_reference(Ref) ->
   erlang:demonitor(Ref, [flush]),
   {reply, ok, State};
 
-handle_call(Call, _From, State) ->
+handle_call(Call, _From, #sess{} = State) ->
   {reply, {error, Call}, State}.
 
-handle_info(clean, State) ->
+handle_info(recheck_connected, #sess{check_timer = Old} = State) ->
+  (catch erlang:cancel_timer(Old)),
+  State1 = recheck_connected(State),
+  T = erlang:send_after(?REFRESH, self(), recheck_connected),
+  {noreply, State1#sess{check_timer = T}};
+
+handle_info(clean, #sess{clean_timer = Old} = State) ->
+  (catch erlang:cancel_timer(Old)),
+
   Now = flu:now_ms(),
   ToDelete = ets:select(flu_session:table(),
     ets:fun2ms(fun(#session{auth_time = A, delete_time = D, last_access_time = Last, pid = undefined} = S)
@@ -234,16 +251,17 @@ handle_info(clean, State) ->
   % % ?D({deleting, [{Tok, Now - (Last+A+D)} || #session{token = Tok, last_access_time = Last, auth_time = A, delete_time = D} <- ToDelete]});
   % true -> ok end,
   [delete_session(Session) || Session <- ToDelete],
-  {noreply, State};
+  C = erlang:send_after(?CLEAN, self(), clean),
+  {noreply, State#sess{clean_timer = C}};
 
-handle_info({'DOWN', Ref, _, _Pid, _}, State) ->
+handle_info({'DOWN', Ref, _, _Pid, _}, #sess{} = State) ->
   % ?D({deleting,_Pid,session}),
   [delete_session(Session) ||
       Session <- ets:select(flu_session:table(),
                             ets:fun2ms(fun(#session{ref = R} = S) when R == Ref -> S end))],
   {noreply, State};
 
-handle_info(_Info, State) ->
+handle_info(_Info, #sess{} = State) ->
   {noreply, State}.
 
 
@@ -256,8 +274,8 @@ recheck_connected(State) ->
       when P =/= undefined andalso Now > Last + A -> S
     end
   )),
-
-  ?debugFmt("going to refresh: ~p", [Refreshing]),
+  % ?debugFmt("going to refresh: ~p", [Refreshing]),
+  [Pid ! refresh_auth || #session{pid = Pid} <- Refreshing],
   State.
 
 

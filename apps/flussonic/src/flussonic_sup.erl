@@ -172,6 +172,7 @@ init([]) ->
       worker,
       [flu_stream_data]
   },
+  {rate_limiter, {rate_limiter, start_link, []}, permanent, 100, worker, [rate_limiter]},
   {   flu_event_sup,
       {flu_event, start_link, []},
       permanent,

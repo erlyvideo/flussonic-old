@@ -1,3 +1,13 @@
+flussonic (3.68.5)
+
+  * rate_limit feature
+  * mpegts publish password protection
+  * connected sessions auth refresh
+
+flussonic (3.68.4)
+  
+  * migrate_dvr script
+
 flussonic (3.68.3)
 
   * fixed 'now' timeshift

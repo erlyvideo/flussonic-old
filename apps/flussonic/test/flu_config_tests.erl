@@ -17,9 +17,9 @@ expand_entry_test_() ->
   ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{dvr,"root"},{static,true}]}]},
       flu_config:parse_config([{stream, "stream1", "fake://stream1", [{dvr,"root"}]}], undefined)),
 
-  ?_assertEqual({ok, [{mpegts, <<"stream">>, []}]},
+  ?_assertEqual({ok, [{mpegts, <<"stream">>, [{clients_timeout,false}]}]},
       flu_config:parse_config([{mpegts, "stream"}], undefined)),
-  ?_assertEqual({ok, [{mpegts, <<"stream">>, [{sessions, "http://host"}]}]},
+  ?_assertEqual({ok, [{mpegts, <<"stream">>, [{clients_timeout,false},{sessions, "http://host"}]}]},
       flu_config:parse_config([{mpegts, "stream", [{sessions, "http://host"}]}], undefined)),
 
   ?_assertEqual({ok, [{live, <<"live">>, []}]},

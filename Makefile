@@ -129,6 +129,13 @@ package:
 	--post-install ../debian/postinst --pre-uninstall ../debian/prerm --post-uninstall ../debian/postrm \
 	--config-files /etc/flussonic/flussonic.conf --config-files /etc/flussonic/streams.conf --config-files '/etc/flussonic/*.conf' \
 	-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-nox (>= 1:15)' -m "Max Lapshin <max@maxidoors.ru>" -a amd64 etc/init.d/flussonic etc/flussonic opt 
+	cp -f priv/mmap-squeeze32.so tmproot/opt/flussonic/apps/flussonic/priv/mmap.so
+	cp -f priv/mpegts_udp-squeeze32.so tmproot/opt/flussonic/apps/mpegts/priv/mpegts_udp.so
+	cd tmproot && \
+	fpm -s dir -t deb -n flussonic -v $(VERSION) --category net \
+	--post-install ../debian/postinst --pre-uninstall ../debian/prerm --post-uninstall ../debian/postrm \
+	--config-files /etc/flussonic/flussonic.conf --config-files /etc/flussonic/streams.conf --config-files '/etc/flussonic/*.conf' \
+	-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-nox (>= 1:15)' -m "Max Lapshin <max@maxidoors.ru>" -a i386 etc/init.d/flussonic etc/flussonic opt 
 	mv tmproot/*.deb .
 	rm -rf tmproot
 

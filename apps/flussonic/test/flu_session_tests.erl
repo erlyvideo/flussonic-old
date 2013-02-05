@@ -475,8 +475,11 @@ test_periodic_refresh_of_auth() ->
     {ok,[{access,granted},{user_id,14},{unique,true},{auth_time,4000}]} 
   end),
 
+  Self = self(),
   Pid1 = spawn(fun() ->
-    receive Msg -> Msg end
+    receive
+      refresh_auth -> Self ! auth_was_refreshed;
+      Msg -> Msg end
   end),
 
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"1">>},{name,<<"cam0">>}],
@@ -497,6 +500,13 @@ test_periodic_refresh_of_auth() ->
   end),
 
   flu_session:recheck_connected(),
+
+  receive
+    auth_was_refreshed -> ok
+  after
+    100 -> error(auth_not_refreshed)
+  end,
+
 
   % FIXME: здесь Pid1 должен умереть
   % ?assertNot(erlang:is_process_alive(Pid1)),

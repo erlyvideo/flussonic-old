@@ -121,8 +121,8 @@ expand_entry({rewrite, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(UR
 expand_entry({rewrite, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,false}],Options,GlobalOptions)};
 expand_entry({stream, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}],GlobalOptions)};
 expand_entry({stream, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}],Options,GlobalOptions)};
-expand_entry({mpegts, Prefix},GlobalOptions) -> {mpegts, to_b(Prefix), GlobalOptions};
-expand_entry({mpegts, Prefix, Options},GlobalOptions) -> {mpegts, to_b(Prefix), merge(Options,GlobalOptions)};
+expand_entry({mpegts, Prefix},GlobalOptions) -> {mpegts, to_b(Prefix), merge([{clients_timeout,false}],GlobalOptions)};
+expand_entry({mpegts, Prefix, Options},GlobalOptions) -> {mpegts, to_b(Prefix), merge(Options,[{clients_timeout,false}|GlobalOptions])};
 expand_entry({live, Prefix},GlobalOptions) -> {live, to_b(Prefix), GlobalOptions};
 expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merge(Options,GlobalOptions)};
 expand_entry({file, Prefix, Root},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), GlobalOptions};

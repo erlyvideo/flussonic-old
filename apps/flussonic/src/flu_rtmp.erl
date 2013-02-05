@@ -34,6 +34,7 @@
 -export([no_function/2, publish/2, play/2, seek/2]).
 
 -export([play_url/3]).
+-export([lookup_config/3]).
 
 
 -export([clients/0]).
@@ -135,6 +136,25 @@ handle_info({'DOWN', _, _, _, _}, State) ->
 
 handle_info(#media_info{}, State) ->
   {noreply, State};
+
+handle_info(refresh_auth, State) ->
+  case get(auth_info) of
+    undefined ->
+      {noreply, State};
+    {URL, Identity, AuthOptions} ->
+      case flu_session:verify(URL, Identity, AuthOptions) of
+        {ok, _} ->
+          {noreply, State};
+        {error, Code, Message} ->
+          App = rtmp_session:get_field(State, app),
+          {_Type,StreamName1,StartAt} = get(rtmp_play),
+          Token = proplists:get_value(token,Identity),
+          Delay = (flu:now_ms() - StartAt) div 1000,
+          lager:info("refreshing auth denied play(~s/~s) with token(~s) started ~B seconds ago: ~p:~p", 
+            [App, StreamName1, Token, Delay, Code, Message]),
+          {stop, normal, State}
+      end
+  end;
 
 handle_info(_Info, State) ->
   ?D({_Info}),
@@ -247,15 +267,21 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
         undefined -> to_b(proplists:get_value("session", QsVals));
         Token_ -> Token_
       end,
-      is_binary(Token) orelse throw({fail, [403, <<"no_token_passed">>]}),
+      is_binary(Token) orelse begin
+        lager:info("denied play(~s/~s) because no token passed", [App, StreamName1]),
+        throw({fail, [403, <<"no_token_passed">>]})
+      end,
       Ip = to_b(rtmp_session:get(Session, addr)),
       is_binary(Ip) orelse error({bad_ip, Ip, Session}),
       Identity = [{name,StreamName1},{ip, Ip},{token,Token}],
       Referer = rtmp_session:get_field(Session, pageUrl),
-      case flu_session:verify(URL, Identity, [{pid,self()},{referer,Referer},{type,<<"rtmp">>}|Options]) of
-        {ok, StreamName1_} -> StreamName1_;
+      AuthOptions = [{pid,self()},{referer,Referer},{type,<<"rtmp">>}|Options],
+      case flu_session:verify(URL, Identity, AuthOptions) of
+        {ok, StreamName1_} ->
+          put(auth_info,{URL,Identity,AuthOptions}),
+          StreamName1_;
         {error, Code, Message} ->
-          lager:error("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName1, Token, Code, Message]),
+          lager:info("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName1, Token, Code, Message]),
           throw({fail, [403, Code, to_b(Message), App, StreamName1, <<"auth_denied">>]})
       end
   end,

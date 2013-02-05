@@ -32,6 +32,11 @@ Vagrant::Config.run do |config|
     conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
 
+  config.vm.define :squeeze32 do |conf|
+    conf.vm.box = "squeeze32"
+    conf.vm.box_url = "http://mathie-vagrant-boxes.s3.amazonaws.com/debian_squeeze_32.box"
+    conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
+  end
 
   config.vm.define :compile_public do |conf|
     conf.vm.box = "squeeze64"
