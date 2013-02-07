@@ -17,17 +17,12 @@ main([Path]) ->
     {ok, Cookie} -> erlang:set_cookie(node(), binary_to_atom(binary:replace(Cookie,<<"\n">>,<<>>), latin1) );
     {error, enoent} -> ok
   end,
-  gen_event:start_link({local,flu_event}),
-  gen_event:add_handler(flu_event, ?MODULE, []),
   case net_kernel:connect('flussonic@127.0.0.1') of
     true -> ok;
     false ->
       io:format("Failed to connect to running instance of flussonic\n"),
       erlang:halt(2)
   end,
-  % flu:prepare('flussonic@127.0.0.1', dvr),
-  % dvr_hour_storage:migrate_from_segments(Path),
-
   Pid = proc_lib:spawn_link('flussonic@127.0.0.1', dvr_hour_storage, migrate_from_segments, [Path]),
   erlang:monitor(process, Pid),
   receive {'DOWN', _, _, Pid, _} -> ok end,
@@ -35,9 +30,4 @@ main([Path]) ->
 
 
 
-init([]) -> {ok, state}.
-
-handle_event(Event, State) ->
-  gen_event:notify({flu_event, 'flussonic@127.0.0.1'}, Event),
-  {ok, State}.
 

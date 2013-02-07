@@ -34,9 +34,10 @@ Erlyvideo = {
   // RTMP JWplayer
   jwplayer: function(element, url) {
     var app = "live";
-    if(url.indexOf("vod/") == 0) {
-      app = "vod";
-      url = url.substring(3, url.length);
+    var slash = url.indexOf("/");
+    if(slash != -1) {
+      app = url.substring(0, slash);
+      url = url.substring(slash+1, url.length);
     }
     var flashvars = {
         file: url+"?session="+((new Date()).getTime()),
@@ -154,13 +155,17 @@ Erlyvideo = {
 
   // Streams main panel. Drawing list of streams, dvr record status, etc
   add_dvr_fragment: function(message) {
-    var minute = Math.floor(message.options.time / 60)*60;
-    $("div[time=\""+minute+"\"]").addClass("ok").removeClass("fail");
+    if(message.stream == Erlyvideo.current_opened_dvr) {
+      var minute = Math.floor(message.options.time / 60)*60;
+      $("div[time=\""+minute+"\"]").addClass("ok").removeClass("fail");
+    }
   },
 
   delete_dvr_fragment: function(message) {
-    var minute = Math.floor(message.options.time / 60)*60;
-    $("div[time=\""+minute+"\"]").removeClass("ok").addClass("fail");
+    if(message.stream == Erlyvideo.current_opened_dvr) {
+      var minute = Math.floor(message.options.time / 60)*60;
+      $("div[time=\""+minute+"\"]").removeClass("ok").addClass("fail");
+    }
   },
   
   load_stream_info: function() {
@@ -196,6 +201,7 @@ Erlyvideo = {
   session_template: "<tr id='session-{{id}}' data-id='{{id}}'><td>{{ip}}</td><td>{{user_id}}</td><td>{{type}}</td><td>{{name}}</td><td class='duration'>{{duration}}</td></tr>",
   
   show_dvr_status: function(name, opts) {
+    Erlyvideo.current_opened_dvr = name;
     $("#dvr-list").showDVR(name, opts || {});
   },
   
@@ -228,6 +234,10 @@ Erlyvideo = {
       }
       if(!Erlyvideo.current_streams[s.name]) {
         Erlyvideo.current_streams[s.name] = true;
+        s.hds = s.hds ? "visible" : "hidden";
+        s.hls = s.hls ? "visible" : "hidden";
+        s.dvr = s.dvr ? "visible" : "hidden";
+        s.rtmp = s.rtmp ? "visible" : "hidden";
         $("#stream-list").append(Mustache.to_html(Erlyvideo.stream_template, s));
       } else {
         var s1 = $("#stream-"+s.name.replace(/\//g, "_"));

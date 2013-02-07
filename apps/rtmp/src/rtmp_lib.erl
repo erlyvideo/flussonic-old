@@ -244,7 +244,9 @@ wait_for_play_reply(RTMP, Stream, InvokeId) ->
         <<"NetStream.Play.Start">> ->
           ok;
         <<"NetStream.Play.Failed">> ->
-          {error, Info}
+          {error, Info};
+        <<"NetStream.Play.StreamNotFound">> ->
+          {error, enoent}
       end;
     {rtmp, RTMP, disconnect, _Stats} ->
       {error, closed};

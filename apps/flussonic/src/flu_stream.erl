@@ -73,9 +73,8 @@ parse_attr(Attr) ->
   [{K,V} || {K,V} <- Attr, (is_binary(V) orelse is_number(V) orelse V == true orelse V == false) andalso lists:member(K,white_keys())].
 
 
-stream_info(Name, Attrs) ->
-  ClientCount = length([true || Client <- flu_session:list(), proplists:get_value(name, Client) == Name]),
-  [{client_count,ClientCount}|add_ts_delay(filter_list(Attrs))].
+stream_info(_Name, Attrs) ->
+  add_ts_delay(filter_list(Attrs)).
 
 filter_list(Attrs) ->
   [{K,V} || {K,V} <- Attrs, is_atom(K)].
@@ -290,7 +289,7 @@ init([Name,Options1]) ->
   if is_pid(Source) -> erlang:monitor(process, Source); true -> ok end,
   CheckTimer = erlang:send_after(3000, self(), check_timeout),
   Now = os:timestamp(),
-  gen_tracker:setattr(flu_streams, Name, [{last_access_at,Now}]),
+  gen_tracker:setattr(flu_streams, Name, [{last_access_at,Now},{client_count,0}]),
   Stream1 = #stream{last_dts_at=Now,
     name = Name, options = Options, source = Source,
     check_timer = CheckTimer},

@@ -61,7 +61,7 @@ read0(<<$$, _/binary>> = Data) ->
   {more, RequiredBytes};
 
 read0(<<"RTSP/1.0 ", _/binary>> = Data) ->
-  case binary:split(Data, <<"\r\n">>) of
+  case binary:split(Data, [<<"\r\n">>, <<"\n">>]) of
     [<<"RTSP/1.0 ", Response/binary>>, After] -> read_response(Response, After);
     [_] -> more
   end;
@@ -72,7 +72,7 @@ read0(Data) when size(Data) < 20 ->
 read0(Data) ->
   case re:run(Data, "^([A-Z]+) ") of
     {match, _} ->
-      case binary:split(Data, <<"\r\n">>) of
+      case binary:split(Data, [<<"\r\n">>,<<"\n">>]) of
         [RequestLine, After] -> read_request(RequestLine, After);
         [_] -> more
       end;
@@ -104,7 +104,7 @@ read_response(ResponseLine, Data) ->
 
 
 read_body(Headers, Data) ->
-  case proplists:get_value(<<"Content-Length">>, Headers) of
+  case header(<<"Content-Length">>, Headers) of
     undefined -> {undefined, Data};
     Length_ ->
       Length = list_to_integer(binary_to_list(Length_)),
@@ -120,8 +120,11 @@ read_body(Headers, Data) ->
 read_headers(<<"\r\n", Rest/binary>>) ->
   {[], Rest};
 
+read_headers(<<"\n", Rest/binary>>) ->
+  {[], Rest};
+
 read_headers(Data) ->
-  case binary:split(Data, <<"\r\n">>) of
+  case binary:split(Data, [<<"\r\n">>, <<"\n">>]) of
     [Header, After] ->
       [Key, Value] = binary:split(Header, <<": ">>),
       {Headers, Rest} = read_headers(After),

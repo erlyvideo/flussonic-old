@@ -46,7 +46,8 @@ read2(Stream, URL, Options) ->
   % Proxy ! {set_source, RTSP},
   {ok, RTSP} = flussonic_sup:start_stream_helper(Stream, rtsp_reader, {rtsp_reader, start_link, [URL1, [{consumer,self()}|Options]]}),
   try rtsp_reader:media_info(RTSP) of
-    {ok, MediaInfo} -> {ok, RTSP, MediaInfo}
+    {ok, #media_info{streams = Streams} = MediaInfo} -> 
+      {ok, RTSP, MediaInfo#media_info{streams = [S || #stream_info{codec = Codec} = S <- Streams, lists:member(Codec,[h264,mp3,aac])]}}
   catch
     exit:{normal,Reason} -> {error, Reason}
   end.

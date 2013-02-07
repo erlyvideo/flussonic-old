@@ -47,11 +47,14 @@ minutes(Path, [Minute|Minutes]) ->
 
 seconds(Path, empty) -> remove_r(Path);
 seconds(_Path, []) -> ok;
-seconds(Path, [<<_,_,$.,$t,$s>> = Second|Seconds]) ->
-  io:format("delet ~s/~s~n", [Path, Second]),
-  remove(<<Path/binary, "/", Second/binary>>),
-  seconds(Path, Seconds);
-seconds(Path, [_Second|Seconds]) ->
+seconds(Path, [Second|Seconds]) ->
+  case filename:extension(Second) of
+    <<".ts">> ->
+      io:format("delet ~s/~s~n", [Path, Second]),
+      remove(<<Path/binary, "/", Second/binary>>);
+    _ ->
+      io:format(" skip ~s/~s~n", [Path, Second])
+  end,
   seconds(Path, Seconds).
 
 remove(Path) ->

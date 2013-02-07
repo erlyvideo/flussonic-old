@@ -137,6 +137,9 @@ handle_info({'DOWN', _, _, _, _}, State) ->
 handle_info(#media_info{}, State) ->
   {noreply, State};
 
+handle_info(stop, State) ->
+  {stop, normal, State};
+
 handle_info(refresh_auth, State) ->
   case get(auth_info) of
     undefined ->
@@ -232,6 +235,7 @@ play(Session, #rtmp_funcall{} = AMF) ->
     throw:{fail, Args} ->
       RTMP = rtmp_session:get(Session, socket),
       rtmp_lib:fail(RTMP, AMF#rtmp_funcall{args = [null|Args]}),
+      self() ! stop,
       Session
   end.
 
@@ -294,6 +298,9 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
       play_file(Session, AMF, StreamName, Media);
     {ok, Media} ->
       play_stream(Session, AMF, StreamName, Media);
+    undefined ->
+      lager:info("no such file or stream ~s//~s", [App, StreamName]),
+      throw({fail, [404, fmt("no such file or stream ~s//~s", [App, StreamName])]});
     {error, _Error} ->
       lager:error("failed to play rtmp ~s//~s: ~p", [App, StreamName, _Error]),
       throw({fail, [500, fmt("failed to play rtmp ~s//~s: ~p", [App, StreamName, _Error])]})
@@ -318,11 +325,13 @@ lookup_config([], _, _) ->
 find_or_open_media(file, Path, Root, Options) ->
   flu_file:autostart(Path, [{root,Root}|Options]);
 
-find_or_open_media(stream, Path, URL, Options) ->
-  flu_stream:autostart(Path, [{url,URL}|Options]);
+find_or_open_media(stream, Path, _URL, _Options) ->
+  % flu_stream:autostart(Path, [{url,URL}|Options]);
+  flu_stream:find(Path);
 
-find_or_open_media(live, Path, _, Options) ->
-  flu_stream:autostart(Path, Options).
+find_or_open_media(live, Path, _, _Options) ->
+  % flu_stream:autostart(Path, Options).
+  flu_stream:find(Path).
 
   
 

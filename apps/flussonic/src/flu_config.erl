@@ -123,6 +123,8 @@ expand_entry({stream, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(URL
 expand_entry({stream, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}],Options,GlobalOptions)};
 expand_entry({mpegts, Prefix},GlobalOptions) -> {mpegts, to_b(Prefix), merge([{clients_timeout,false}],GlobalOptions)};
 expand_entry({mpegts, Prefix, Options},GlobalOptions) -> {mpegts, to_b(Prefix), merge(Options,[{clients_timeout,false}|GlobalOptions])};
+expand_entry({webm, Prefix},GlobalOptions) -> {webm, to_b(Prefix), merge([{clients_timeout,false}],GlobalOptions)};
+expand_entry({webm, Prefix, Options},GlobalOptions) -> {webm, to_b(Prefix), merge(Options,[{clients_timeout,false}|GlobalOptions])};
 expand_entry({live, Prefix},GlobalOptions) -> {live, to_b(Prefix), GlobalOptions};
 expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merge(Options,GlobalOptions)};
 expand_entry({file, Prefix, Root},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), GlobalOptions};
@@ -169,6 +171,11 @@ parse_routes([{root, Root}|Env]) ->
 
 parse_routes([{mpegts,Prefix,Options}|Env]) ->
   [{<<"/",Prefix/binary, "/[...]">>, mpegts_handler, [{publish_enabled,true}|Options]}
+  |parse_routes(Env)];
+
+
+parse_routes([{webm,Prefix,Options}|Env]) ->
+  [{<<"/",Prefix/binary, "/[...]">>, webm_handler, [{publish_enabled,true}|Options]}
   |parse_routes(Env)];
 
 parse_routes([{api,Options}|Env]) ->

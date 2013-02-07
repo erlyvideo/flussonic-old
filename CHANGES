@@ -1,3 +1,11 @@
+flussonic (3.68.6)
+
+  * fixed timeshift_abs in DVR
+  * remove autostarting new streams from rtmp play
+  * prototype of webm streaming
+  * rtsp parser fixes for broken cameras like Grandstreamer
+  * fixed playing of live streams in admin panel
+
 flussonic (3.68.5)
 
   * rate_limit feature

@@ -42,6 +42,21 @@ test_body_response1() ->
   ok.
 
 
+%% Grandstream hacks
+test_body_response2() ->
+  ?assertMatch({ok, {rtsp, response, {200, <<"OK">>},
+    [{<<"Cseq">>, <<"2">>},{<<"Content-length">>,<<"10">>}
+    ], <<"0123456789">>}, <<>>}, rtsp:read(<<"RTSP/1.0 200 OK\r\nCseq: 2\r\nContent-length: 10\r\n\r\n0123456789">>) ),
+  ok.
+
+
+test_badly_parse() ->
+  RTSP = <<"RTSP/1.0 501 Not Implemented\r\nCSeq: 6\r\nServer: GrandStream Rtsp Server V100R001\r\n"
+  "Accept: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, SET_PARAMETER\n\r\n$">>,
+  ?assertEqual({ok, {rtsp, response, {501, <<"Not Implemented">>}, [
+    {<<"CSeq">>,<<"6">>}, {<<"Server">>, <<"GrandStream Rtsp Server V100R001">>},
+    {<<"Accept">>,<<"OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, SET_PARAMETER">>}
+  ], undefined}, <<"$">>}, rtsp:read(RTSP)).
 
 
 test_interleaved1() ->

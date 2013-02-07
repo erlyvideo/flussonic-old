@@ -21,7 +21,28 @@
 -export([timeout/0]).
 
 
-backend_request(URL, Identity, Options) when is_list(Identity), is_list(Options) ->
+-export([bench/0, bench/1, bench0/1]).
+
+bench() ->
+  bench(1000000).
+
+bench(Count) ->
+  [gen_event:delete_handler(flu_event, H, []) || H <- gen_event:which_handlers(flu_event)],
+  bench0(Count).
+
+bench0(0) -> ok;
+bench0(Count) ->
+  case Count rem 1000 of
+    0 -> ?D(Count);
+    _ -> ok
+  end,
+  verify(true, [{token,list_to_binary(integer_to_list(Count))},{ip,<<"ip">>},{name,<<"ort">>}], [{type,<<"hds">>}]),
+  bench0(Count - 1).
+
+backend_request(true, _Identity, _Options) ->
+  {ok, [{access,granted}]};
+
+backend_request(<<"http://", _/binary>> = URL, Identity, Options) when is_list(Identity), is_list(Options) ->
   Reply = auth_http_backend:verify(URL, Identity, Options),
   Reply.
 
@@ -33,7 +54,7 @@ verify(URL, Identity, Options) when is_list(URL) ->
 verify(URL, Identity, Options) ->
   Now = flu:now_ms(),
 
-  is_binary(URL) orelse throw({error, bad_auth_url}),
+  is_binary(URL) orelse URL == true orelse throw({error, bad_auth_url}),
   is_list(Identity) orelse throw({error, bad_identity}),
   is_binary(proplists:get_value(token,Identity)) orelse throw({error, bad_token}),
   is_binary(proplists:get_value(ip,Identity)) orelse throw({error, bad_ip}),
@@ -51,9 +72,11 @@ verify(URL, Identity, Options) ->
         undefined -> [{request_type,new_session}];
         _ -> [{request_type,update_session}]
       end,
-      Stats = stats(),
-      StreamClients = proplists:get_value(proplists:get_value(name,Identity), Stats, 0),
-      TotalClients = lists:sum([Count || {_,Count} <- Stats]),
+      StreamClients = case gen_tracker:getattr(flu_streams, proplists:get_value(name,Identity), client_count) of
+        undefined -> 0;
+        {ok, SC} -> SC
+      end,
+      TotalClients = ets:info(flu_session, size),
       ClientsInfo = [{stream_clients,StreamClients},{total_clients,TotalClients}],
 
 
@@ -124,10 +147,7 @@ start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 stats() ->
-  Streams = ets:foldl(fun(#session{name = Name}, Acc) ->
-      dict:update_counter(Name, 1, Acc)
-    end, dict:new(), flu_session:table()),
-  dict:to_list(Streams).
+  [{Name, proplists:get_value(client_count,Info)} || {Name,Info} <- gen_tracker:list(flu_streams)].
 
 % cookie_name() ->
 %   <<"flu_cookie_">>.
@@ -141,11 +161,18 @@ info(undefined) -> undefined;
 info(Identity) -> info(find_session(Identity)).
   
 
+% hex(Bin) when is_binary(Bin) ->
+%   hex(Bin, <<>>).
 
-hex(Binary) when is_binary(Binary) ->
-  iolist_to_binary([string:to_lower(lists:flatten(io_lib:format("~2.16.0B", [H]))) || <<H>> <= Binary]).
+% hex(<<>>, Acc) -> Acc;
+% hex(<<C, Bin/binary>>, Acc) ->
+%   C1 = C div 10, C2 = C rem 10,
+%   hex(Bin, <<Acc/binary, (if C1 >= 10 -> C1 - 10 + $a; true -> C1 + $0 end), (if C2 >= 10 -> C2 - 10 + $a; true -> C2 + $0 end)>>).
+  
+%   % iolist_to_binary([string:to_lower(lists:flatten(io_lib:format("~2.16.0B", [H]))) || <<H>> <= Binary]).
 
-session_id(Identity) -> hex(crypto:sha([V || {_K,V} <- lists:sort(Identity), is_list(V) orelse is_binary(V)])).
+% session_id(Identity) -> hex(crypto:sha([V || {_K,V} <- lists:sort(Identity), is_list(V) orelse is_binary(V)])).
+session_id(Identity) -> lists:sort(Identity).
 
 find_session(Identity) ->
   SessionId = session_id(Identity),
@@ -173,7 +200,8 @@ new_or_update(Identity, Opts) ->
   {OldSession, New} = case ets:lookup(flu_session:table(), SessionId) of
     [#session{} = Old_] -> 
       {Old_, false};
-    [] -> 
+    [] ->
+      catch gen_tracker:increment(flu_streams, Name, client_count, 1),
       {#session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
       bytes_sent = 0, user_id = UserId, type = proplists:get_value(type, Opts, <<"http">>)}, true}
   end,
@@ -191,9 +219,10 @@ update_session(#session{session_id = SessionId, access = Access}) ->
   ets:update_element(flu_session:table(), SessionId, {#session.last_access_time, flu:now_ms()}),
   Access.
 
-delete_session(Session) ->
+delete_session(#session{name = Name} = Session) ->
   % ?D({delete_session,Session}),
   ets:delete_object(flu_session:table(), Session),
+  catch gen_tracker:increment(flu_streams, Name, client_count, -1),
   flu_event:user_disconnected(Session#session.name, info(Session)).
 
 

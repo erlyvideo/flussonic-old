@@ -7,6 +7,10 @@
   background-repeat: no-repeat;
 }
 
+#wrapper {
+  padding: 0 40px;
+}
+
 #main {
   width: 100%;
 }

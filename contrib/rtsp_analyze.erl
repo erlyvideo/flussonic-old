@@ -7,6 +7,8 @@ main(["record", LocalPort, RemoteHost, RemotePort]) ->
   {ok, L} = gen_tcp:listen(list_to_integer(LocalPort), [binary,{reuseaddr,true}]),
   accept_loop(L, RemoteHost, list_to_integer(RemotePort));
 
+main([]) ->
+  io:format("./contrib/rtsp_analyze.erl record localport remotehost remoteport\n");
 
 main([Path]) ->
   {ok, Bin} = file:read_file(Path),
@@ -21,7 +23,7 @@ read(<<$$, Channel, Length:16, RTP:Length/binary, Rest/binary>>) ->
 
 read(<<"RTSP/1.0 ", _/binary>> = Bin) ->
   [Response, RestBody] = binary:split(Bin, <<"\r\n\r\n">>),
-  case re:run(Response, "Content-Length: (\\d+)", [{capture,all_but_first,list}]) of
+  case re:run(Response, "Content-[lL]ength: (\\d+)", [{capture,all_but_first,list}]) of
     {match, [Len_]} ->
       Len = list_to_integer(Len_),
       <<Body:Len/binary, Rest/binary>> = RestBody,
