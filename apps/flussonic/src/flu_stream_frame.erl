@@ -82,11 +82,11 @@ shift_dts_delta(#video_frame{dts = DTS, pts = PTS} = Frame, #stream{ts_delta = D
 -define(GLUE_DELTA, 25). %% 25 milliseconds is an average time shift between frames
 
 fix_large_dts_jump(#video_frame{dts = DTS} = Frame, #stream{last_dts = LastDTS, ts_delta = Delta} = Media) when DTS + Delta - LastDTS > ?DTS_THRESHOLD ->
-  ?D({large_dts_jump,forward,Media#stream.name,round(DTS),round(Delta),round(LastDTS),round(DTS+Delta - LastDTS)}),
+  lager:warning("DTS forward jump on ~s: dts: ~B with delta ~B, next_dts: ~B, new delta: ~B", [Media#stream.name,round(DTS),round(Delta),round(LastDTS),round(DTS+Delta - LastDTS)]),
   {Frame, Media#stream{ts_delta = undefined}};
 
 fix_large_dts_jump(#video_frame{dts = DTS} = Frame, #stream{last_dts = LastDTS, ts_delta = Delta} = Media) when LastDTS - DTS - Delta > ?DTS_THRESHOLD ->
-  ?D({large_dts_jump,backward,Media#stream.name,round(DTS),round(Delta),round(LastDTS),round(LastDTS - DTS - Delta)}),
+  lager:warning("DTS backward jump on ~s: dts: ~B with delta ~B, next_dts: ~B, new delta: ~B", [Media#stream.name,round(DTS),round(Delta),round(LastDTS),round(LastDTS - DTS - Delta)]),
   {Frame, Media#stream{ts_delta = undefined}};
 
 % fix_large_dts_jump(#video_frame{dts = DTS, pts = PTS} = Frame, #stream{last_dts = LastDTS} = Media) when is_number(LastDTS) andalso LastDTS > DTS ->

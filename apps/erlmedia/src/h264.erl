@@ -525,7 +525,7 @@ unpack_rtp_list(Buffer, DTS) ->
     sps = [SPS || <<_:3, ?NAL_SPS:5, _/binary>> = SPS <- NALS],
     pps = [SPS || <<_:3, ?NAL_PPS:5, _/binary>> = SPS <- NALS]
   },
-  OtherNALS = [NAL || <<_:3, Type:5, _/binary>> = NAL <- NALS, Type =/= ?NAL_PPS andalso Type =/= ?NAL_SPS],
+  OtherNALS = [NAL || <<0:1, _:2, Type:5, _/binary>> = NAL <- NALS, Type =/= ?NAL_PPS andalso Type =/= ?NAL_SPS],
   
   
   Frame = #video_frame{

@@ -1,3 +1,9 @@
+flussonic (3.68.7)
+
+  * fixed session id
+  * RTCP selects channel by SSRC
+  * enable disk cleanup for dvr2
+
 flussonic (3.68.6)
 
   * fixed timeshift_abs in DVR

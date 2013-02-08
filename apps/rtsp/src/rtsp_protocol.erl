@@ -145,7 +145,7 @@ handle_call({add_channel, Channel, #stream_info{codec = Codec, timescale = Scale
 handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetParameter} = RTSP) when URL =/= undefined ->
   {_, AuthInfo, Host, Port, _, _} = http_uri2:parse(URL),
   put(host,{Host,Port}),
-  {ok, Socket} = case gen_tcp:connect(Host, Port, [binary, {active,false}, {send_timeout, 10000}]) of
+  {ok, Socket} = case gen_tcp:connect(Host, Port, [binary, {active,false}, {send_timeout, 10000}, {recbuf, 1024*1024}]) of
   % {ok, Socket} = case gen_tcp:connect("localhost", 3300, [binary, {active,false}, {send_timeout, 10000}]) of
     {ok, Sock} -> {ok, Sock};
     {error, Error} ->
@@ -219,22 +219,18 @@ handle_info({udp, S, _, _, RTP}, #rtsp{rtp_chan2 = S, chan2 = Chan, consumer = C
   inet:setopts(S, [{active,once}]),
   {noreply, RTSP#rtsp{chan2 = Chan_}};
 
-handle_info({udp, S, _, _, RTP}, #rtsp{rtcp_chan1 = S, chan1 = Chan} = RTSP) ->
-  Chan_ = decode_rtcp(RTP, Chan),
+handle_info({udp, S, _, _, RTP}, #rtsp{rtcp_chan1 = S1, rtcp_chan2 = S2} = RTSP) when S == S1 orelse S == S2 ->
+  RTSP1 = decode_rtcp(RTP, RTSP),
   inet:setopts(S, [{active,once}]),
-  {noreply, RTSP#rtsp{chan1 = Chan_}};
-
-handle_info({udp, S, _, _, RTP}, #rtsp{rtcp_chan2 = S, chan1 = Chan} = RTSP) ->
-  Chan_ = decode_rtcp(RTP, Chan),
-  inet:setopts(S, [{active,once}]),
-  {noreply, RTSP#rtsp{chan2 = Chan_}};
+  {noreply, RTSP1};
 
 handle_info({tcp, Socket, Bin}, #rtsp{buffer = Buffer} = RTSP) ->
   {ok, RTSP1, Rest} = handle_input_tcp(RTSP, <<Buffer/binary, Bin/binary>>),
   inet:setopts(Socket, [{active,once}]),
   {noreply, RTSP1#rtsp{buffer = Rest}};
 
-handle_info({tcp_closed, _Socket}, #rtsp{} = RTSP) ->
+handle_info({tcp_closed, _Socket}, #rtsp{url = URL} = RTSP) ->
+  lager:info("RTSP server ~s just closed socket", [URL]),
   {stop, normal, RTSP};
 
 handle_info({tcp_error, _Socket, Error}, #rtsp{url = URL} = RTSP) ->
@@ -245,22 +241,26 @@ handle_info({'DOWN', _, _, _Consumer, _}, #rtsp{} = RTSP) ->
   {stop, normal, RTSP}.
 
 
+decode_rtcp(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _PktCount:32, _OctCount:32, _/binary>>, #rtsp{} = RTSP) ->
+  Id = case element(#rtsp.chan1, RTSP) of
+    #rtp{ssrc = SSRC} -> 0;
+    _ -> 1
+  end,
+  Chan = element(#rtsp.chan1 + Id, RTSP),
 
-
-decode_rtcp(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _PktCount:32, _OctCount:32, _/binary>>, #rtp{} = Chan) ->
   WallClock = round((NTP / 16#100000000 - ?YEARS_70) * 1000),
-  Chan#rtp{
-    ntp = NTP, timecode = Timecode, wall_clock = WallClock, ssrc = SSRC, last_sr_at = os:timestamp()
-  };
+  Chan1 = Chan#rtp{
+    ntp = NTP, timecode = Timecode, wall_clock = WallClock, last_sr_at = os:timestamp()
+  },
 
-decode_rtcp(_, #rtp{} = Chan) ->
-  Chan.
+  RTSP1 = setelement(#rtsp.chan1 + Id, RTSP, Chan1),
+  RTSP1.
 
-handle_input_rtp(ChannelId, RTCP, RTSP) when ChannelId rem 2 == 1 ->
-  ChannelId_ = ChannelId div 2,
-  Chan = (element(#rtsp.chan1 + ChannelId_, RTSP)),
-  Chan1 = decode_rtcp(RTCP, Chan),
-  RTSP1 = setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan1),
+
+
+
+handle_input_rtp(ChannelId, RTP, RTSP) when ChannelId rem 2 == 1 ->
+  RTSP1 = decode_rtcp(RTP, RTSP),
   RTSP1;
 
 handle_input_rtp(ChannelId, RTP, #rtsp{consumer = Consumer} = RTSP) ->
@@ -338,10 +338,23 @@ handle_response(Code, Headers, Body, #rtsp{consumer = Pid, last_request = {Ref,_
 
 
 
-decode_rtp(<<_:8, _Marker:1, _:7, Seq:16, _Timecode:32, _/binary>> = RTP, #rtp{decoder = Decoder1} = Chan1) ->
-  % ?D({rtp,_Marker,Seq,_Timecode}),
+decode_rtp(<<_RTPHeader:8, _Marker:1, _:7, Seq:16, _Timecode:32, _SSRC:32, _/binary>> = RTP, #rtp{decoder = Decoder1} = Chan1) ->
+  <<Version:2, Padding:1, Extension:1, CC:4>> = <<_RTPHeader>>,
+  Version == 2 orelse error({invalid_rtp_version, Version}),
+  Padding == 0 orelse error({padding_not_supported, Padding}),
+  Extension == 0 orelse error(extension_not_supported),
+  CC == 0 orelse error(cc_not_supported),
+  % ?D({rtp, Version, Padding, Extension, CC}),
 
-  {ok, Decoder2, Frames} = rtp_decoder:decode(RTP, Decoder1),
+  {ok, Decoder2, Frames} = try rtp_decoder:decode(RTP, Decoder1)
+  catch
+    Class:Error ->
+      lager:error("Error decoding RTP: ~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()]),
+      erlang:raise(Class, Error, erlang:get_stacktrace()),
+      {ok, Decoder1, []}
+  end,
+  % lager:info("rtp channel:~B, marker:~B, seq:~B, tc:~B, ssrc:~B, dts:~w",
+  %   [Chan1#rtp.channel, _Marker,Seq,_Timecode, _SSRC, [round(D) || #video_frame{dts = D} <- Frames]]),
   {ok, Chan1#rtp{decoder = Decoder2, seq = Seq}, Frames}.
 
 

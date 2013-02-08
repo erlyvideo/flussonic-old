@@ -172,7 +172,7 @@ info(Identity) -> info(find_session(Identity)).
 %   % iolist_to_binary([string:to_lower(lists:flatten(io_lib:format("~2.16.0B", [H]))) || <<H>> <= Binary]).
 
 % session_id(Identity) -> hex(crypto:sha([V || {_K,V} <- lists:sort(Identity), is_list(V) orelse is_binary(V)])).
-session_id(Identity) -> lists:sort(Identity).
+session_id(Identity) -> erlang:phash2(lists:sort(Identity)).
 
 find_session(Identity) ->
   SessionId = session_id(Identity),
