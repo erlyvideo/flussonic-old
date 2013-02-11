@@ -205,7 +205,7 @@ afrt_segments_info_init(Duration, Keyframes,Options) ->
   afrt_segments_info(Duration, Keyframes, StartFragment, []).
 
 afrt_segments_info(Duration, [DTS], I, Acc) ->
-  Duration > DTS orelse error({afrt, Duration, DTS}),
+  Duration >= DTS orelse error({afrt, Duration, DTS}),
   lists:reverse([<<I:32, (round(DTS)):64, (trunc(Duration-DTS)):32>>|Acc]);
 
 afrt_segments_info(Duration, [DTS1,DTS2|Keyframes], I, Acc) ->

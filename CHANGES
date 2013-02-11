@@ -1,3 +1,11 @@
+flussonic (3.68.8)
+
+  * fix back autostart streams on rtmp play
+  * hds now doesn't fail on zero-length segments
+  * skip RTCP with wrong SSRC
+  * skip RTCP with 204 type
+  * fixed flu_mixer
+
 flussonic (3.68.7)
 
   * fixed session id

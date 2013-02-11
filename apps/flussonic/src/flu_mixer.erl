@@ -28,17 +28,17 @@ start_link(VideoName, AudioName, Consumer) ->
   video_dts,
   audio_name,
   audio,
-  audio_dts,
+  audio_shift,
 
   last_dts,
   consumer,
   media_info,
-  buffer = []
+  queue
 }).
 
 init([VideoName, AudioName, Consumer]) ->
   erlang:monitor(process, Consumer),
-  {ok, #mixer{video_name = VideoName, audio_name = AudioName, consumer = Consumer}}.
+  {ok, #mixer{video_name = VideoName, audio_name = AudioName, consumer = Consumer, queue = frame_queue:init(5)}}.
 
 
 media_info(Stream) ->
@@ -59,7 +59,7 @@ round_(undefined) -> -1;
 round_(A) -> round(A).
 
 max_(D1, undefined) -> D1;
-max_(D1, D2) when D1 - D2 > 0 -> D1;
+max_(D1, D2) when D1 - D2 >= 0 -> D1;
 max_(D1, D2) when D2 - D1 > 0 -> D2.
 
 handle_call(start, _From, #mixer{video = undefined, video_name = VideoName,
@@ -73,16 +73,17 @@ handle_call(start, _From, #mixer{video = undefined, video_name = VideoName,
   erlang:monitor(process, Audio),
   flu_stream:subscribe(Audio,[]),
 
-
-  VideoMI = #media_info{streams = VideoStreams} = media_info(Video),
-  _AudioMI= #media_info{streams = AudioStreams} = media_info(Audio),
+  VideoMI = #media_info{streams = VideoStreams} = media_info(VideoName),
+  _AudioMI= #media_info{streams = AudioStreams} = media_info(AudioName),
 
   VideoStream = (hd([Stream || #stream_info{content = video} = Stream <- VideoStreams]))#stream_info{track_id = 1},
   AudioStream = (hd([Stream || #stream_info{content = audio} = Stream <- AudioStreams]))#stream_info{track_id = 2},
 
-
   MediaInfo = VideoMI#media_info{streams = [VideoStream, AudioStream]},
-  {reply, {ok, MediaInfo}, Mixer#mixer{video = Video, audio = Audio, media_info = MediaInfo}}.
+  {reply, {ok, MediaInfo}, Mixer#mixer{video = Video, audio = Audio, media_info = MediaInfo}};
+
+handle_call(Call, _From, #mixer{} = Mixer) ->
+  {reply, {error, {unknown_call, Call}}, Mixer}.
 
 
 handle_info(#video_frame{content = video, stream_id = Video, dts = DTS} = Frame, 
@@ -91,43 +92,55 @@ handle_info(#video_frame{content = video, stream_id = Video, dts = DTS} = Frame,
   handle_info(Frame, Mixer#mixer{video_dts = DTS, last_dts = DTS});
 
 handle_info(#video_frame{content = video, stream_id = Video, dts = DTS} = Frame,
-  #mixer{video = Video, last_dts = VDTS} = Mixer) when abs(VDTS - DTS) > 1000 ->
+  #mixer{video = Video, video_dts = VDTS} = Mixer) when abs(VDTS - DTS) > 1000 ->
   lager:info("video stream unsynced: ~B vs ~B", [round_(DTS), round_(VDTS)]),
-  handle_info(Frame, Mixer#mixer{video_dts = undefined});
+  handle_info(Frame, Mixer#mixer{video_dts = undefined, audio_shift = undefined, last_dts = undefined});
 
 handle_info(#video_frame{content = video, stream_id = Video, dts = DTS} = Frame, 
-  #mixer{video = Video, consumer = Consumer, buffer = Buf} = Mixer) ->
-  Buf1 = buffer(Frame#video_frame{stream_id = 1, track_id = 1}, Buf, Consumer),
+  #mixer{video = Video, consumer = Consumer, queue = Buf, last_dts = LastDTS} = Mixer) ->
+  {F, Buf1} = frame_queue:push(Frame#video_frame{stream_id = 1, track_id = 1}, Buf),
+  case F of
+    undefined -> ok;
+    _ -> flu_stream:publish(Consumer, F)
+  end,
   % if LastDTS > DTS ->
   %   ?DBG("delayed frame video ~B/~B", [round_(DTS), round_(LastDTS)]);
   % true -> ok end,
   % ?D({video, round(Frame#video_frame.dts)}),
-  {noreply, Mixer#mixer{last_dts = DTS, buffer = Buf1}};
+  {noreply, Mixer#mixer{last_dts = max_(DTS,LastDTS), video_dts = DTS, queue = Buf1}};
 
 handle_info(#video_frame{content = metadata, stream_id = Video} = Frame, #mixer{video = Video, consumer = Consumer} = Mixer) ->
   Consumer ! Frame#video_frame{stream_id = 1, track_id = 0},
   {noreply, Mixer};
 
 handle_info(#video_frame{content = audio, stream_id = Audio, dts = DTS} = Frame, 
-  #mixer{audio = Audio, last_dts = VDTS, audio_dts = undefined} = Mixer) ->
+  #mixer{audio = Audio, video_dts = VDTS, audio_shift = undefined} = Mixer) when VDTS =/= undefined ->
   lager:info("sync audio (~B) on video (~B)", [round_(DTS), round_(VDTS)]),
-  handle_info(Frame, Mixer#mixer{audio_dts = VDTS - DTS});
+  handle_info(Frame, Mixer#mixer{audio_shift = VDTS - DTS});
 
 handle_info(#video_frame{content = audio, stream_id = Audio, dts = ADTS} = Frame,
-  #mixer{audio = Audio, audio_dts = Delta, last_dts = VDTS} = Mixer) when abs(ADTS + Delta - VDTS) > 1000 ->
+  #mixer{audio = Audio, audio_shift = Delta, video_dts = VDTS} = Mixer) when abs(ADTS + Delta - VDTS) > 1000 ->
   lager:info("audio stream unsynced: A:~B, V:~B", [round_(ADTS + Delta), round_(VDTS)]),
-  handle_info(Frame, Mixer#mixer{audio_dts = undefined});
+  handle_info(Frame, Mixer#mixer{audio_shift = undefined});
 
 handle_info(#video_frame{content = audio, stream_id = Audio, dts = DTS, pts = PTS} = Frame, 
-  #mixer{audio = Audio, audio_dts = Delta, consumer = Consumer, last_dts = LastDTS, buffer = Buf} = Mixer) ->
+  #mixer{audio = Audio, audio_shift = Delta, consumer = Consumer, last_dts = LastDTS, queue = Buf} = Mixer) when Delta =/= undefined->
   % if LastDTS > DTS ->
   %   ?DBG("delayed frame audio ~B/~B", [round_(DTS + Delta), round_(LastDTS)]);
   % true -> ok end,
-  Buf1 = buffer(Frame#video_frame{dts = DTS + Delta, pts = PTS + Delta, stream_id = 1, track_id = 2}, Buf, Consumer),
+  {F, Buf1} = frame_queue:push(Frame#video_frame{dts = DTS + Delta, pts = PTS + Delta, stream_id = 1, track_id = 2}, Buf),
+  case F of
+    undefined -> ok;
+    _ -> flu_stream:publish(Consumer, F)
+  end,
   % ?D({audio, round(DTS+Delta)}),
-  {noreply, Mixer#mixer{last_dts = max_(DTS, LastDTS), buffer = Buf1}};
+  {noreply, Mixer#mixer{last_dts = max_(DTS, LastDTS), queue = Buf1}};
 
 handle_info(#video_frame{} = _Frame, #mixer{} = Mixer) ->
+  {noreply, Mixer};
+
+handle_info(#media_info{}, #mixer{} = Mixer) ->
+  %FIXME properly handle MI update
   {noreply, Mixer};
 
 handle_info(Info, Mixer) ->
@@ -138,14 +151,6 @@ handle_info(Info, Mixer) ->
 terminate(_,_) -> ok.
 
 
-buffer(Frame, Buffer, Consumer) ->
-  Buffer1 = video_frame:sort([Frame|Buffer]),
-  if length(Buffer1) > 2*?BUFFER ->
-    {Send, Store} = lists:split(?BUFFER, Buffer1),
-    [Consumer ! F || F <- Send],
-    % [?DBG("~4s ~8s ~B", [Codec, Flavor, round(DTS)]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS} <- Send],
-    Store;
-  true -> Buffer1 end.
 
 
 

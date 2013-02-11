@@ -241,10 +241,20 @@ handle_info({'DOWN', _, _, _Consumer, _}, #rtsp{} = RTSP) ->
   {stop, normal, RTSP}.
 
 
-decode_rtcp(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _PktCount:32, _OctCount:32, _/binary>>, #rtsp{} = RTSP) ->
+decode_rtcp(RTCP, #rtsp{} = RTSP) ->
+  try decode_rtcp0(RTCP, RTSP)
+  catch
+    throw:#rtsp{} = RTSP1 -> RTSP1
+  end.
+
+decode_rtcp0(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _PktCount:32, _OctCount:32, _/binary>>, #rtsp{} = RTSP) ->
   Id = case element(#rtsp.chan1, RTSP) of
     #rtp{ssrc = SSRC} -> 0;
-    _ -> 1
+    _ ->
+      case element(#rtsp.chan2, RTSP) of
+        #rtp{ssrc = SSRC} -> 1;
+        _ -> throw(RTSP)
+      end
   end,
   Chan = element(#rtsp.chan1 + Id, RTSP),
 
@@ -254,7 +264,10 @@ decode_rtcp(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _Pkt
   },
 
   RTSP1 = setelement(#rtsp.chan1 + Id, RTSP, Chan1),
-  RTSP1.
+  RTSP1;
+
+decode_rtcp0(_RTCP, #rtsp{} = RTSP) ->
+  RTSP.
 
 
 

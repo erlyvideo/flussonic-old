@@ -325,9 +325,10 @@ lookup_config([], _, _) ->
 find_or_open_media(file, Path, Root, Options) ->
   flu_file:autostart(Path, [{root,Root}|Options]);
 
-find_or_open_media(stream, Path, _URL, _Options) ->
-  % flu_stream:autostart(Path, [{url,URL}|Options]);
-  flu_stream:find(Path);
+find_or_open_media(stream, Path, URL, Options) ->
+  ?debugFmt("autostart ~p ~p ~p", [Path, URL, Options]),
+  flu_stream:autostart(Path, [{url,URL}|Options]);
+  % flu_stream:find(Path);
 
 find_or_open_media(live, Path, _, _Options) ->
   % flu_stream:autostart(Path, Options).

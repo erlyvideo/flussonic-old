@@ -9,7 +9,7 @@ Vagrant::Config.run do |config|
   config.vm.define :precise64_deploy do |conf|
     conf.vm.box = "precise64"
     conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
-    conf.vm.provision :shell, :path => "manifests/precise64_deply.sh"
+    conf.vm.provision :shell, :path => "contrib/manifests/precise64_deply.sh"
 
     conf.vm.forward_port 8080, 9080
     conf.vm.forward_port 6081, 9081
@@ -20,14 +20,14 @@ Vagrant::Config.run do |config|
   config.vm.define :precise64 do |conf|
     conf.vm.box = "precise64"
     conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
-    conf.vm.provision :shell, :path => "manifests/precise64.sh"
+    conf.vm.provision :shell, :path => "contrib/manifests/precise64.sh"
     conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
 
   config.vm.define :squeeze64 do |conf|
     conf.vm.box = "squeeze64"
     conf.vm.box_url = "http://puppetlabs.s3.amazonaws.com/pub/squeeze64.box"
-    conf.vm.provision :shell, :path => "manifests/squeeze64.sh"
+    conf.vm.provision :shell, :path => "contrib/manifests/squeeze64.sh"
     conf.vm.forward_port 8080, 9180
     conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
@@ -41,7 +41,7 @@ Vagrant::Config.run do |config|
   config.vm.define :compile_public do |conf|
     conf.vm.box = "squeeze64"
     conf.vm.box_url = "http://puppetlabs.s3.amazonaws.com/pub/squeeze64.box"
-    conf.vm.provision :shell, :path => "manifests/compile_public.sh"
+    conf.vm.provision :shell, :path => "contrib/manifests/compile_public.sh"
     conf.vm.forward_port 8080, 9190
     conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
@@ -49,7 +49,7 @@ Vagrant::Config.run do |config|
   config.vm.define :centos6 do |conf|
     conf.vm.box = "centos6"
     conf.vm.box_url = "https://vagrant-centos-6.s3.amazonaws.com/centos-6.box"
-    conf.vm.provision :shell, :path => "manifests/centos6.sh"
+    conf.vm.provision :shell, :path => "contrib/manifests/centos6.sh"
   end
 
   # All Vagrant configuration is done here. The most common configuration
@@ -103,7 +103,7 @@ Vagrant::Config.run do |config|
   # # }
   #
   # config.vm.provision :puppet do |puppet|
-  #   puppet.manifests_path = "manifests"
+  #   puppet.manifests_path = "contrib/manifests"
   #   puppet.manifest_file  = "precise64.pp"
   # end
 
