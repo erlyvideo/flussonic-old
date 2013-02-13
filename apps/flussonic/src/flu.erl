@@ -12,6 +12,7 @@
 -export([version/0]).
 -export([default_file_access/0]).
 -export([status/0]).
+-export([json_info/0]).
 
 version() ->
   application:load(flussonic),
@@ -25,6 +26,14 @@ status() ->
     {Name,Info} <- flu_stream:list()]
   ],
   lists:flatten(S).
+
+
+json_info() ->
+  Vsn = list_to_binary(flu:version()),
+  License = erlang:module_loaded(hls),
+  Info = [{event,server.info},{version,Vsn},{license,License}],
+  Info.
+
 
 
 

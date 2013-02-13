@@ -141,7 +141,7 @@ hls_segment(Name, Root, Fragment) when is_binary(Name), is_integer(Fragment) ->
 
 
 read_gop(File, Id) ->
-  read_gop(File, Id, [1,2]).
+  read_gop(File, Id, undefined).
 
 read_gop(File, Id, Tracks) ->
   R = gen_server:call(File, {read_gop, Id, Tracks}),

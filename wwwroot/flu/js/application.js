@@ -131,6 +131,9 @@ Erlyvideo = {
   on_message: function(message) {
     if(Erlyvideo.dump_events) console.log(message);
     switch(message.event) {
+      case "server.info":
+        Erlyvideo.draw_server_info(message);
+        break;
       case "stream.list":
         Erlyvideo.draw_stream_info(message);
         break;
@@ -151,7 +154,17 @@ Erlyvideo = {
     }
   },
 
-
+  draw_server_info: function(message) {
+    if(message.version) {
+      $("#flu_version").html(message.version);
+    }
+    if(message.license == true) {
+      $("#flu_license").html("Commercial");
+    }
+    if(message.license == false) {
+      $("#flu_license").html("Free");
+    }
+  },
 
   // Streams main panel. Drawing list of streams, dvr record status, etc
   add_dvr_fragment: function(message) {
@@ -212,10 +225,6 @@ Erlyvideo = {
     var total = 0;
     var total_file = 0;
     
-    if(streams["version"]) {
-      $("#flu_version").html(streams["version"]);
-    }
-
     var new_streams = {};
     
     for(i = 0; i < streams["streams"].length; i++) {
@@ -224,7 +233,7 @@ Erlyvideo = {
       s.play_name = s.name;
       s.lifetime = Erlyvideo.format_seconds(s.lifetime / 1000);
 
-      s.ts_delay = s.ts_delay < 5000 ? 0 : Math.round(s.ts_delay / 1000);
+      s.ts_delay = s.ts_delay < 5000 ? 0 :  Erlyvideo.format_seconds(Math.round(s.ts_delay / 1000));
       if(s.type == "file") {
         s.ts_delay = 0;
         total_file += s.client_count;
@@ -485,6 +494,8 @@ $(function() {
     Erlyvideo.activate_tab("streams");
   }
   Erlyvideo.enable_play_tab();
+  Erlyvideo.request("server");
+
   // $('#traffic-stats').visualize({type: 'line', width: '800px'});
 	
   $("#block-login").dialog({autoOpen:false, title : "Play Stream", width: 840, height: 700});

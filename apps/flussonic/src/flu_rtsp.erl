@@ -192,7 +192,7 @@ play_media(Path, Headers) ->
       flu_stream:subscribe(Name),    
       {ok, {stream, Pid}};
     {ok, {file, Pid}} ->
-      {ok, _Ticker} = monotone_ticker:start_link(self(), {flu_file, read_frame, Pid}),
+      {ok, _Ticker} = monotone_ticker:start_link(self(), {flu_file, read_gop, Pid}),
       {ok, {file, Pid}};
     {error, Code} when is_integer(Code) ->
       {fail, Code, <<>>};

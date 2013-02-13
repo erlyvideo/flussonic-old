@@ -70,6 +70,12 @@ test_streams() ->
   ok.
 
 
+test_server_info() ->
+  set_config([api]),
+  Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/server"),
+  ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
+  ok.
+
 
 test_sessions() ->
   set_config([api]),

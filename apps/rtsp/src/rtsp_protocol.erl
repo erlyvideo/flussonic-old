@@ -14,6 +14,8 @@
 -export([to_hex/1, digest_auth/5]).
 
 
+-export([decode_rtp/2]).
+
 -define(RTCP_SR, 200).
 -define(RTCP_RR, 201).
 -define(RTCP_SD, 202).
@@ -352,9 +354,8 @@ handle_response(Code, Headers, Body, #rtsp{consumer = Pid, last_request = {Ref,_
 
 
 decode_rtp(<<_RTPHeader:8, _Marker:1, _:7, Seq:16, _Timecode:32, _SSRC:32, _/binary>> = RTP, #rtp{decoder = Decoder1} = Chan1) ->
-  <<Version:2, Padding:1, Extension:1, CC:4>> = <<_RTPHeader>>,
+  <<Version:2, _Padding:1, Extension:1, CC:4>> = <<_RTPHeader>>,
   Version == 2 orelse error({invalid_rtp_version, Version}),
-  Padding == 0 orelse error({padding_not_supported, Padding}),
   Extension == 0 orelse error(extension_not_supported),
   CC == 0 orelse error(cc_not_supported),
   % ?D({rtp, Version, Padding, Extension, CC}),

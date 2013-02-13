@@ -739,3 +739,35 @@ ess_test() ->
     streams = [#stream_info{codec = h264,timescale = 1.0},#stream_info{content = data}]
   }, MI).
 
+
+hikvision_sdp() ->
+<<"v=0
+o=- 1360700970678535 1360700970678535 IN IP4 192.168.21.122
+s=Media Presentation
+e=NONE
+b=AS:5100
+t=0 0
+a=control:rtsp://172.18.0.2:5916/ch1/sub/av_stream/
+m=video 0 RTP/AVP 96
+b=AS:5000
+a=control:rtsp://172.18.0.2:5916/ch1/sub/av_stream/trackID=1
+a=rtpmap:96 H264/90000
+a=fmtp:96 profile-level-id=420029; packetization-mode=1; sprop-parameter-sets=Z0KAC4iLULBLQgAAV+QAAr8gCA==,aM44gA==
+m=audio 0 RTP/AVP 0
+b=AS:50
+a=control:rtsp://172.18.0.2:5916/ch1/sub/av_stream/trackID=2
+a=rtpmap:0 PCMU/8000
+m=application 0 RTP/AVP 107
+b=AS:50
+a=control:rtsp://172.18.0.2:5916/ch1/sub/av_stream/trackID=3
+a=rtpmap:107 vnd.onvif.metadata/90000
+a=Media_header:MEDIAINFO=494D4B48010100000400010010710110401F000000FA000000000000000000000000000000000000;
+a=appversion:1.0
+">>.
+
+
+
+
+
+
+

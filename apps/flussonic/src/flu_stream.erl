@@ -63,8 +63,7 @@ json_list() ->
     RTMP_ -> [{rtmp,RTMP_}]
   end,
   Streams = [ RTMP ++ [{name,Name}|parse_attr(Attr)] || {Name,Attr} <- list()],
-  {ok, Vsn} = application:get_key(flussonic, vsn),
-  [{streams,Streams},{event,stream.list},{version, list_to_binary(Vsn)}].
+  [{streams,Streams},{event,stream.list}].
 
 white_keys() ->
   [dvr, hls, hds, last_dts, lifetime, name, type, ts_delay, client_count, play_prefix, retry_count].
@@ -310,7 +309,7 @@ set_options(#stream{options = Options, name = Name, url = URL1, source = Source1
   {URL, Source} = case proplists:get_value(url, Options) of
     URL1 -> {URL1, Source1};
     URL2 ->
-      (catch erlang:exit(Source1, kill)),
+      (catch erlang:exit(Source1, normal)),
       self() ! reconnect_source,
       {URL2, undefined}
   end,

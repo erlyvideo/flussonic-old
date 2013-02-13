@@ -86,6 +86,12 @@ handle(Req, {mainpage, Opts}) ->
     end
   end);
 
+handle(Req, {server, Opts}) ->
+  check_auth(Req, Opts, http_auth, fun() ->
+    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(flu:json_info()), "\n"], Req),
+    {ok, R1, undefined}
+  end);
+
 handle(Req, {sessions, Opts}) ->
   check_auth(Req, Opts, http_auth, fun() ->
     {Name, Req1} = cowboy_req:qs_val(<<"name">>,Req),
@@ -186,6 +192,10 @@ websocket_handle({text, <<"pulse">>}, Req, State) ->
 
 websocket_handle({text, <<"streams">>}, Req, State) ->
   JSON = iolist_to_binary(mochijson2:encode(flu_stream:json_list())),
+  {reply, {text,JSON}, Req, State};
+
+websocket_handle({text, <<"server">>}, Req, State) ->
+  JSON = iolist_to_binary(mochijson2:encode(flu:json_info())),
   {reply, {text,JSON}, Req, State};
 
 websocket_handle({text, <<"sessions">>}, Req, State) ->

@@ -1,3 +1,10 @@
+flussonic (3.68.9)
+
+  * enable back playlists for files
+  * enable rtp with padding
+  * additional api /erlyvideo/api/server with misc server info
+  * fixing monotone ticker to work with new files
+
 flussonic (3.68.8)
 
   * fix back autostart streams on rtmp play

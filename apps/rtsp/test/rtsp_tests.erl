@@ -15,6 +15,13 @@ test_single_request0() ->
     [{<<"CSeq">>, <<"1">>},{<<"Authorization">>,<<"Basic cm9vdDp0b29y">>}], undefined}, <<>>}, rtsp:read(options_request())),
   ok.
 
+test_single_request1() ->
+  ?assertEqual({ok, {rtsp, request, {<<"GET_PARAMETER">>, <<"rtsp://localhost:1554/vod/bunny.mp4/">>},
+    [{<<"CSeq">>, <<"7">>},{<<"User-Agent">>,<<"LibVLC/2.0.1 (LIVE555 Streaming Media v2011.12.23)">>},
+    {<<"Session">>,<<"1360704095752081">>}], undefined}, <<>>}, rtsp:read(describe_request())).
+
+
+
 test_single_response0() ->
   ?assertEqual({ok, {rtsp, response, {200, <<"OK">>},
     [{<<"Cseq">>, <<"3">>},{<<"Session">>,<<"CD94B91F; timeout=60">>},
@@ -75,6 +82,10 @@ test_interleaved5() ->
 
 
 
+describe_request() ->
+<<"GET_PARAMETER rtsp://localhost:1554/vod/bunny.mp4/ RTSP/1.0\r\nCSeq: 7\r\n"
+"User-Agent: LibVLC/2.0.1 (LIVE555 Streaming Media v2011.12.23)\r\n"
+"Session: 1360704095752081\r\n\r\n">>.
 
 
 options_request() ->

@@ -62,6 +62,11 @@ init([Socket, Callback, Args]) ->
   {ok, #rtsp{socket = Socket, callback = Callback, args = Args, timeout = Timeout, peer_addr = PeerAddr}, Timeout}.
 
 
+handle_call(#video_frame{} = Frame, From, #rtsp{} = RTSP) ->
+  gen_server:reply(From, ok),
+  {noreply, RTSP1} = handle_info(Frame, RTSP),
+  {noreply, RTSP1};
+
 handle_call(Call, _From, #rtsp{timeout = Timeout} = RTSP) ->
   {reply, {error, {unknown_call, Call}}, RTSP, Timeout}.
 
@@ -151,7 +156,7 @@ handle_input_tcp(#rtsp{} = RTSP, Bin) ->
     more ->
       RTSP#rtsp{buffer = Bin};
     Else ->
-      lager:warning("rtsp client socket stopped because of: ~p", [Else]),
+      lager:warning("rtsp client socket stopped because of: ~p, ~p", [Else, Bin]),
       throw({stop, normal, RTSP})
   end.
 
@@ -191,9 +196,10 @@ rtp_packets(#video_frame{codec = aac, dts = DTS, body = Body1, track_id = TrackI
 receive_aac(0) -> [];
 receive_aac(Count) ->
   receive
-    #video_frame{codec = aac, body = Body} -> [Body|receive_aac(Count-1)]
+    #video_frame{codec = aac, body = Body} -> [Body|receive_aac(Count-1)];
+    {'$gen_call', From, #video_frame{codec = aac, body = Body}} -> gen_server:reply(From, ok), [Body|receive_aac(Count-1)]
   after
-    4000 -> error(timeout)
+    150 -> []
   end.
 
 pack_h264([NAL|Nals], Timecode, TrackID, Seq) ->

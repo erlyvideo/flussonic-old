@@ -185,6 +185,7 @@ parse_routes([{api,Options}|Env]) ->
     {"/erlyvideo/api/reload", api_handler, [{mode,reload}|Options]},
     {"/erlyvideo/api/events", api_handler, [{mode,events}|Options]},
     {"/erlyvideo/api/streams", api_handler, [{mode,streams}|Options]},
+    {"/erlyvideo/api/server", api_handler, [{mode,server}|Options]},
     {"/erlyvideo/api/sessions", api_handler, [{mode,sessions}|Options]},
     {"/erlyvideo/api/pulse", api_handler, [{mode,pulse}|Options]},
     {"/erlyvideo/api/stream_health/[...]", api_handler, [{mode,health}|Options]},

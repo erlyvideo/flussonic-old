@@ -70,7 +70,7 @@ read0(Data) when size(Data) < 20 ->
   more;
 
 read0(Data) ->
-  case re:run(Data, "^([A-Z]+) ") of
+  case re:run(Data, "^([A-Z_]+) ") of
     {match, _} ->
       case binary:split(Data, [<<"\r\n">>,<<"\n">>]) of
         [RequestLine, After] -> read_request(RequestLine, After);

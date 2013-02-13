@@ -71,11 +71,10 @@ start_stream_helper(Stream, Id, {M,F,A}) when is_binary(Stream) ->
       ChildSpec = {Id, {M, F, A}, transient, 2000, worker, []},
       case supervisor:start_child(Helper, ChildSpec) of
         {ok, Pid} -> {ok, Pid};
-        {error, already_present} ->
+        {error, _} ->
           supervisor:terminate_child(Helper, Id),
           supervisor:delete_child(Helper, Id),
-          start_stream_helper(Stream, Id, {M,F,A});
-        {error, {already_started, Pid}} -> {ok, Pid}
+          start_stream_helper(Stream, Id, {M,F,A})
       end;
     false ->
       undefined

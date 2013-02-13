@@ -33,7 +33,7 @@ stop(Ticker) ->
   paused = false,
   start_at,
   first_dts,
-  next_id,
+  next_id = 1,
   frame,
   frames = []
 }).
@@ -70,7 +70,7 @@ handle_info(tick, #ticker{first_dts = undefined, consumer = Consumer, start_at =
     #ticker{frame = undefined} ->
       {stop, normal, Ticker1};
     #ticker{frame = #video_frame{dts = DTS} = Frame} ->
-      Consumer ! Frame,
+      flu_stream:publish(Consumer, Frame),
       Ticker2 = #ticker{frame = #video_frame{dts = NextDTS}} = fetch_frame(Ticker1),
       Delay = delay(NextDTS, DTS, os:timestamp(), StartAt),
       erlang:send_after(Delay, self(), tick),
@@ -79,7 +79,7 @@ handle_info(tick, #ticker{first_dts = undefined, consumer = Consumer, start_at =
 
 handle_info(tick, #ticker{consumer = Consumer, frame = #video_frame{} = Frame, 
   first_dts = FirstDTS, start_at = StartAt} = Ticker) ->
-  Consumer ! Frame,
+  flu_stream:publish(Consumer, Frame),
   Ticker2 = #ticker{frame = #video_frame{dts = NextDTS}} = fetch_frame(Ticker),
   Delay = delay(NextDTS, FirstDTS, os:timestamp(), StartAt),
   erlang:send_after(Delay, self(), tick),
@@ -100,11 +100,13 @@ fetch_frame(#ticker{reader = {M,F,A}, next_id = Key} = Ticker) ->
       Ticker#ticker{frame = Frame, next_id = Next};
     [#video_frame{}|_] = Frames ->
       fetch_frame(Ticker#ticker{frames = Frames});
+    {ok, [#video_frame{}|_] = Frames} ->
+      fetch_frame(Ticker#ticker{frames = [F_#video_frame{next_id = Key + 1} || F_ <- Frames]});
     [] ->
-      ?D({ticker_over}),
+      throw({stop, normal, Ticker});
+    {error, no_segment} ->
       throw({stop, normal, Ticker});
     eof ->
-      ?D({ticker_eof}),
       throw({stop, normal, Ticker})
   end.
 
