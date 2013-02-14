@@ -1,5 +1,6 @@
 -module(fake_rtsp_callback).
 -compile(export_all).
+-include_lib("eunit/include/eunit.hrl").
 
 
 
@@ -35,3 +36,16 @@ play("rtsp://localhost:8854/stream1", _Headers, _Body) ->
   [self() ! F || F <- h264_aac_frames()],
   {ok, {stream, self()}}.
 
+
+
+announce(<<"rtsp://localhost:1554/mystream.sdp">>, _Headers, _Body) ->
+  Self = self(),
+  Pid = spawn(fun() -> erlang:monitor(process, Self), fake_media() end),
+  {ok, Pid}.
+
+
+fake_media() ->
+  receive
+    {'DOWN',_,_,_,_} -> ok;
+    M -> ?debugFmt("zz ~p",[M]), ?MODULE:fake_media()
+  end.

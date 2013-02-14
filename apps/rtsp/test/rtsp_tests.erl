@@ -88,6 +88,14 @@ describe_request() ->
 "Session: 1360704095752081\r\n\r\n">>.
 
 
+announce_request() ->
+iolist_to_binary([<<"ANNOUNCE rtsp://localhost:1554/mystream.sdp RTSP/1.0\r\n"
+"CSeq: 1\r\n"
+"Content-Type: application/sdp\r\n"
+"User-Agent: QuickTime/7.7.1 (qtver=7.7.1;cpu=IA32;os=Mac 10.7.5)\r\n"
+"Content-Length: 596\r\n\r\n">>, sdp_tests:quicktime_broadcaster_sdp()]).
+
+
 options_request() ->
 <<"OPTIONS rtsp://axis-00408ca51334.local./axis-media/media.amp RTSP/1.0\r
 CSeq: 1\r

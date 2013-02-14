@@ -35,6 +35,8 @@
 -export([meta_frame/1, meta_frame/2]).
 -export([reduce_keyframes/1]).
 
+-export([media_info_to_json/1]).
+
 
 config_frame(#stream_info{codec = aac, config = Config, track_id = TrackId}) ->
   #video_frame{
@@ -246,6 +248,19 @@ reduce_keyframes(Keyframes) ->
   end, -2*?MIN_DTS_STEP, Keyframes),
   Keyframes2 = [{DTS, Id} || {DTS, Id} <- Keyframes1],
   Keyframes2.
+
+
+media_info_to_json(#media_info{duration = D, streams = Streams}) ->
+  Video = lists:keyfind(video, #stream_info.content, Streams),
+  case D of
+    undefined -> [];
+    _ -> [{duration,D}]
+  end ++ case Video of
+    #stream_info{params = #video_params{width = W, height = H}} -> [{width,W},{height,H}];
+    _ -> []
+  end.
+
+
 
 
 

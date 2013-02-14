@@ -31,6 +31,31 @@
     websocket_info/3, websocket_terminate/3]).
 -include_lib("eunit/include/eunit.hrl").
 -include("flu_event.hrl").
+-include_lib("erlmedia/include/video_frame.hrl").
+-include_lib("erlmedia/include/media_info.hrl").
+
+-export([routes/1]).
+
+routes(Options) ->
+  [
+    {"/", api_handler, [{mode,mainpage}|Options]},
+    {"/admin", api_handler, [{mode,mainpage}|Options]},
+    {"/erlyvideo/api/sendlogs", api_handler, [{mode,sendlogs}|Options]},
+    {"/erlyvideo/api/reload", api_handler, [{mode,reload}|Options]},
+    {"/erlyvideo/api/events", api_handler, [{mode,events}|Options]},
+    {"/erlyvideo/api/streams", api_handler, [{mode,streams}|Options]},
+    {"/erlyvideo/api/server", api_handler, [{mode,server}|Options]},
+    {"/erlyvideo/api/sessions", api_handler, [{mode,sessions}|Options]},
+    {"/erlyvideo/api/pulse", api_handler, [{mode,pulse}|Options]},
+    {"/erlyvideo/api/stream_health/[...]", api_handler, [{mode,health}|Options]},
+    {"/erlyvideo/api/stream_restart/[...]", api_handler, [{mode,stream_restart}|Options]},
+    {"/erlyvideo/api/media_info/[...]", api_handler, [{mode,media_info}|Options]},
+    {"/erlyvideo/api/dvr_status/:year/:month/:day/[...]", dvr_handler, [{mode,status}|Options]},
+    {"/erlyvideo/api/dvr_previews/:year/:month/:day/:hour/:minute/[...]", dvr_handler, [{mode,previews}|Options]}
+  ].
+
+
+
 
 %% Cowboy API
 
@@ -104,6 +129,21 @@ handle(Req, {sessions, Opts}) ->
   end);
 
 
+handle(Req, {sendlogs, Opts}) ->
+  check_auth(Req, Opts, http_auth, fun() ->
+    case log_uploader:upload() of
+      {ok, Ticket} ->
+        lager:warning("Logs were uploaded to erlyvideo.org with ticket ~s", [Ticket]),
+        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode([{ticket,Ticket}]), "\n"], Req),
+        {ok, R1, undefined};
+      {error, Error} ->
+        lager:warning("Problem with uploading logs to erlyvideo.org: ~p", [Error]),
+        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode([{error,Error}]), "\n"], Req),
+        {ok, R1, undefined}
+    end
+  end);
+
+
 handle(Req, {pulse, Opts}) ->
   check_auth(Req, Opts, http_auth, fun() ->
     case erlang:function_exported(pulse, json_list, 1) of
@@ -138,6 +178,33 @@ handle(Req, {stream_restart, Opts}) ->
         {ok, R1, undefined}
     end
   end);
+
+handle(Req, {media_info, Opts}) ->
+  check_auth(Req, Opts, http_auth, fun() ->
+    {PathInfo, _} = cowboy_req:path_info(Req),
+    Name = flu:join(PathInfo, "/"),
+
+    case flu_media:find_or_open(Name) of
+      {ok, {Type, Pid}} ->
+        MediaInfo = case Type of
+          file -> flu_file:media_info(Pid);
+          stream -> flu_stream:media_info(Pid)
+        end,
+        case MediaInfo of
+          #media_info{} ->
+            JSON = video_frame:media_info_to_json(MediaInfo),
+            {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(JSON), "\n"], Req),
+            {ok, R1, undefined};
+          _ ->
+            {ok, R1} = cowboy_req:reply(404, [], <<"undefined\n">>, Req),
+            {ok, R1, undefined}
+        end;
+      {error, _} ->
+        {ok, R1} = cowboy_req:reply(404, [], <<"undefined\n">>, Req),
+        {ok, R1, undefined}
+    end
+  end);
+
 
 
 handle(Req, {health, Opts}) ->

@@ -44,6 +44,8 @@
               <!-- <li><a href="#license">Licensed code</a></li> -->
               <li><a href="#pulse">Statistics</a></li>
               <li><a href="#play">Play</a></li>
+              <li><a href="#support" onclick="if(window.FreshWidget) {FreshWidget.show(); return false;}">Request support</a></li>
+              <li><a href="#sendlogs">Upload logs to erlyvideo.org</a></li>
 							<li><a href="/flu/docs/index.html">Documentation</a></li>
             </ul>
           </div>
@@ -54,7 +56,7 @@
               <p id="stream-info"></p>
               <table class='table'>
                 <thead><tr><th class='first' style='width: 120px'>Name</th><th>Play</th><th width='65'>Clients</th>
-                <th width='75'>Lifetime</th><th width='65'>DTS Delay</th><th width='70'>Retry count</th></tr></thead>
+                <th width='75'>Lifetime</th><th width='65'>DTS Delay</th><th width='70'>Retry count</th><th width='25'>Restart</th></tr></thead>
                 <tbody id="stream-list">
                 </tbody>
               </table>
@@ -73,6 +75,7 @@
             <div class="inner visualised" id="pulse-stats">
             </div>
           </div>
+
 
           <div class="content" id="play-tab" style="display: none">
             <h2 class="title">Play any stream</h2>
@@ -99,6 +102,39 @@
           </div>
 
 
+          <div class="content" id="support-tab" style="display: none">
+            <h2 class="title">Support</h2>
+            <div class="inner">
+              <p>Thank you for using flussonic.</p>
+
+              <p>If you have any problems, you can ask for <a href="mailto:support@erlyvideo.org">commercial support</a></p>
+            </div>
+          </div>
+
+
+          <div class="content" id="sendlogs-tab" style="display: none">
+            <h2 class="title">Send logs</h2>
+            <div class="inner">
+              <p>If you have problems and need support, you need to send config and log files to support command.</p>
+
+              <p>
+                You can send all logs by clicking this button. When upload is complete, you will receive temporary
+                link to upload and will be able to refer to this link when speaking with support.
+              </p>
+
+              <button class="push_button red" id="upload-btn" onclick="Erlyvideo.send_logs(); return false;">
+                Upload logs to erlyvideo.org
+              </button>
+
+              <div id="upload-ticket">
+              </div>
+
+
+              <p>Copy this UUID and send it to support via email so that we will be able to look at your logs.</p>
+            </div>
+          </div>
+
+
         </div>
 
         <div id="footer">
@@ -108,7 +144,7 @@
         </div>
       </div>
     </div>
-		<div id="box">
+		<div id="box" style="display:none">
       <div class="block" id="block-login">
         <div class="content login">
 					<div id="player-embed"></div>

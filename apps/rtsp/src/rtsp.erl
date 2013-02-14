@@ -22,7 +22,7 @@
 -define(TIMEOUT, 1000).
 
 start_server(Port, Name, Callback) ->
-  ranch:start_listener(Name, 10, ranch_tcp, [{port, Port}], rtsp_listener, [Callback, []]).
+  ranch:start_listener(Name, 10, ranch_tcp, [{port, Port}], rtsp_socket, [Callback, []]).
 
 stop_server(Name) ->
   ranch:stop_listener(Name).
@@ -155,8 +155,14 @@ dump({rtsp, response, {Code, Status}, Headers, Body}) ->
     [[K, ": ",V,"\n"] || {K,V} <- Headers],
     "\n",
     case Body of undefined -> ""; _ -> Body end
-  ]).
+  ]);
 
+dump({rtsp, request, {Request, URL}, Headers, Body}) ->
+  iolist_to_binary([Request, " ", URL, " RTSP/1.0\n",
+    [[K, ": ",V,"\n"] || {K,V} <- Headers],
+    "\n",
+    case Body of undefined -> ""; _ -> Body end
+  ]).
 
 
 

@@ -179,20 +179,7 @@ parse_routes([{webm,Prefix,Options}|Env]) ->
   |parse_routes(Env)];
 
 parse_routes([{api,Options}|Env]) ->
-  [
-    {"/", api_handler, [{mode,mainpage}|Options]},
-    {"/admin", api_handler, [{mode,mainpage}|Options]},
-    {"/erlyvideo/api/reload", api_handler, [{mode,reload}|Options]},
-    {"/erlyvideo/api/events", api_handler, [{mode,events}|Options]},
-    {"/erlyvideo/api/streams", api_handler, [{mode,streams}|Options]},
-    {"/erlyvideo/api/server", api_handler, [{mode,server}|Options]},
-    {"/erlyvideo/api/sessions", api_handler, [{mode,sessions}|Options]},
-    {"/erlyvideo/api/pulse", api_handler, [{mode,pulse}|Options]},
-    {"/erlyvideo/api/stream_health/[...]", api_handler, [{mode,health}|Options]},
-    {"/erlyvideo/api/stream_restart/[...]", api_handler, [{mode,stream_restart}|Options]},
-    {"/erlyvideo/api/dvr_status/:year/:month/:day/[...]", dvr_handler, [{mode,status}|Options]},
-    {"/erlyvideo/api/dvr_previews/:year/:month/:day/:hour/:minute/[...]", dvr_handler, [{mode,previews}|Options]}
-  |parse_routes(Env)];
+  api_handler:routes(Options) ++ parse_routes(Env);
 
 parse_routes([{plugin,Plugin,Options}|Env]) ->
   case erlang:module_loaded(Plugin) of

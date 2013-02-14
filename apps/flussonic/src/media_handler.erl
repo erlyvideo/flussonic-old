@@ -181,17 +181,17 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
       Root = proplists:get_value(dvr, Opts), % here Root may be undefined, because live is served here also
       {{hls_dvr_packetizer, segment, [to_b(Root), Seg]}, [{<<"Content-Type">>, <<"video/MP2T">>}], name_or_pi(Opts, Acc)};
     [<<"timeshift_abs">>, From] ->
-      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>} | Opts]),
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>},{pid, self()} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {{dvr_handler, timeshift_abs, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], name_or_pi(Opts, Acc)};
     [<<"timeshift_rel">>, From] ->
-      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>} | Opts]),
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>},{pid, self()} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {{dvr_handler, timeshift_rel, [to_b(Root), to_i(From), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], name_or_pi(Opts, Acc)};
     [<<"archive">>, From, Duration, <<"mpegts">>] ->
-      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"hds">>} | Opts]),
+      {ok, _} = ?MODULE:check_sessions(Req, name_or_pi(Opts, Acc), [{type, <<"mpegts">>},{pid, self()} | Opts]),
       Root = proplists:get_value(dvr, Opts),
       Root =/= undefined orelse throw({return, 424, ["no dvr root specified ", name_or_pi(Opts, Acc)]}),
       {{dvr_handler, mpeg_stream, [to_b(Root), to_i(From), to_duration(Duration), Req]}, [{<<"Content-Type">>, <<"video/MP2T">>}|no_cache()], name_or_pi(Opts, Acc)};

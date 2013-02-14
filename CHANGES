@@ -1,3 +1,12 @@
+flussonic (3.68.10)
+
+  * /erlyvideo/api/media_info API for checking media size
+  * refactoring in RTSP to make publish possible
+  * streams can be restarted from web-interface
+  * log uploader from admin interface
+  * timeshift_abs, timeshift_rel and mpegts now pass their pid to sessions #52
+  * fixed dvr mp4 extraction naming #59
+
 flussonic (3.68.9)
 
   * enable back playlists for files

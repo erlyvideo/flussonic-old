@@ -83,7 +83,7 @@ announce0(URL, Headers, #media_info{} = MediaInfo) ->
     undefined ->
       ok;
     PasswordSpec ->
-      case proplists:get_value('Authorization', Headers) of
+      case rtsp:header(authorization, Headers) of
         <<"Basic ", Basic64/binary>> ->
           Basic = binary_to_list(base64:decode(Basic64)),
           Basic == PasswordSpec orelse throw(authentication);

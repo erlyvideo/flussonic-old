@@ -70,7 +70,7 @@ handle_info({response, _Ref, _Code, _Headers, _Body}, #rtsp{} = RTSP) ->
   {noreply, RTSP};
 
 handle_info(teardown, #rtsp{proto = Proto} = RTSP) ->
-  rtsp_protocol:call(Proto, 'TEARDOWN', []),
+  rtsp_socket:call(Proto, 'TEARDOWN', []),
   {stop, RTSP, normal}.
 
 
@@ -99,12 +99,12 @@ try_read(#rtsp{options = Options, url = URL} = RTSP) ->
   end.
 
 try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
-  {ok, Proto} = rtsp_protocol:start_link([{consumer, self()}, {url, URL}|Options]),
+  {ok, Proto} = rtsp_socket:start_link([{consumer, self()}, {url, URL}|Options]),
   unlink(Proto),
   Ref = erlang:monitor(process, Proto),
 
-  {ok, 200, _, _} = rtsp_protocol:call(Proto, 'OPTIONS', []),
-  {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_protocol:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
+  {ok, 200, _, _} = rtsp_socket:call(Proto, 'OPTIONS', []),
+  {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_socket:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
   DescribeCode == 401 andalso throw({rtsp, denied, 401}),
   DescribeCode == 404 andalso throw({rtsp, not_found, 404}),
   DescribeCode == 200 orelse throw({rtsp, invalid_describe, DescribeCode}),
@@ -119,17 +119,17 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
     Track = control_url(ContentBase, Control),
     Transport = case RTPMode of
       tcp ->
-        rtsp_protocol:add_channel(Proto, TrackId-1, StreamInfo, tcp),
+        rtsp_socket:add_channel(Proto, TrackId-1, StreamInfo, tcp),
         io_lib:format("RTP/AVP/TCP;unicast;interleaved=~B-~B", [N, N+1]);
       udp ->
-        {ok, {RTPport, RTCPport}} = rtsp_protocol:add_channel(Proto, TrackId-1, StreamInfo, udp),
+        {ok, {RTPport, RTCPport}} = rtsp_socket:add_channel(Proto, TrackId-1, StreamInfo, udp),
         io_lib:format("RTP/AVP;unicast;client_port=~B-~B", [RTPport, RTCPport])
     end,
-    {ok, SetupCode, _, _} = rtsp_protocol:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
+    {ok, SetupCode, _, _} = rtsp_socket:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
     case SetupCode of
       406 when RTPMode == tcp ->
         erlang:demonitor(Ref, [flush]),
-        (catch rtsp_protocol:stop(Proto)),
+        (catch rtsp_socket:stop(Proto)),
         throw({rtsp, restart, RTSP#rtsp{rtp_mode = udp}});
       200 -> 
         ok;
@@ -139,11 +139,11 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
     N + 2
   end, 0, MediaInfo#media_info.streams),
 
-  {ok, PlayCode, PlayHeaders, _} = rtsp_protocol:call(Proto, 'PLAY', [{'Range', <<"npt=0.000-">>}]),
+  {ok, PlayCode, PlayHeaders, _} = rtsp_socket:call(Proto, 'PLAY', [{'Range', <<"npt=0.000-">>}]),
   PlayCode == 200 orelse throw({rtsp, rejected_play, PlayCode}),
   RtpInfo = parse_rtp_info(PlayHeaders),
 
-  [rtsp_protocol:sync(Proto, N, Sync) || {N, Sync} <- lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo)],
+  [rtsp_socket:sync(Proto, N, Sync) || {N, Sync} <- lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo)],
 
   RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo, proto = Proto}.
 

@@ -95,6 +95,10 @@ find(Path) ->
       end
   end.
 
+
+
+-spec find_or_open(Path::binary()|list()) ->
+  {ok, {file, Pid::pid()}} | {ok, {stream, Pid::pid()}} | {error, Error::term()}.
 find_or_open(Path) when is_list(Path) ->
   find_or_open(list_to_binary(Path));
 

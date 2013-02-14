@@ -14,6 +14,7 @@ rtsp_out_test_() ->
   end, fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
     application:stop(ranch),
+    application:stop(lager),
     error_logger:add_report_handler(error_logger_tty_h),
   ok
   end, [
@@ -27,6 +28,8 @@ test_read() ->
   ?assertMatch(#media_info{streams = [#stream_info{codec = h264}, #stream_info{codec = aac}]}, MI),
 
   _Frames = get_all_frames(),
+
+  ?assertMatch(Count when Count > 40, length(_Frames)),
 
   ok.
 

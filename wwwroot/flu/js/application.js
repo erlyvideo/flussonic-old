@@ -12,9 +12,9 @@ Erlyvideo = {
 // Templates for players
 
   // HDS player  
-  osmf_player: function(element, url) {
-    var width = 640;
-    var height = 480;
+  osmf_player: function(element, url, info) {
+    var width = info && info.width || 640;
+    var height = info && info.height || 480;
     
     if(url.indexOf("http://") != 0) {
       if(url[0] != "/") url = "/" + url;
@@ -27,12 +27,15 @@ Erlyvideo = {
   		autoPlay: true
   	};
   	var paramObj = {allowScriptAccess : "always", allowFullScreen : "true", allowNetworking : "all"};
-    swfobject.embedSWF("/flu/StrobeMediaPlayback.swf", element, width, height, "10.3", "/flu/expressInstall.swf",
-      flashvars, paramObj, {name: "StrobeMediaPlayback"});
+    swfobject.embedSWF("/flu/" + Erlyvideo.hds_player + ".swf", element, width, height, "10.3", "/flu/expressInstall.swf",
+      flashvars, paramObj, {name: Erlyvideo.hds_player});
   },
   
   // RTMP JWplayer
-  jwplayer: function(element, url) {
+  jwplayer: function(element, url, info) {
+    var width = info && info.width || 640;
+    var height = info && info.height || 480;
+
     var app = "live";
     var slash = url.indexOf("/");
     if(slash != -1) {
@@ -46,7 +49,7 @@ Erlyvideo = {
         autostart: true
       };
 
-      swfobject.embedSWF('/flu/jwplayer.swf',element,'640','480','10.3','false', flashvars,
+      swfobject.embedSWF('/flu/jwplayer.swf',element,width,height,'10.3','false', flashvars,
 
        {allowfullscreen:'true',allowscriptaccess:'always'},
        {id:'jwplayer',name:'jwplayer'}
@@ -56,8 +59,10 @@ Erlyvideo = {
   
 
   // HLS player
-  hls: function(element, stream) {
-    $(element).html("<video width=640 height=480 src=\""+stream+"?session="+((new Date()).getTime())+"\" autoplay controls></video>");
+  hls: function(element, stream, info) {
+    var width = info && info.width || 640;
+    var height = info && info.height || 480;
+    $(element).html("<video width="+width+" height="+height+" src=\""+stream+"?session="+((new Date()).getTime())+"\" autoplay controls></video>");
   },
 
 
@@ -70,6 +75,9 @@ Erlyvideo = {
   },
 
   activate_tab: function(tabname) {
+    if(tabname == "support" && window.FreshWidget) {
+      return false;
+    }
     Erlyvideo.stop_periodic_stream_loader();
     Erlyvideo.stop_periodic_pulse_loader();
     $(".tabbed-menu li").removeClass("active");
@@ -149,6 +157,9 @@ Erlyvideo = {
       case "pulse.traffic":
         Erlyvideo.draw_pulse_traffic(message);
         break;
+      case "user.connected":
+      case "user.disconnected":
+        break;
       default:
         console.log(message);
     }
@@ -180,6 +191,10 @@ Erlyvideo = {
       $("div[time=\""+minute+"\"]").removeClass("ok").addClass("fail");
     }
   },
+
+  restart_stream: function(stream) {
+    $.post("/erlyvideo/api/stream_restart/"+stream, {});
+  },
   
   load_stream_info: function() {
     // console.log("loading");
@@ -209,6 +224,7 @@ Erlyvideo = {
       <td class='lifetime'>{{lifetime}}</td> \
       <td class='ts_delay'>{{ts_delay}}</td> \
       <td class='retry_count'>{{retry_count}}</td> \
+      <td class='stream-restart'><a href='#' onclick='Erlyvideo.restart_stream(\"{{name}}\");return false;'><span class='restart'></span>restart</a></td> \
     </tr>",
   
   session_template: "<tr id='session-{{id}}' data-id='{{id}}'><td>{{ip}}</td><td>{{user_id}}</td><td>{{type}}</td><td>{{name}}</td><td class='duration'>{{duration}}</td></tr>",
@@ -352,6 +368,28 @@ Erlyvideo = {
     return lt_s;
   },
 
+  send_logs: function() {
+    $("#upload-ticket").show().addClass("loading").html("&nbsp;");
+    var text = $("#upload-btn").html();
+    $("#upload-btn").html("Uploading logs");
+    $.ajax({
+      type: 'POST',
+      url: "/erlyvideo/api/sendlogs",
+      dataType: 'json',
+
+      success: function(reply) {
+        var ticket = reply.ticket;
+        $("#upload-ticket").removeClass("loading").html(ticket);
+        $("#upload-btn").html(text);
+      },
+      error: function(xhr, reply) {
+        var error_text = "Error";
+        if(reply.error) error_text = "Error: "+reply.error;
+        $("#upload-ticket").removeClass("loading").html(error_text);
+        $("#upload-btn").html(text);
+      }
+    });
+  },
 
 // Licenses on server. Disable it
   
@@ -412,14 +450,28 @@ Erlyvideo = {
   },
   
   play_stream: function(stream, player) {
-    if(player == "hds") {
-      Erlyvideo.osmf_player("player-embed", stream);
-    } else if(player == "rtmp") {
-      Erlyvideo.jwplayer("player-embed", stream);
-    } else if(player == "hls") {
-      Erlyvideo.hls("#player-embed", stream.indexOf("m3u8") == -1 ? stream+"/index.m3u8" : stream);
-    }
+    $("#player-embed").html("<div>Loading file from server</div>");
     $("#block-login").dialog('open');
+    $.get("/erlyvideo/api/media_info/"+stream, {}, function(info) {
+      if(info.width && info.height) {
+        while(info.width < 640) {
+          info.width = Math.round(info.width*1.5);
+          info.height = Math.round(info.height*1.5);
+        }
+        while(info.width > 1024) {
+          info.width = Math.round(info.width / 2);
+          info.height = Math.round(info.height / 2);
+        }
+      }
+
+      if(player == "hds") {
+        Erlyvideo.osmf_player("player-embed", stream, info);
+      } else if(player == "rtmp") {
+        Erlyvideo.jwplayer("player-embed", stream, info);
+      } else if(player == "hls") {
+        Erlyvideo.hls("#player-embed", stream.indexOf("m3u8") == -1 ? stream+"/index.m3u8" : stream, info);
+      }
+    });
   },
   
 
@@ -485,7 +537,7 @@ $(function() {
   
   Erlyvideo.enable_tabs();
   // Erlyvideo.enable_licenses();
-  if(window.location.hash != "") {
+  if(window.location.hash != "" && window.location.hash != "support") {
     Erlyvideo.activate_tab(window.location.hash.substring(1));
   } else if(params["file"] && params["file"].length > 0) {
     Erlyvideo.activate_tab("play");
@@ -495,6 +547,10 @@ $(function() {
   }
   Erlyvideo.enable_play_tab();
   Erlyvideo.request("server");
+  Erlyvideo.request("streams");
+
+  Erlyvideo.hds_player = "StrobeMediaPlayback";
+  if(params["player"] == "grind") Erlyvideo.hds_player = "GrindPlayer";
 
   // $('#traffic-stats').visualize({type: 'line', width: '800px'});
 	
