@@ -83,7 +83,7 @@
   		selection_start = parseInt($(this).attr('time'), 10);
   	});
   	$(div).find(".hour-click").click(function() {
-  	  draw_hour_thumbnails(div, $(this).attr('path'), camera, opts);
+  	  // draw_hour_thumbnails(div, $(this).attr('path'), camera, opts);
   	  return false;
   	});
   	$(div).find("div.minute").mouseup(function() {

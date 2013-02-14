@@ -233,7 +233,7 @@ lookup_name(PathInfo, Opts, Req, Acc) ->
           lookup_name(PathInfo1, Opts, Req, [Else|Acc])
       end;
     [] ->
-      throw({return, 415, ["undefined postfix ", name_or_pi([], Acc)]})
+      throw({return, 415, io_lib:format("undefined postfix ~p", [name_or_pi([], Acc)])})
   end.
 
 

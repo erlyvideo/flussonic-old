@@ -1,3 +1,9 @@
+flussonic (3.68.11)
+
+  * don't crash on preview request
+  * don't crash on wrong media request
+  * don't crash hls_reader on empty segments
+
 flussonic (3.68.10)
 
   * /erlyvideo/api/media_info API for checking media size
