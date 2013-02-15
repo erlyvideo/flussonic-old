@@ -280,7 +280,7 @@ int main(int argc, char *argv[]) {
             if(avcodec_encode_audio2(aenc_ctx, &out_pkt, filtered_frame, &encoded) < 0)
               error("Failed to encode aac");
 
-            printf("out_pkt size %d\n", out_pkt.size);
+            // printf("out_pkt size %d\n", out_pkt.size);
 
             if(encoded) {
               AudioQueue *q = av_malloc(sizeof(AudioQueue));

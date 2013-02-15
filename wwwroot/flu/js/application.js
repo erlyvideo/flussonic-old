@@ -20,7 +20,9 @@ Erlyvideo = {
       if(url[0] != "/") url = "/" + url;
       url = "http://"+window.location.host+url;
     }
-    if(url.indexOf(".f4m") == -1) url = url + "/manifest.f4m?session="+((new Date()).getTime())
+    if(url.indexOf(".f4m") == -1 && url.indexOf(".m3u8") == -1) url = url + "/manifest.f4m";
+
+    url = url + "?token="+((new Date()).getTime())
   	var flashvars = {
   		src : url,
       // javascriptCallbackFunction: "onJavaScriptBridgeCreated",
@@ -43,7 +45,7 @@ Erlyvideo = {
       url = url.substring(slash+1, url.length);
     }
     var flashvars = {
-        file: url+"?session="+((new Date()).getTime()),
+        file: url+"?token="+((new Date()).getTime()),
         streamer:'rtmp://'+window.location.hostname+':1935/'+app,
         'rtmp.tunneling':false,
         autostart: true
@@ -62,7 +64,7 @@ Erlyvideo = {
   hls: function(element, stream, info) {
     var width = info && info.width || 640;
     var height = info && info.height || 480;
-    $(element).html("<video width="+width+" height="+height+" src=\""+stream+"?session="+((new Date()).getTime())+"\" autoplay controls></video>");
+    $(element).html("<video width="+width+" height="+height+" src=\""+stream+"?token="+((new Date()).getTime())+"\" autoplay controls></video>");
   },
 
 
@@ -140,6 +142,7 @@ Erlyvideo = {
     if(Erlyvideo.dump_events) console.log(message);
     switch(message.event) {
       case "server.info":
+        Erlyvideo.request("streams");
         Erlyvideo.draw_server_info(message);
         break;
       case "stream.list":
@@ -452,7 +455,8 @@ Erlyvideo = {
   play_stream: function(stream, player) {
     $("#player-embed").html("<div>Loading file from server</div>");
     $("#block-login").dialog('open');
-    $.get("/erlyvideo/api/media_info/"+stream, {}, function(info) {
+
+    var play = function(info) {
       if(info.width && info.height) {
         while(info.width < 640) {
           info.width = Math.round(info.width*1.5);
@@ -469,9 +473,28 @@ Erlyvideo = {
       } else if(player == "rtmp") {
         Erlyvideo.jwplayer("player-embed", stream, info);
       } else if(player == "hls") {
-        Erlyvideo.hls("#player-embed", stream.indexOf("m3u8") == -1 ? stream+"/index.m3u8" : stream, info);
+        if(stream.indexOf("m3u8") == -1) stream = stream+"/index.m3u8";
+        if(window.navigator.userAgent.indexOf("Firefox") != -1 || window.navigator.userAgent.indexOf("Chrome") != -1) {
+          Erlyvideo.osmf_player("player-embed", stream, info);
+        } else {
+          Erlyvideo.hls("#player-embed", stream, info);
+        }
+      }
+    }
+
+
+    if(stream[0] != "/") stream = "/" + stream;
+    $.ajax({
+      type: 'GET',
+      url: "/erlyvideo/api/media_info"+stream,
+      dataType: 'json',
+
+      success: play,
+      error: function(xhr, reply) {
+        play({});
       }
     });
+
   },
   
 
@@ -547,7 +570,6 @@ $(function() {
   }
   Erlyvideo.enable_play_tab();
   Erlyvideo.request("server");
-  Erlyvideo.request("streams");
 
   Erlyvideo.hds_player = "StrobeMediaPlayback";
   if(params["player"] == "grind") Erlyvideo.hds_player = "GrindPlayer";
