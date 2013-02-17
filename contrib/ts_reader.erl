@@ -18,11 +18,11 @@ main([Path]) ->
   T2 = erlang:now(),
   io:format("~B frames (~B)~n", [length(Frames1), timer:now_diff(T2,T1)]),
   
-  {ok, Reader} = mpegts_reader:init([]),
-  T3 = erlang:now(),
-  {ok, _Reader1, Frames2} = mpegts_reader:decode(Bin, Reader),
-  T4 = erlang:now(),
-  io:format("~B frames (~B)~n", [length(Frames2), timer:now_diff(T4,T3)]),
+  % {ok, Reader} = mpegts_reader:init([]),
+  % T3 = erlang:now(),
+  % {ok, _Reader1, Frames2} = mpegts_reader:decode(Bin, Reader),
+  % T4 = erlang:now(),
+  % io:format("~B frames (~B)~n", [length(Frames2), timer:now_diff(T4,T3)]),
   % io:format("        new   ~30s    old    ~n", [""]),
   % dump(Frames1, Frames2),
   

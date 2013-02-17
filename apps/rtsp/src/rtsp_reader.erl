@@ -71,7 +71,12 @@ handle_info({response, _Ref, _Code, _Headers, _Body}, #rtsp{} = RTSP) ->
 
 handle_info(teardown, #rtsp{proto = Proto} = RTSP) ->
   rtsp_socket:call(Proto, 'TEARDOWN', []),
-  {stop, RTSP, normal}.
+  {stop, RTSP, normal};
+
+handle_info({Ref, ok}, #rtsp{} = RTSP) when is_reference(Ref) ->
+  {noreply, RTSP}.
+
+
 
 
 

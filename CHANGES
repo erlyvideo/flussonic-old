@@ -1,3 +1,8 @@
+flussonic (3.68.13)
+
+  * rtsp reader don't fail if old reply for frame returns
+  * i386 deploy support
+
 flussonic (3.68.12)
   
   * request media size before drawing player

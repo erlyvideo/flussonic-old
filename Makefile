@@ -110,9 +110,7 @@ package:
 	[ -d deps ] && for d in deps/* ; do git clone $$d tmproot/opt/flussonic/deps/`basename $$d`; done || true
 	(cd tmproot/opt/flussonic/ && ./rebar get-deps && ./rebar compile)
 	mkdir -p tmproot/opt/flussonic/apps/flussonic/priv/
-	cp -f priv/mmap-squeeze64.so tmproot/opt/flussonic/apps/flussonic/priv/mmap.so
 	mkdir -p tmproot/opt/flussonic/apps/mpegts/priv/
-	cp -f priv/mpegts_udp-squeeze64.so tmproot/opt/flussonic/apps/mpegts/priv/mpegts_udp.so
 	rm -rf tmproot/opt/flussonic/deps/proper*
 	rm -rf tmproot/opt/flussonic/apps/ffmpeg
 	rm -rf tmproot/opt/flussonic/apps/mpegts/contrib/build_table.rb tmproot/opt/flussonic/apps/rtsp/priv/* tmproot/opt/flussonic/deps/*/test
@@ -124,11 +122,15 @@ package:
 	cp priv/flussonic tmproot/etc/init.d/
 	mkdir -p tmproot/etc/flussonic
 	cp priv/sample/*.conf tmproot/etc/flussonic/
+
+	cp -f priv/mmap-squeeze64.so tmproot/opt/flussonic/apps/flussonic/priv/mmap.so
+	cp -f priv/mpegts_udp-squeeze64.so tmproot/opt/flussonic/apps/mpegts/priv/mpegts_udp.so
 	cd tmproot && \
 	fpm -s dir -t deb -n flussonic -v $(VERSION) --category net \
 	--post-install ../debian/postinst --pre-uninstall ../debian/prerm --post-uninstall ../debian/postrm \
 	--config-files /etc/flussonic/flussonic.conf --config-files /etc/flussonic/streams.conf --config-files '/etc/flussonic/*.conf' \
 	-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-nox (>= 1:15)' -m "Max Lapshin <max@maxidoors.ru>" -a amd64 etc/init.d/flussonic etc/flussonic opt 
+
 	cp -f priv/mmap-squeeze32.so tmproot/opt/flussonic/apps/flussonic/priv/mmap.so
 	cp -f priv/mpegts_udp-squeeze32.so tmproot/opt/flussonic/apps/mpegts/priv/mpegts_udp.so
 	cd tmproot && \
@@ -136,6 +138,15 @@ package:
 	--post-install ../debian/postinst --pre-uninstall ../debian/prerm --post-uninstall ../debian/postrm \
 	--config-files /etc/flussonic/flussonic.conf --config-files /etc/flussonic/streams.conf --config-files '/etc/flussonic/*.conf' \
 	-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-nox (>= 1:15)' -m "Max Lapshin <max@maxidoors.ru>" -a i386 etc/init.d/flussonic etc/flussonic opt 
+
+	#cp -f priv/mmap-armel.so tmproot/opt/flussonic/apps/flussonic/priv/mmap.so
+	#cp -f priv/mpegts_udp-armel.so tmproot/opt/flussonic/apps/mpegts/priv/mpegts_udp.so
+	#cd tmproot && \
+	#fpm -s dir -t deb -n flussonic -v $(VERSION) --category net \
+	#--post-install ../debian/postinst --pre-uninstall ../debian/prerm --post-uninstall ../debian/postrm \
+	#--config-files /etc/flussonic/flussonic.conf --config-files /etc/flussonic/streams.conf --config-files '/etc/flussonic/*.conf' \
+	#-d 'esl-erlang (>= 15) | esl-erlang-nox (>= 15) | erlang-nox (>= 1:15)' -m "Max Lapshin <max@maxidoors.ru>" -a armel etc/init.d/flussonic etc/flussonic opt 
+
 	mv tmproot/*.deb .
 	rm -rf tmproot
 
@@ -145,7 +156,7 @@ escriptize:
 
 upload:
 	./contrib/license_pack upload2 $(VERSION)
-	scp flussonic_$(VERSION)_amd64.deb flussonic flussonic-$(VERSION).tgz erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary
+	scp flussonic_$(VERSION)_*.deb flussonic flussonic-$(VERSION).tgz erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary
 	# scp flussonic erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary/flussonic
 	ssh erlyhub@erlyvideo.org "cd /apps/erlyvideo/debian ; ./update ; cd public/binary ; ln -sf flussonic-$(VERSION).tgz flussonic-latest.tgz "
 	./contrib/send_email.erl erlyvideo-dev@googlegroups.com $(VERSION)
