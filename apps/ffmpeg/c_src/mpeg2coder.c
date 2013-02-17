@@ -200,7 +200,7 @@ int main(int argc, char *argv[]) {
           while(audio_queue && audio_queue->packet.dts < out_pkt.dts) {
             audio_queue->packet.dts += 2;
             audio_queue->packet.pts += 2;
-            printf(" aac dts: %10lld, bytes: %d\n", audio_queue->packet.dts, audio_queue->packet.size);
+            // printf(" aac dts: %10lld, bytes: %d\n", audio_queue->packet.dts, audio_queue->packet.size);
 
           // int k;
           // printf("PKT %p: ", audio_queue->packet.data);
@@ -209,6 +209,7 @@ int main(int argc, char *argv[]) {
 
             audio_queue->packet.stream_index = tracks[i].aout_st->index;
             av_write_frame(tracks[i].output_ctx, &audio_queue->packet);
+            av_free_packet(&audio_queue->packet);
             AudioQueue *q = audio_queue->next;
             av_free(audio_queue);
             audio_queue = q;
@@ -224,7 +225,7 @@ int main(int argc, char *argv[]) {
           // printf("\n");
 
 
-          printf("h264 dts: %10llu, bytes: %d\n", out_pkt.dts, out_pkt.size);
+          // printf("h264 dts: %10llu, bytes: %d\n", out_pkt.dts, out_pkt.size);
           out_pkt.stream_index = tracks[i].vout_st->index;
           if(av_write_frame(tracks[i].output_ctx, &out_pkt) < 0)
             error("failed to write output video frame");

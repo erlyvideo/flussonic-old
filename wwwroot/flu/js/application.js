@@ -140,6 +140,7 @@ Erlyvideo = {
 
   on_message: function(message) {
     if(Erlyvideo.dump_events) console.log(message);
+    Erlyvideo.restart_connect_label_timer();
     switch(message.event) {
       case "server.info":
         Erlyvideo.request("streams");
@@ -166,6 +167,18 @@ Erlyvideo = {
       default:
         console.log(message);
     }
+  },
+
+  connect_label_timer: null,
+  restart_connect_label_timer: function() {
+    if(Erlyvideo.connect_label_timer) clearTimeout(Erlyvideo.connect_label_timer);
+
+    Erlyvideo.connect_label_timer = setTimeout(Erlyvideo.warn_connect_label, 4000);
+    $("#connect_label").css("opacity", 0);
+  },
+
+  warn_connect_label: function() {
+    $("#connect_label").animate({opacity: 1.0}, "slow");
   },
 
   draw_server_info: function(message) {

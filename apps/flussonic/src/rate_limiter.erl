@@ -7,14 +7,18 @@
 
 -export([start_link/0]).
 -export([init/1, handle_info/2, terminate/2]).
+-export([hit/1]).
 
+
+hit(Key) ->
+  ets:insert_new(rate_limit, {Key,0}),
+  ets:update_counter(rate_limit, Key, 1).
 
 
 
 execute(Req, Env) ->
   {Ip,Req1} = cowboy_req:peer_addr(Req),
-  ets:insert_new(rate_limit, {Ip,0}),
-  Value = ets:update_counter(rate_limit, Ip, 1),
+  Value = hit(Ip),
   Limit = proplists:get_value(rate_limit, Env),
   case lists:keyfind(rate_limit, 1, Env) of
     {rate_limit, Limit} when is_number(Limit) andalso Value > Limit ->

@@ -26,14 +26,14 @@ backend_test_() ->
 
 
 
-test_backend_request1() ->
+test_simple() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[], <<"">>} end),
-  ?assertEqual({ok, [{access,granted},{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>}]},
+  ?assertEqual({ok, [{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>}]},
     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
-test_backend_request2() ->
+test_with_auth_duration() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-AuthDuration">>, <<"600">>}], <<"">>} end),
-  ?assertEqual({ok, [{access,granted},{auth_time,600000},{delete_time,600000},{referer,<<"http://ya.ru/">>}]},
+  ?assertEqual({ok, [{auth_time,600000},{delete_time,600000},{referer,<<"http://ya.ru/">>}]},
     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 % test_backend_request3() ->
@@ -41,31 +41,35 @@ test_backend_request2() ->
 %   ?assertEqual({ok, <<"cam1">>, [{access,granted}]},
 %     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
-test_backend_request4() ->
+test_403_response() ->
   meck:expect(fake_auth, reply, fun(_) -> {403,[], <<"">>} end),
-  ?assertEqual({error, {403, "backend_denied"}, [{access,denied},{auth_time,30000},{delete_time,30000}]},
+  ?assertEqual({error, [{auth_time,30000},{code,403},{delete_time,30000}]},
     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
-test_backend_request5() ->
-  cowboy:stop_listener(fake_http),
-  ?assertEqual({error, {404, "backend_http_error"}, [{access,denied}]},
+test_500_response() ->
+  ?assertEqual(undefined,
     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
-test_backend_request6() ->
+test_backend_is_down() ->
+  ?assertEqual(undefined,
+    auth_http_backend:verify("http://127.0.0.1:6071/", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
+
+
+test_with_user_id_and_duration() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-AuthDuration">>, <<"600">>},{<<"X-UserId">>,<<"15">>}], <<"">>} end),
-  ?assertEqual({ok, [{access,granted},{auth_time,600000},{delete_time,600000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
+  ?assertEqual({ok, [{auth_time,600000},{delete_time,600000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
-test_backend_request7() ->
+test_with_user_id() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-UserId">>,<<"15">>}], <<"">>} end),
-  ?assertEqual({ok, [{access,granted},{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
+  ?assertEqual({ok, [{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 
 
 test_backend_unique_uid() ->
   meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-UserId">>,<<"15">>},{<<"X-Unique">>, <<"true">>}], <<"">>} end),
-  ?assertEqual({ok, [{access,granted},{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>},{unique,true},{user_id,15}]},
+  ?assertEqual({ok, [{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>},{unique,true},{user_id,15}]},
     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 
@@ -141,4 +145,19 @@ test_handle_strange_options_in_backend() ->
   end,
 
   ok.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

@@ -1,3 +1,16 @@
+flussonic (3.68.12)
+  
+  * request media size before drawing player
+  * open HLS in flash player on firefox
+  * S3 storage backend for DVR
+  * OSMF player with HLS
+  * notify about server disconnect in admin panel
+  * flu_session inner refactoring
+  * added stale authorization cache in flu_session
+  * added global session limit and per-ip session limit
+  * refactored dvr storage to be able to keep previews and keys
+  * fix archive.js to enable selecting video from gap
+
 flussonic (3.68.11)
 
   * don't crash on preview request

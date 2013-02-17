@@ -62,7 +62,7 @@
   		klass = "";
   		if((i + 1) % 10 == 0) klass += " ten";
   		else if((i + 1) % 5 == 0) klass += " five";
-  		s += '<div class="'+klass+'">'+i+'</div>';
+  		s += '<div class="minute '+klass+'">'+i+'</div>';
   	}
   	s += "</div>";
   	for(j = 0; j < 24; j++) {
@@ -79,7 +79,7 @@
   	}
   	$(div).find(".dvr_archive").html(s);
   	var selection_start = null;
-  	$(div).find("div.ok").mousedown(function() {
+  	$(div).find("div.minute").mousedown(function() {
   		selection_start = parseInt($(this).attr('time'), 10);
   	});
   	$(div).find(".hour-click").click(function() {

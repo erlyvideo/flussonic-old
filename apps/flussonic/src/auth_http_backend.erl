@@ -74,14 +74,18 @@ verify(URL, Identity, Options) when is_binary(URL) ->
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
       % Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),
       case Code of
-        200 -> {ok,    merge([{access, granted}],Opts0)};
-        302 -> {ok,    merge([{access, granted}],Opts0)};
-        403 -> {error, {403, "backend_denied"},  merge([{access, denied}], Opts0)};
-        _ ->   {error, {403, io_lib:format("backend_code: ~B", [Code])},  merge([{access, denied}], Opts0)}
+        200 -> {ok,    merge([],Opts0)};
+        302 -> {ok,    merge([],Opts0)};
+        403 -> {error, merge([{code,403}],Opts0)};
+        500 -> undefined; %% Return stale cache for 500 response
+        _ ->   {error, merge([{code,Code}], Opts0)}
       end;
+    {error, {failed_connect, _}} -> %% Return stale cache for broken backend
+      lager:warning("Auth backend is down on url ~s", [URL]),
+      undefined;
     {error, _Error} ->
       lager:warning("Backend auth request \"~s\": failed: ~p", [RequestURL, _Error]),
-      {error, {404, "backend_http_error"}, merge([{access, denied}], Options)}
+      {error, merge([{http_error,_Error}], Options)}
   end.
 
 

@@ -2,9 +2,39 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 -include("log.hrl").
 
+%%
+%%
+%%
+%% Структура сессий.
+%%
+%% Сессии обслуживают два типа запросов: постоянные подключения типа RTMP, RTSP, MPEG-TS
+%% и периодические перезапросы типа HLS/HDS
+%% 
+%% Логика работы сессий выглядит так:
+%% 1) пользователь приходит с каким-то token, который сгенерен внешним сервисом
+%% 2) этот токен, IP адрес и имя потока вместе образуют идентификатор сессии Identity
+%% 3) так же добавляются остальные опции типа pid процесса, referer и прочее
+%% 4) проверяется есть ли сессия с этим идентификатором в базе
+%% 5) если есть, то проверяется не пора ли её перепроверить
+%% 6) если пора перепроверить, то перепроверяется
+%% 7) если повторная проверка запрещает сессию, то пользователь отключается
+%% 8) иначе продолжаем дальше показывать
+%% 9) если сессия не протухла, то просто показываем
+%% 10) если сессия запрещена к просмотру, то это запоминается что бы защитить бекенд
+%% 
+%% 
+%% 
+%% 
+%%
+
+%%
+%% Basically you need only flu_session:verify/3
+%%
+%% 
+
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
--export([find_session/1, new_or_update/2, update_session/1, url/1, ref/1]).
+-export([find_session/1, new_or_update/2, url/1, ref/1]).
 -export([info/1]).
 -export([table/0]).
 -export([stats/0]).
@@ -23,6 +53,8 @@
 
 -export([bench/0, bench/1, bench0/1]).
 
+-export([per_ip_limit/0, global_limit/0]).
+
 bench() ->
   bench(1000000).
 
@@ -39,84 +71,208 @@ bench0(Count) ->
   verify(true, [{token,list_to_binary(integer_to_list(Count))},{ip,<<"ip">>},{name,<<"ort">>}], [{type,<<"hds">>}]),
   bench0(Count - 1).
 
-backend_request(true, _Identity, _Options) ->
-  {ok, [{access,granted}]};
 
-backend_request(<<"http://", _/binary>> = URL, Identity, Options) when is_list(Identity), is_list(Options) ->
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%
+%% Interface functions
+%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+-type auth_url() :: any().
+
+-type auth_option() ::
+  {user_id, UserId::non_neg_integer()} |
+  {auth_time, AuthTime::non_neg_integer()} |
+  {delete_time, DeleteTime::non_neg_integer()} |
+  {unique, true|false}.
+
+-type backend_reply() :: {ok, [auth_option()]} | {error, [auth_option()]} | undefined.
+
+
+-type identity_part() ::
+  {token,Token::binary()} | % Token passed via query string
+  {ip, IP::binary()} | % IP of user
+  {name, Name::binary()}. % Name of stream
+-type session_identity() :: [identity_part()].
+
+-type session_option() ::
+  {pid,Pid::pid()} |
+  {type, Type::binary()}.
+
+
+
+-spec backend_request(URL::auth_url(), Identity::session_identity(), Options::list()) -> backend_reply().
+backend_request(URL, Identity, Options) ->
+  try backend_request0(URL, Identity, Options) of
+    {ok, _} = Reply -> Reply;
+    {error, _} = Reply -> Reply;
+    undefined -> undefined;
+    Else -> error({invalid_backend_reply,URL,Identity,Else})
+  catch
+    Class:Error -> erlang:raise(Class, {error_auth_backend,URL,Identity,Error}, erlang:get_stacktrace())
+  end.
+
+
+backend_request0(true, _Identity, _Options) ->
+  {ok, []};
+
+backend_request0(<<"http://", _/binary>> = URL, Identity, Options) when is_list(Identity), is_list(Options) ->
   Reply = auth_http_backend:verify(URL, Identity, Options),
   Reply.
 
 
+-spec verify(URL::auth_url(), Identity::session_identity(), Options::[session_option()]) ->
+  {ok, NewName::binary()} | {error, Code::non_neg_integer(), ErrorMsg::iolist()}.
 
 verify(URL, Identity, Options) when is_list(URL) ->
   verify(list_to_binary(URL), Identity, Options);
 
-verify(URL, Identity, Options) ->
-  Now = flu:now_ms(),
 
+verify(URL, Identity, Options) ->
+  try verify0(URL, Identity, Options)
+  catch
+    throw:Reply -> Reply
+  end.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%
+%%  Here go internal functions-helpers required to validate session request.
+%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+per_ip_limit() -> 10000.
+
+global_limit() -> 1000000.
+
+
+validate_url(URL) ->
   is_binary(URL) orelse URL == true orelse throw({error, bad_auth_url}),
+  ok.
+
+
+validate_identity(Identity) ->
   is_list(Identity) orelse throw({error, bad_identity}),
   is_binary(proplists:get_value(token,Identity)) orelse throw({error, bad_token}),
   is_binary(proplists:get_value(ip,Identity)) orelse throw({error, bad_ip}),
   is_binary(proplists:get_value(name,Identity)) orelse throw({error, bad_name}),
+  ok.
 
-  case Options of
-    [] -> ok;
-    [{_K,_V}|_] -> ok;
-    [_] -> throw({error, bad_params})
+validate_options([]) -> ok;
+validate_options([{_K,_V}|_]) -> ok;
+validate_options(_) -> throw({error, bad_params}).
+
+
+
+check_session_limits(undefined, Identity) ->
+  {ip,IP} = lists:keyfind(ip,1,Identity),
+  rate_limiter:hit({sessions,IP}) < ?MODULE:per_ip_limit() orelse throw({error,too_many_per_ip}),
+  ets:info(flu_session, size) < ?MODULE:global_limit() orelse throw({error,too_many_sessions}),
+  ok;
+
+check_session_limits(#session{}, _Identity) ->
+  ok.
+
+
+
+
+
+need_to_ask_backend(undefined, _) -> true;
+need_to_ask_backend(#session{last_access_time = LastAccess, auth_time = AuthTime}, Now) 
+  when Now > LastAccess + AuthTime -> true;
+need_to_ask_backend(#session{pid = Pid}, _) when is_pid(Pid) -> true;
+need_to_ask_backend(#session{}, _) -> false.
+
+additional_options(Identity, Session) ->
+  RequestType = case Session of
+    undefined -> [{request_type,new_session}];
+    _ -> [{request_type,update_session}]
+  end,
+  StreamClients = case gen_tracker:getattr(flu_streams, proplists:get_value(name,Identity), client_count) of
+    undefined -> 0;
+    {ok, SC} -> SC
+  end,
+  TotalClients = ets:info(flu_session, size),
+  ClientsInfo = [{stream_clients,StreamClients},{total_clients,TotalClients}],
+  ClientsInfo ++ RequestType.
+
+
+disconnect_other_instances(true, UserId, OurId) when is_number(UserId) ->
+  ExistingSessions = ets:select(flu_session:table(), 
+    ets:fun2ms(fun(#session{user_id = UID, access = granted} = E) when UID == UserId -> E end)),
+  case lists:keyfind(OurId, #session.session_id, ExistingSessions) of
+    #session{ref = OldRef, pid = OldPid} when is_reference(OldRef), is_pid(OldPid) ->
+      ok = gen_server:call(?MODULE, {unregister, OldRef}),
+      erlang:exit(OldPid, duplicated_user_id);
+    _ -> ok
   end,
 
-  {Session, ErrorMessage} = case find_session(Identity) of
-    Sess when Sess == undefined orelse Now > Sess#session.last_access_time + Sess#session.auth_time orelse Sess#session.pid =/= undefined ->
-      RequestType = case Sess of
-        undefined -> [{request_type,new_session}];
-        _ -> [{request_type,update_session}]
-      end,
-      StreamClients = case gen_tracker:getattr(flu_streams, proplists:get_value(name,Identity), client_count) of
-        undefined -> 0;
-        {ok, SC} -> SC
-      end,
-      TotalClients = ets:info(flu_session, size),
-      ClientsInfo = [{stream_clients,StreamClients},{total_clients,TotalClients}],
+  [begin
+    ets:update_element(flu_session:table(), Id, {#session.access, denied}),
+    case Pid of
+      undefined -> ok;
+      _ -> 
+        gen_server:call(?MODULE, {unregister, Ref}),
+        erlang:exit(Pid, duplicated_user_id)
+    end
+  end || 
+  #session{session_id = Id, pid = Pid, ref = Ref} <- ExistingSessions, Id =/= OurId],
+  ok;
+
+disconnect_other_instances(_, _, _) ->
+  ok.
 
 
-      case flu_session:backend_request(URL, Identity, ClientsInfo ++ RequestType ++ Options) of
-        {error,  {_Code,ErrMsg}, Opts1} -> {new_or_update(Identity, Opts1 ++ Options), ErrMsg};
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%
+%%  Now the main flu_session logic: verifier
+%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+verify0(URL, Identity, Options) ->
+  Now = flu:now_ms(),
+
+  validate_url(URL),
+  validate_identity(Identity),
+  validate_options(Options),
+
+  Session = find_session(Identity),
+  check_session_limits(Session, Identity),
+  touch_session(Session, Now),
+
+  case need_to_ask_backend(Session, Now) of
+    true ->
+      AdditionalOptions = additional_options(Identity, Session),
+      case flu_session:backend_request(URL, Identity, AdditionalOptions ++ Options) of
+        {error, Opts1} -> 
+          new_or_update(Identity, [{access,denied}] ++ Opts1 ++ Options),
+          {error, 403, "backend_denied"};
+        undefined ->
+          case Session of
+            #session{access = granted, name = Name} -> {ok, Name};
+            #session{access = denied} -> {error, 403, "stale_auth_cache"};
+            undefined -> {error, 403, "failed_to_open_session"}
+          end;
         {ok, Opts1} ->
-          UserId = proplists:get_value(user_id, Opts1),
-          case proplists:get_value(unique, Opts1) of
-            true when is_number(UserId) ->
-              ExistingSessions = ets:select(flu_session:table(), 
-                ets:fun2ms(fun(#session{user_id = UID, access = granted} = E) when UID == UserId -> E end)),
-              OurId = session_id(Identity),
-              case lists:keyfind(OurId, #session.session_id, ExistingSessions) of
-                #session{ref = OldRef, pid = OldPid} when is_reference(OldRef), is_pid(OldPid) ->
-                  ok = gen_server:call(?MODULE, {unregister, OldRef}),
-                  erlang:exit(OldPid, duplicated_user_id);
-                _ -> ok
-              end,
-
-              [begin
-                ets:update_element(flu_session:table(), Id, {#session.access, denied}),
-                case Pid of
-                  undefined -> ok;
-                  _ -> 
-                    gen_server:call(?MODULE, {unregister, Ref}),
-                    erlang:exit(Pid, duplicated_user_id)
-                end
-              end || 
-              #session{session_id = Id, pid = Pid, ref = Ref} <- ExistingSessions, Id =/= OurId];
-            _ ->
-              ok
-          end,
-          {new_or_update(Identity, Opts1 ++ Options), "cached_positive"}
+          disconnect_other_instances(proplists:get_value(unique, Opts1), proplists:get_value(user_id, Opts1), session_id(Identity)),
+          Session1 = new_or_update(Identity, [{access,granted}] ++ Opts1 ++ Options),
+          {ok, url(Session1)}
       end;
-    R -> {R, "cached_negative"}
-  end,
-  case update_session(Session) of
-    denied -> {error, 403, ErrorMessage};
-    granted -> {ok, url(Session)}
+    false when Session#session.access == granted ->
+      {ok, url(Session)};
+    false when Session#session.access == denied ->
+      {error, 403, "cached_negative"}
   end.
+
 
 
 timeout() ->
@@ -142,6 +298,16 @@ json_list() ->
 
 json_list(Name) ->
   [{event,user.list},{name,Name},{sessions,[Session || Session <- list(), proplists:get_value(name,Session) == Name]}].  
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%
+%% Session creation/updating
+%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -215,9 +381,9 @@ new_or_update(Identity, Opts) ->
   end,
   Session.
 
-update_session(#session{session_id = SessionId, access = Access}) ->
-  ets:update_element(flu_session:table(), SessionId, {#session.last_access_time, flu:now_ms()}),
-  Access.
+touch_session(undefined, _Now) -> ok;
+touch_session(#session{session_id = SessionId}, Now) ->
+  ets:update_element(flu_session:table(), SessionId, {#session.last_access_time, Now}).
 
 delete_session(#session{name = Name} = Session) ->
   % ?D({delete_session,Session}),
@@ -228,6 +394,16 @@ delete_session(#session{name = Name} = Session) ->
 
 table() ->
   ?MODULE.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%%
+%% single flu_session process that coordinates everything
+%%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 
 
 -define(REFRESH, 1237).

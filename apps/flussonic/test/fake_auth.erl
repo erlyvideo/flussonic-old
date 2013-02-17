@@ -13,6 +13,11 @@ handle(Req, _) ->
   {ok, R1} = cowboy_req:reply(Code, Headers, Body, Req),
   {ok, R1, undefined}.
 
+reply(_Req) ->
+  {500, [], "backend error"}.
+
+
+
 terminate(_,_,_) -> ok.
 
 start_http() ->
