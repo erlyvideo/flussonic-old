@@ -1,3 +1,11 @@
+flussonic (3.68.14)
+
+  * don't fail on afrt errors in hds when duration less than DTS
+  * added update-debian.sh
+  * fixed flu_session problem when backend wasn't rerequested
+  * added protection for dvr_hour_storage when cannot write file
+  * refactored hls_reader to be impulse without monotonic
+
 flussonic (3.68.13)
 
   * rtsp reader don't fail if old reply for frame returns

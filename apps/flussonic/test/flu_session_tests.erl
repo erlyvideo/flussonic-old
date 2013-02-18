@@ -15,7 +15,7 @@ setup_flu_session() ->
   gen_tracker_sup:start_tracker(flu_streams),
 
 
-  Modules = [flu_session],
+  Modules = [flu_session, flu],
   meck:new(Modules, [{passthrough,true}]),
   Table = ets:new(test_sessions, [{keypos,2},public]),
   meck:expect(flu_session,table, fun() -> Table end),
@@ -165,12 +165,10 @@ test_session_info() ->
 
 
 assertBackendRequested(Msg) ->
-  receive
-    backend_request -> ok
-  after
-    100 -> error(Msg)
-  end.
+  receive backend_request -> ok after 100 -> error(Msg) end.
 
+assertBackendNotRequested(Msg) ->
+  receive backend_request -> error(Msg) after 50 -> ok end.
 
 
 test_backend_arguments_on_file() ->
@@ -325,6 +323,8 @@ test_dont_expire_monitored_session() ->
 
 test_rerequest_expiring_session() ->
   Self = self(),
+
+  meck:expect(flu, now_ms, fun() -> 10000 end),
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
     Self ! backend_request,
     {ok,[{user_id,15},{auth_time, 5000}]} 
@@ -333,36 +333,38 @@ test_rerequest_expiring_session() ->
   ?assertEqual({ok, <<"cam0">>},
     flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested),
-  Now = flu:now_ms(),
-  #session{} = Session = flu_session:find_session(Identity),
-  Session1 = Session#session{last_access_time = Now - 6000}, % a bit more than auth duration
-  ets:insert(flu_session:table(), Session1),
 
-  ?assertEqual({ok, <<"cam0">>},
-    flu_session:verify(http_mock_url(), Identity, [])),
+  meck:expect(flu, now_ms, fun() -> 12000 end),
+  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  assertBackendNotRequested(backend_was_requested1),
 
+
+  meck:expect(flu, now_ms, fun() -> 14000 end),
+  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  assertBackendNotRequested(backend_was_requested2),
+
+
+  meck:expect(flu, now_ms, fun() -> 16000 end),
+  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested_second_time),
+
   ok.
 
 
 
 test_rerequest_expiring_unique_session() ->
   Self = self(),
+  meck:expect(flu, now_ms, fun() -> 10000 end),
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
     Self ! backend_request,
     {ok,[{user_id,15},{auth_time, 5000},{unique,true}]} 
   end),
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
-  ?assertEqual({ok, <<"cam0">>},
-    flu_session:verify(http_mock_url(), Identity, [])),
+  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested),
-  Now = flu:now_ms(),
-  #session{} = Session = flu_session:find_session(Identity),
-  Session1 = Session#session{last_access_time = Now - 506000}, % a bit more than auth duration
-  ets:insert(flu_session:table(), Session1),
 
-  ?assertEqual({ok, <<"cam0">>},
-    flu_session:verify(http_mock_url(), Identity, [])),
+  meck:expect(flu, now_ms, fun() -> 30000 end),
+  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
 
   assertBackendRequested(backend_wasnt_requested_second_time),
   ok.
@@ -374,6 +376,7 @@ test_rerequest_expiring_unique_session() ->
 
 test_session_is_not_destroyed_after_rerequest() ->
   Self = self(),
+  meck:expect(flu, now_ms, fun() -> 10000 end),
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
     Self ! backend_request,
     {ok,[{user_id,15},{auth_time, 5000}]} 
@@ -383,9 +386,10 @@ test_session_is_not_destroyed_after_rerequest() ->
   assertBackendRequested(backend_wasnt_requested),
 
   #session{} = Session = flu_session:find_session(Identity),
-  Session1 = Session#session{last_access_time = flu:now_ms() - 6000, bytes_sent = 5254}, % a bit more than auth duration
+  Session1 = Session#session{bytes_sent = 5254},
   ets:insert(flu_session:table(), Session1),
 
+  meck:expect(flu, now_ms, fun() -> 20000 end),
   ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested_second_time),
 
@@ -483,6 +487,7 @@ test_unique_session_with_persistent_connection_same_ip() ->
 % Perhaps we should recheck authorization once in some time for persistent connections
 
 test_periodic_refresh_of_auth() ->
+  meck:expect(flu, now_ms, fun() -> 10000 end),
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
     {ok,[{user_id,14},{unique,true},{auth_time,4000}]} 
   end),
@@ -502,11 +507,7 @@ test_periodic_refresh_of_auth() ->
 
   ?assert(erlang:is_process_alive(Pid1)),
 
-  Now = flu:now_ms(),
-  #session{} = Session = flu_session:find_session(Identity),
-  Session1 = Session#session{last_access_time = Now - 6000}, % a bit more than auth duration
-  ets:insert(flu_session:table(), Session1),
-
+  meck:expect(flu, now_ms, fun() -> 20000 end),
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
     {error,[{code,403}]} 
   end),
@@ -521,7 +522,7 @@ test_periodic_refresh_of_auth() ->
 
 
   % FIXME: здесь Pid1 должен умереть
-  % ?assertNot(erlang:is_process_alive(Pid1)),
+  ?assertNot(erlang:is_process_alive(Pid1)),
   
   ok.
 

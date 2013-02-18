@@ -3,21 +3,49 @@
 -mode(compile).
 
 
-main(["record", LocalPort, RemoteHost, RemotePort]) ->
-  {ok, L} = gen_tcp:listen(list_to_integer(LocalPort), [binary,{reuseaddr,true}]),
-  accept_loop(L, RemoteHost, list_to_integer(RemotePort));
+main(["record", URL]) ->
+  code:add_pathz("apps/erlmedia/ebin"),
+  code:add_pathz("apps/rtsp/ebin"),
+  code:add_pathz("deps/lager/ebin"),
+  code:add_pathz("apps/flussonic/ebin"),
+  LocalPort = 4554,
+  {ok, {rtsp, _, RemoteHost, RemotePort, _Path, _Query}} = http_uri:parse(URL, [{scheme_defaults,[{rtsp,554}]}]),
+
+  Writer = spawn(fun() ->
+    {ok, L} = gen_tcp:listen(LocalPort, [binary,{reuseaddr,true}]),
+    accept_loop(L, RemoteHost, RemotePort)
+  end),
+  erlang:monitor(process, Writer),
+  Consumer = spawn(fun() ->
+    timer:send_interval(1000, flush),
+    frame_consumer(0)
+  end),
+  {ok, Reader} = rtsp_reader:start_link(URL, [{consumer,Consumer},{hostport, {"127.0.0.1", LocalPort}}]),
+  rtsp_reader:media_info(Reader),
+  erlang:monitor(process, Reader),
+  receive {'DOWN',_,_,Reader,_} -> ok end,
+  receive {'DOWN',_,_,Writer,_} -> ok end,
+  ok;
 
 main([]) ->
-  io:format("./contrib/rtsp_analyze.erl record localport remotehost remoteport\n");
+  io:format("./contrib/rtsp_analyze.erl record URL\n");
 
 main([Path]) ->
   {ok, Bin} = file:read_file(Path),
   read(Bin).
 
+
+frame_consumer(Count) ->
+  receive
+    flush -> io:format("~3.. B frames~n", [Count]), frame_consumer(0);
+    {'$gen_call', From, _VideoFrame} -> gen_server:reply(From, ok), frame_consumer(Count + 1);
+    Else -> io:format("Consumer: ~p~n", [Else]), frame_consumer(Count)
+  end.
+
 read(<<>>) ->
   ok;
 
-read(<<$$, Channel, Length:16, RTP:Length/binary, Rest/binary>>) ->
+read(<<$$, Channel, Length:16, _RTP:Length/binary, Rest/binary>>) ->
   io:format("rtp ~B ~B~n", [Channel, Length]),
   read(Rest);
 

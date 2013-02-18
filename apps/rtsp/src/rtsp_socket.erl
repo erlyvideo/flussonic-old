@@ -132,7 +132,9 @@ sync(Proto, Channel, Sync) ->
   a_c_rtp,
   a_c_rtcp,
   a_seq = 0,
-  a_scale
+  a_scale,
+
+  options = []
 }).
 
 
@@ -186,7 +188,7 @@ init([Options]) ->
     _ -> proplists:get_value(dump_rtsp, Options, true)
   end,
   GetParameter = proplists:get_value(get_parameter, Options, true),
-  {ok, #rtsp{consumer = Consumer, url = URL, dump = Dump, get_parameter = GetParameter}}.
+  {ok, #rtsp{consumer = Consumer, url = URL, dump = Dump, get_parameter = GetParameter, options = Options}}.
 
 
 
@@ -286,10 +288,14 @@ handle_info(#video_frame{content = audio, dts = DTS, pts = PTS} = Frame,
 
 
 
-handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetParameter} = RTSP) when URL =/= undefined ->
+handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetParameter, options = Options} = RTSP) when URL =/= undefined ->
   {_, AuthInfo, Host, Port, _, _} = http_uri2:parse(URL),
   put(host,{Host,Port}),
-  {ok, Socket} = case gen_tcp:connect(Host, Port, [binary, {active,false}, {send_timeout, 10000}, {recbuf, 1024*1024}]) of
+  % For RTSP capturing we need to overwrite host and port from url but leave proper url
+  % because we connect to local proxy
+  {ConnectHost, ConnectPort} = proplists:get_value(hostport, Options, {Host, Port}),
+  io:format("Connect to ~p:~p~n", [ConnectHost, ConnectPort]),
+  {ok, Socket} = case gen_tcp:connect(ConnectHost, ConnectPort, [binary, {active,false}, {send_timeout, 10000}, {recbuf, 1024*1024}]) of
   % {ok, Socket} = case gen_tcp:connect("localhost", 3300, [binary, {active,false}, {send_timeout, 10000}]) of
     {ok, Sock} -> {ok, Sock};
     {error, Error} ->

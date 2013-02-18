@@ -32,7 +32,7 @@ fetch(URL, Options) when is_binary(URL) ->
           Error
       end;
     {ok, _} ->
-      case http_stream:request_body(URL, [{keepalive,false},{no_fail,true}]) of
+      case http_stream:request_body(URL, [{keepalive,false},{no_fail,true},{timeout,5000}]) of
         {ok, {_,200,_,Bin}} ->
           Playlist = parse(Bin),
           case Relative of

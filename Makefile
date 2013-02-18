@@ -156,7 +156,7 @@ escriptize:
 
 upload:
 	./contrib/license_pack upload2 $(VERSION)
-	scp flussonic_$(VERSION)_*.deb flussonic flussonic-$(VERSION).tgz erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary
+	rsync -avz flussonic_$(VERSION)_*.deb flussonic flussonic-$(VERSION).tgz erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary/
 	# scp flussonic erlyhub@erlyvideo.org:/apps/erlyvideo/debian/public/binary/flussonic
 	ssh erlyhub@erlyvideo.org "cd /apps/erlyvideo/debian ; ./update ; cd public/binary ; ln -sf flussonic-$(VERSION).tgz flussonic-latest.tgz "
 	./contrib/send_email.erl erlyvideo-dev@googlegroups.com $(VERSION)

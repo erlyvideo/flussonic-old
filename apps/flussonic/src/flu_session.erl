@@ -22,11 +22,12 @@
 %% 9) если сессия не протухла, то просто показываем
 %% 10) если сессия запрещена к просмотру, то это запоминается что бы защитить бекенд
 %% 
-%% 
-%% 
-%% 
+%% Особое внимание надо уделить двум ситуациям, когда сегменты короче чем auth duration и когда длиннее
+%% В первом случае access time будет меняться чаще чем истекает auth duration
+%% Во втором случае на каждом сегменте будет запрос к бекенду
 %%
-
+%% Так же есть опасность того, что при нормальном просмотре сессия будет удаляться между
+%% двумя запросами
 %%
 %% Basically you need only flu_session:verify/3
 %%
@@ -183,7 +184,8 @@ check_session_limits(#session{}, _Identity) ->
 
 
 need_to_ask_backend(undefined, _) -> true;
-need_to_ask_backend(#session{last_access_time = LastAccess, auth_time = AuthTime}, Now) 
+need_to_ask_backend(#session{last_verify_time = undefined}, _) -> true;
+need_to_ask_backend(#session{last_verify_time = LastAccess, auth_time = AuthTime}, Now) 
   when Now > LastAccess + AuthTime -> true;
 need_to_ask_backend(#session{pid = Pid}, _) when is_pid(Pid) -> true;
 need_to_ask_backend(#session{}, _) -> false.
@@ -254,7 +256,7 @@ verify0(URL, Identity, Options) ->
       AdditionalOptions = additional_options(Identity, Session),
       case flu_session:backend_request(URL, Identity, AdditionalOptions ++ Options) of
         {error, Opts1} -> 
-          new_or_update(Identity, [{access,denied}] ++ Opts1 ++ Options),
+          new_or_update(Identity, [{access,denied},{last_verify_time,Now}] ++ Opts1 ++ Options),
           {error, 403, "backend_denied"};
         undefined ->
           case Session of
@@ -264,7 +266,7 @@ verify0(URL, Identity, Options) ->
           end;
         {ok, Opts1} ->
           disconnect_other_instances(proplists:get_value(unique, Opts1), proplists:get_value(user_id, Opts1), session_id(Identity)),
-          Session1 = new_or_update(Identity, [{access,granted}] ++ Opts1 ++ Options),
+          Session1 = new_or_update(Identity, [{access,granted},{last_verify_time,Now}] ++ Opts1 ++ Options),
           {ok, url(Session1)}
       end;
     false when Session#session.access == granted ->
@@ -371,15 +373,19 @@ new_or_update(Identity, Opts) ->
       {#session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
       bytes_sent = 0, user_id = UserId, type = proplists:get_value(type, Opts, <<"http">>)}, true}
   end,
-  Session = OldSession#session{auth_time = AuthTime, delete_time = DeleteTime, last_access_time = Now, access = Access,
+  Session1 = OldSession#session{auth_time = AuthTime, delete_time = DeleteTime, last_access_time = Now, access = Access,
     pid = Pid, ref = Ref},
-  ets:insert(flu_session:table(), Session),
+  Session2 = case proplists:get_value(last_verify_time, Opts) of
+    undefined -> Session1;
+    LastVerify -> Session1#session{last_verify_time = LastVerify}
+  end,
+  ets:insert(flu_session:table(), Session2),
 
   case New of
-    true -> flu_event:user_connected(Name, info(Session));
+    true -> flu_event:user_connected(Name, info(Session2));
     false -> ok
   end,
-  Session.
+  Session2.
 
 touch_session(undefined, _Now) -> ok;
 touch_session(#session{session_id = SessionId}, Now) ->

@@ -33,7 +33,9 @@ send_frame(Monotone, Frame) ->
     exit:{timeout, _} ->
       lager:error("stream ~p failed to send frame to monotone", [get(name)]),
       % [io:format("~20.. s: ~p~n", [K,V]) || {K,V} <- process_info(Monotone)],
-      {error, timeout}
+      {error, timeout};
+    exit:{noproc, _} ->
+      {error, noproc}
   end.
 
 set_current_dts(Pid, DTS) -> 

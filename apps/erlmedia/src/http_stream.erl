@@ -146,29 +146,19 @@ make_request(Host,Options) ->
 send_request(Socket, Request,Options) ->
   Timeout = proplists:get_value(timeout, Options, 3000),
   case gen_tcp:send(Socket, Request) of
-    ok ->
-      case inet:setopts(Socket, [{active, once}]) of
-	ok ->
-	  receive_response(Socket,Timeout);
-	SetoptsError ->
-	  SetoptsError
-      end;
-    SendError ->
-      SendError
+    ok -> receive_response(Socket,Timeout);
+    SendError -> SendError
   end.
 
 receive_response(Socket,Timeout) ->
-  receive
-    {http, Socket, {http_response, _Version, Code, _Reply}} ->
+  case gen_tcp:recv(Socket, 0, Timeout) of
+    {ok, {http_response, _Version, Code, _Reply}} ->
       {http, Socket, Code};
-    {tcp_closed, Socket} ->
+    {error, closed} ->
       {error, tcp_closed};
-    {tcp_error, Socket, Reason} ->
-      {error, Reason}
-  after
-    Timeout ->
+    {error, Reason} ->
       gen_tcp:close(Socket),
-      {error, timeout}
+      {error, Reason}
   end.
 
 request(URL,Options) when is_binary(URL) ->
@@ -269,20 +259,16 @@ head(URL, Options) ->
   request(URL, [{method,head}|Options]).
   
 wait_for_headers(Socket, Headers, Timeout) ->
-  ok = inet:setopts(Socket, [{active,once}]),
-  receive
-    {http, Socket, {http_header, _, Header, _, Value}} ->
+  case gen_tcp:recv(Socket, 0, Timeout) of
+    {ok, {http_header, _, Header, _, Value}} ->
       wait_for_headers(Socket, [{Header, Value}|Headers], Timeout);
-    {http, Socket, http_eoh} ->
+    {ok, http_eoh} ->
       {ok, lists:reverse(Headers)};
-    {tcp_closed, Socket} ->
+    {error, closed} ->
       {error, tcp_closed};
-    {tcp_error, Socket, Reason} ->
-      {error, Reason}
-  after
-    Timeout -> 
+    {error, Reason} ->
       gen_tcp:close(Socket),
-      {error, Timeout}
+      {error, Reason}
   end.
 
 

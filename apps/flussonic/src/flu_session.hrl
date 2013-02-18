@@ -7,11 +7,12 @@
   access = denied :: granted | denied,
   type, %  :: <<"hds">>|<<"hls">>|<<"http">>
   created_at,
-  auth_time,
-  delete_time,
-  last_access_time,
-  bytes_sent,
-  pid,
-  ref,
+  auth_time :: non_neg_integer(),
+  delete_time :: non_neg_integer(),
+  last_access_time :: non_neg_integer(),
+  last_verify_time :: non_neg_integer(),
+  bytes_sent = 0 :: non_neg_integer(),
+  pid = undefined :: undefined | pid(),
+  ref = undefined :: undefined | reference(),
   options = []
 }).

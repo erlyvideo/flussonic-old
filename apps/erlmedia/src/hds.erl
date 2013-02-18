@@ -204,9 +204,11 @@ afrt_segments_info_init(Duration, Keyframes,Options) ->
   StartFragment = proplists:get_value(start_fragment,Options,1),  
   afrt_segments_info(Duration, Keyframes, StartFragment, []).
 
-afrt_segments_info(Duration, [DTS], I, Acc) ->
-  Duration >= DTS orelse error({afrt, Duration, DTS}),
+afrt_segments_info(Duration, [DTS], I, Acc) when Duration > DTS ->
   lists:reverse([<<I:32, (round(DTS)):64, (trunc(Duration-DTS)):32>>|Acc]);
+
+afrt_segments_info(Duration, [DTS], I, Acc) when Duration =< DTS ->
+  lists:reverse([<<I:32, (round(DTS)):64, 0:32>>|Acc]);
 
 afrt_segments_info(Duration, [DTS1,DTS2|Keyframes], I, Acc) ->
   afrt_segments_info(Duration, [DTS2|Keyframes], I+1, [<<I:32, (round(DTS1)):64, (trunc(DTS2 - DTS1)):32>>|Acc]).

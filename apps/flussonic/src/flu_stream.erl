@@ -416,6 +416,7 @@ handle_call({subscribe, Pid}, From, #stream{name = Name, last_dts = DTS, monoton
       {ok, M};
     {error, _} ->
       {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]}),
+      erlang:monitor(process, M),
       flu_monotone:send_media_info(M, MediaInfo),
       flu_monotone:set_current_dts(M, DTS),
       {ok, M}
@@ -551,6 +552,10 @@ handle_info(#media_info{} = MediaInfo, #stream{name = Name, monotone = Monotone}
   Stream1 = pass_message(MediaInfo, Stream#stream{media_info = MediaInfo}),
   flu_monotone:send_media_info(Monotone, MediaInfo),
   {noreply, Stream1};
+
+handle_info({'DOWN', _, process, Monotone, _Reason}, #stream{monotone = Monotone, url = URL} = Stream) ->
+  lager:error("Mototone crashed for stream \"~s\" with reason: ~p", [URL, _Reason]),
+  {noreply, Stream#stream{monotone = undefined}};
 
 handle_info({'DOWN', _, process, Source, _Reason}, 
   #stream{source = Source, retry_count = Count, name = Name, url = URL, retry_limit = Limit} = Stream) ->
