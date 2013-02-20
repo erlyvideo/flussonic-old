@@ -7,9 +7,9 @@
 
 http_get(URL) ->
   T = flu_session:timeout(),
-  case httpc:request(get, {URL, []}, [{connect_timeout, T},{timeout, T},{autoredirect,false}],[], auth) of
-    {ok, {{_,Code,_}, Headers, _Body}} ->
-      {ok, {Code, Headers}};
+  case lhttpc:request(URL, "GET", [], <<>>, T, [{connect_timeout, T},{pool_options, [{pool,auth_backend},{pool_ensure,true}]}]) of
+    {ok, {{Code,_}, Headers, _Body}} ->
+      {ok, {Code, [{string:to_lower(K),V} || {K,V} <- Headers]}};
     {error, _} = Error ->
       Error
   end.
@@ -50,14 +50,6 @@ verify(URL, Identity, Options) when is_binary(URL) ->
     (_) -> []
   end, Identity ++ Options),
   RequestURL = binary_to_list(iolist_to_binary([URL, "?", Query])),
-  case whereis(httpc_auth) of
-    undefined ->
-      inets:start(),
-      inets:start(httpc, [{profile,auth}]),
-      httpc:set_options([{max_sessions,20},{max_keep_alive_length,100}]);
-    _ ->
-      ok
-  end,
   case ?MODULE:http_get(RequestURL) of
     {ok, {Code, Headers}} ->
       AuthDuration = to_i(proplists:get_value("x-authduration", Headers, 30))*1000,
@@ -81,6 +73,9 @@ verify(URL, Identity, Options) when is_binary(URL) ->
         _ ->   {error, merge([{code,Code}], Opts0)}
       end;
     {error, {failed_connect, _}} -> %% Return stale cache for broken backend
+      lager:warning("Auth backend is down on url ~s", [URL]),
+      undefined;
+    {error, econnrefused} ->
       lager:warning("Auth backend is down on url ~s", [URL]),
       undefined;
     {error, _Error} ->

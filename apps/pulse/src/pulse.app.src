@@ -1,0 +1,12 @@
+{application, pulse,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { pulse_app, []}},
+  {env, []}
+ ]}.

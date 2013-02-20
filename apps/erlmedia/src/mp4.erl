@@ -932,6 +932,7 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
   end,
   [Frame|VideoFrames1] = load_frames(V, VStart, VEnd-1),
   VideoFrames2 = [Frame#video_frame{flavor = keyframe}|VideoFrames1],
+  % TODO: optimize this place by gluing all offsets together
   VideoFrames3 = [F#video_frame{body = unok(Module:pread(Device, Offset, Size))} || #video_frame{body = {Offset,Size}} = F <- VideoFrames2],
   VideoFrames = VideoFrames3,
 

@@ -16,6 +16,7 @@ upload() ->
 collect_files() ->
   ifaddrs() ++
   version() ++
+  top() ++
   read_file("/etc/flussonic/flussonic.conf") ++
   read_file("priv/flussonic.conf") ++
   read_file("/etc/flussonic/streams.conf") ++
@@ -49,6 +50,13 @@ version() ->
   Bin = iolist_to_binary(flu:version()),
   [{"version", Bin, file_info(Bin)}].
 
+
+top() ->
+  Bin = iolist_to_binary(io_lib:format("~p~n", [ems_debug:dump()])),
+  [{"top", Bin, file_info(Bin)}].
+
+
+
 file_info(Bin) ->
   Now = erlang:localtime(),
   #file_info{type = regular, size = iolist_size(Bin), access = read, atime = Now, mtime = Now, ctime = Now, mode = 0644, links = 1, uid = 0, gid = 0}.
@@ -61,26 +69,15 @@ create_zip(Files) ->
 
 
 request(Zip) ->
-  {ok, S} = gen_tcp:connect("erlyvideo.org", 80, [binary,{packet,http},{active,false}]),
-  ok = gen_tcp:send(S, ["PUT /logs/upload HTTP/1.1\r\nHost: erlyvideo.org\r\n"
-    "X-Version: ", flu:version(),"\r\n"
-    "Content-Length: ", integer_to_list(size(Zip)), "\r\n\r\n",
-  Zip]),
-  {ok, {http_response, _HttpVersion, 200, _HttpString}} = gen_tcp:recv(S,0),
-  ContentLength = read_headers(S, undefined),
-  is_integer(ContentLength) orelse error(invalid_content_length),
-  inet:setopts(S,[{packet,raw},{active,false}]),
-  {ok, JSON} = gen_tcp:recv(S,ContentLength),
-  gen_tcp:close(S),
-  {struct, Reply} = mochijson2:decode(JSON),
-  {_,Ticket} = lists:keyfind(<<"ticket">>,1,Reply),
-  {ok,Ticket}.
-
-read_headers(S, BodyLen) ->
-  case gen_tcp:recv(S,0) of
-    {ok, http_eoh} -> BodyLen;
-    {ok, {http_header, _, 'Content-Length', _, Length}} -> read_headers(S, list_to_integer(Length));
-    {ok, {http_header, _, _K, _, _V}} -> read_headers(S,BodyLen)
+  Result = lhttpc:request("http://erlyvideo.org/logs/upload", "PUT", [{"X-Version", flu:version()}], Zip, 120000),
+  case Result of
+    {ok, {{200, _}, _Headers, JSON}} ->
+      {struct, Reply} = mochijson2:decode(JSON),
+      {_,Ticket} = lists:keyfind(<<"ticket">>,1,Reply),
+      {ok,Ticket};
+    _Else ->
+      {error, uploading}
   end.
+
 
 

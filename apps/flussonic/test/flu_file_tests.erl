@@ -33,6 +33,7 @@ setup_flu_file(Path) ->
   {ok, File} = flu_file:start_link(Path, [{root, "../../../priv"}]),
   unlink(File),
   % lager:set_loglevel(lager_console_backend, notice),
+  % lager:start(),
   {none,File}.
 
 
@@ -340,6 +341,9 @@ start_flu() ->
   ok = application:start(flussonic),
   ok = application:start(ranch),
   ok = application:start(cowboy),
+  application:start(public_key),
+  application:start(ssl),
+  application:start(lhttpc),
   ok.
 
 set_config(Env) ->
@@ -360,6 +364,9 @@ teardown({ok, Httpd}) ->
   ok = application:stop(inets),
   application:stop(ranch),
   application:stop(cowboy),
+  application:stop(lhttpc),
+  application:stop(ssl),
+  application:stop(public_key),
   application:stop(flussonic),
   application:stop(gen_tracker),
   error_logger:add_report_handler(error_logger_tty_h),
@@ -426,6 +433,10 @@ flu_file_http_test_() ->
     ok = application:stop(ranch),
     ok = application:stop(flussonic),
     ok = application:stop(cowboy),
+    application:stop(lhttpc),
+    application:stop(ssl),
+    application:stop(lhttpc),
+    application:stop(public_key),
     application:stop(inets),
     ok = application:stop(gen_tracker),
     error_logger:add_report_handler(error_logger_tty_h),

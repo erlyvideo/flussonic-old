@@ -1,3 +1,9 @@
+flussonic (3.68.15)
+
+  * DVR packetizer now writes on disk in async manner with segment droping
+  * file disk io is tagged with pulse measurements now
+  * migrating to lhttpc client
+
 flussonic (3.68.14)
 
   * don't fail on afrt errors in hds when duration less than DTS

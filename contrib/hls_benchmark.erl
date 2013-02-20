@@ -2,12 +2,18 @@
 %% -smp enable
 
 -mode(compile).
+-compile(export_all).
 
 main([URL]) ->
   % inets:start(),
   hls(URL);
 
 main([Count_|URLs]) ->
+  code:add_path("deps/lhttpc/ebin"),
+  application:start(crypto),
+  application:start(public_key),
+  application:start(ssl),
+  ok = application:start(lhttpc),
   ets:new(hls_readers, [public, named_table]),
   ets:insert(hls_readers, {count, 0}),
   _Pids = start_readers(URLs, list_to_integer(Count_)),
@@ -116,7 +122,17 @@ parse_playlist([_|Playlist], Acc) ->
 
 -define(TIMEOUT, 10000).
 
-fetch(URL, Socket) ->
+fetch(URL, undefined) ->
+  {ok, Pid} = lhttpc:connect_client(URL, [{connect_timeout,5000}]),
+  fetch(URL, Pid);
+
+fetch(URL, Pid) ->
+  {ok, {{200, _}, _Headers, Body}} = lhttpc:request_client(Pid, URL, "GET", [], 15000),
+  {ok, Pid, Body}.
+
+
+
+fetch1(URL, Socket) ->
   fetch(URL, Socket, 5).
 
 fetch(URL, Socket, Count) ->

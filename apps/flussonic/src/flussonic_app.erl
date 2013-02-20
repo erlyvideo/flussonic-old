@@ -38,7 +38,6 @@
 start(_StartType, _StartArgs) ->
 	gen_tracker_sup:start_tracker(flu_files),
 	gen_tracker_sup:start_tracker(flu_streams),
-  % flu_session:start(),
   
   {ok, Pid} = flussonic_sup:start_link(),
   {ok, Pid}.

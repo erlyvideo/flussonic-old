@@ -15,7 +15,10 @@ backend_test_() ->
     error_logger:delete_report_handler(error_logger_tty_h),
     application:stop(cowboy),
     application:stop(ranch),
-    application:stop(inets),
+    application:stop(lhttpc),
+    application:stop(lhttpc),
+    application:stop(ssl),
+    application:stop(public_key),
     meck:unload([fake_auth, auth_http_backend]),
     error_logger:add_report_handler(error_logger_tty_h),
     ok

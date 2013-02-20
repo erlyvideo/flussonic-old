@@ -8,7 +8,7 @@
 mpegts_test_() ->
   {foreach,
   fun() ->
-    Apps = [crypto, ranch, gen_tracker, cowboy, flussonic],
+    Apps = [crypto, ranch, gen_tracker, cowboy, public_key, ssl, lhttpc, flussonic],
     [application:start(App) || App <- Apps],
     Conf = [
       {rewrite, "testlivestream", "/dev/null"},
@@ -38,16 +38,11 @@ mpegts_test_() ->
     ),
     {ok, _Pid} = flu_stream:autostart(<<"channel0">>),
     % [Pid ! F || F <- lists:sublist(flu_rtmp_tests:h264_aac_frames(), 1, 50)],
-    ok
+    {ok,Apps}
   end,
-  fun(_) ->
+  fun({ok, Apps}) ->
     error_logger:delete_report_handler(error_logger_tty_h),
-    application:stop(cowboy),
-    application:stop(flussonic),
-    application:stop(ranch),
-    application:stop(cowboy),
-    application:stop(gen_tracker),
-    application:stop(inets),
+    [application:stop(App) || App <- lists:reverse(Apps)],
     error_logger:add_report_handler(error_logger_tty_h),
     ok
   end,

@@ -114,10 +114,15 @@ start0(_Options) ->
 
   lager:start(),
   lager:warning("Flussonic version ~s is booting", [flu:version()]),
+
+  application:start(crypto),
+  application:start(public_key),
+  application:start(ssl),
+  start_app(lhttpc),
+
   license_client:load(),
   application:start(sasl),
   error_logger:delete_report_handler(sasl_report_tty_h),
-  start_app(crypto),
   start_app(ranch),
   start_app(mimetypes),
   start_app(cowboy),
@@ -131,7 +136,7 @@ start0(_Options) ->
   start_app(erlmedia),
   try_start_app(http_file),
   try_start_app(playlist),
-  try_start_app(pulse),
+  start_app(pulse),
   start_app(mpegts),
   start_app(flussonic),
   flussonic_app:load_config(),

@@ -99,8 +99,7 @@ hds_segment(File, Fragment) ->
   hds_segment(File, Fragment, undefined).
 
 hds_segment(File, Fragment, Tracks) when is_pid(File) ->
-  R = gen_server:call(File, {hds_segment, Fragment, Tracks}),
-  R;
+  pulse:segment_io(fun() -> gen_server:call(File, {hds_segment, Fragment, Tracks}) end);
 
 hds_segment(Name, Fragment, Tracks) ->
   {ok, File} = autostart(Name, []),
@@ -132,7 +131,7 @@ hls_segment(File, Segment) ->
   hls_segment(File, Segment, undefined).
 
 hls_segment(File, Segment, Tracks) when is_pid(File) ->
-  gen_server:call(File, {hls_segment, Segment, Tracks});
+  pulse:segment_io(fun() -> gen_server:call(File, {hls_segment, Segment, Tracks}) end);
 
 hls_segment(Name, Root, Fragment) when is_binary(Name), is_integer(Fragment) ->
   {ok, File} = autostart(Name, [{root,Root}]),
@@ -207,16 +206,16 @@ handle_call(hds_manifest, _From, #state{hds_manifest = undefined, format = Forma
 handle_call(hds_manifest, _From, #state{hds_manifest = HdsManifest, timeout = Timeout} = State) ->
   {reply, {ok, HdsManifest}, State, Timeout};
 
-handle_call({read_gop, Id, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
-  Gop = Format:read_gop(Reader, Id, Tracks),
+handle_call({read_gop, Id, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, path = Path} = State) ->
+  Gop = pulse:disk_io(Path, fun() -> Format:read_gop(Reader, Id, Tracks) end),
   {reply, Gop, State, Timeout};
 
 handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Timeout} = State) when
   (Fragment =< 0 orelse Fragment > length(Keyframes)) andalso (Type == hls_segment orelse Type == hds_segment) ->
   {reply, {error, no_segment}, State, Timeout};  
 
-handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI} = State) ->
-  Gop = case Format:read_gop(Reader, Fragment, Tracks) of
+handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI, path = Path} = State) ->
+  Gop = case pulse:disk_io(Path, fun() -> Format:read_gop(Reader, Fragment, Tracks) end) of
     {ok, Gop_} -> Gop_;
     {error, _} = Error -> throw({reply, Error, State, Timeout})
   end,
@@ -228,8 +227,8 @@ handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, fo
   {reply, {ok, Segment}, State, Timeout};
 
 
-handle_call({hls_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI} = State) ->
-  Gop = case Format:read_gop(Reader, Fragment, Tracks) of
+handle_call({hls_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI, path = Path} = State) ->
+  Gop = case pulse:disk_io(Path, fun() -> Format:read_gop(Reader, Fragment, Tracks) end) of
     {ok, Gop_} -> Gop_;
     {error, _} = Error -> throw({reply, Error, State, Timeout})
   end,

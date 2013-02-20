@@ -29,7 +29,6 @@
 -include("log.hrl").
 
 -define(TIMEOUT, 20*60000).
--define(LICENSE_TABLE, license_storage).
 
 %% External API
 -export([load/0, reload/0, load_code/1]).
@@ -171,31 +170,12 @@ load_code_from_server(LicenseKey) ->
       {error,Reason};
     undefined -> 
       {error, no_license};
-    {ok, url, URL} ->
-      {ok, Bin} = load_by_url(URL),
-      eval_bin(Bin);
     {ok, body, Body} ->
       error_logger:info_msg("Version 2 license response"),
       eval_bin(Body)
   end.
 
-load_by_url(URL) ->
-  error_logger:info_msg("License request: ~p~n", [URL]),
-  case http_stream:request_body(URL,[{timeout,30000}]) of
-    {ok, {Socket, Code, _Headers, Bin}} when Code == 200 orelse Code == 302 ->
-      error_logger:info_msg("Loading licensed code~n"),
-      gen_tcp:close(Socket),
-      {ok, Bin};
-    {ok, {Socket, 404, _Headers, Bin}} ->
-      gen_tcp:close(Socket),
-      error_logger:error_msg("No selected versions on server: ~p~n", [erlang:binary_to_term(Bin)]),
-      {error, notfound};
-    {error, Reason} ->
-      {error, Reason};
-    Else ->
-      {error, Else}
-  end.
-  
+
 
 unpack_server_response(Bin) ->
   case erlang:binary_to_term(Bin) of
@@ -231,22 +211,16 @@ construct_url(LicenseKey) when is_list(LicenseKey) ->
     _ -> {["http://",Host,"/temp_key2?key=",LicenseKey,"&version=",Version,"&mac=",mac()], 2}
     % _ -> {["http://",Host,"/temp_key/flussonic/",LicenseKey, "?version=",Version], 1}
   end,
-  LicenseURL = iolist_to_binary(LicenseURL1),
+  LicenseURL = binary_to_list(iolist_to_binary(LicenseURL1)),
 
-  case http_stream:request_body(LicenseURL,[{noredirect, true},{keepalive,false}]) of
-	  {ok,{_Socket,Code,Headers,Body}} when Code == 200 orelse Code == 302 ->
-      case proplists:get_value('Content-Type', Headers) of
-        <<"x-erlyvideo/license2">> ->
-          file:write_file("license-"++Version++".pack", Body),
-          {ok, body, Body};
-        _ ->
-          save_temp_url(Body),
-    	    {ok, url, Body}
-      end;
-    {ok,{_Socket,403,_Headers,_Body}} ->
+  case lhttpc:request(LicenseURL, "GET", [], 30000) of
+	  {ok,{{Code,_},_Headers,Body}} when Code == 200 orelse Code == 302 ->
+      file:write_file("license-"++Version++".pack", Body),
+      {ok, body, Body};
+    {ok,{{403,_},_Headers,_Body}} ->
       error_logger:error_msg("License server rejected your key ~s: ~p",[LicenseKey, _Body]),
       {error, rejected};
-    {ok,{_Socket,Code,_Headers,_Body}} ->
+    {ok,{{Code,_},_Headers,_Body}} ->
       error_logger:error_msg("License server don't know about key ~s: ~p ~p",[LicenseKey, Code, _Body]),
       {error, unknown};
 	  % _Error when KeyVersion == 1 ->
@@ -262,42 +236,12 @@ construct_url(LicenseKey) when is_list(LicenseKey) ->
       end
 	end.
 
-find_cached_temp_url() ->
-  in_opened_storage_do(fun(Table) ->
-    {ok, url, proplists:get_value(s3_url,dets:lookup(Table,s3_url),{error,url_notfound})}
-  end).
-
-save_temp_url(URL) ->
-  in_opened_storage_do(fun(Table) ->
-    dets:insert(Table,[{s3_url,URL}])
-  end).  
   
-in_opened_storage_do(F) ->
-  case dets:open_file(?LICENSE_TABLE,[{file,"license_storage.db"}]) of
-	  {ok,?LICENSE_TABLE} ->
-	    Result = F(?LICENSE_TABLE),
-	    dets:close(?LICENSE_TABLE),
-	    Result;
-	  Error ->
-      Error
-  end.
 
 
 
   
 
-
-get_versions_from_storage() ->
-  case dets:lookup(?LICENSE_TABLE,projects) of
-    [{projects, Projects}] -> Projects;
-    _ -> []
-  end.    
-
-versions_of_projects(Config) ->
-  case proplists:get_value(projects,Config,undefined) of
-    undefined -> in_opened_storage_do(fun(_Table) -> get_versions_from_storage() end);
-    Projects -> Projects
-  end.
          
 %%%% load code
 %%%%

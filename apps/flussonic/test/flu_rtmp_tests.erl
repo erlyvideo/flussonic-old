@@ -36,6 +36,9 @@ init_all() ->
   ok = application:start(flussonic),
   ok = application:start(cowboy),
   ok = application:start(rtmp),
+  application:start(public_key),
+  application:start(ssl),
+  application:start(lhttpc),
   gen_tracker_sup:start_tracker(flu_streams),
   gen_tracker_sup:start_tracker(flu_files),
   rtmp_socket:start_server(1938, test_rtmp_listener1, flu_rtmp),
@@ -50,6 +53,9 @@ stop_all() ->
   application:stop(cowboy),
   application:stop(ranch),
   application:stop(inets),
+  application:stop(lhttpc),
+  application:stop(ssl),
+  application:stop(public_key),
   error_logger:add_report_handler(error_logger_tty_h),
   ok.
 
