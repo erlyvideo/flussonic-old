@@ -1,18 +1,13 @@
 -module(pulse).
 -include_lib("erlmedia/include/video_frame.hrl").
+-include("log.hrl").
 
 -export([json_list/1]).
 
--export([disk_io/2, segment_io/1, hls_read/3]).
+-export([disk_io/2, segment_io/1, hls_read/3, network_traffic/4]).
 
 json_list(traffic) ->
-  Traffic = lists:map(fun(Iface) ->
-    {ok, Stats} = traffic_collector:stats(Iface),
-    MaxTime = lists:max([T || {T,_I,_O} <- Stats]),
-    Limit = 1200,
-    Scale = 60,
-    [{iface,list_to_binary(Iface)}, {traffic,[[{time,(MaxTime - T) div Scale},{input,I},{output,O}] || {T,I,O} <- Stats, (MaxTime - T) =< Limit]}]
-  end, traffic_collector:ifaces()),
+  Traffic = traffic_collector:stats(),
   [{event, 'pulse.traffic'},{traffic,Traffic}].
 
 
@@ -21,6 +16,9 @@ hls_read(_Time, _Duration, _Size) ->
   ok.
 
 
+network_traffic(Time, Iface, Ibytes, Obytes) ->
+  ets:insert(pulse_traffic, {{Iface, Time}, Ibytes, Obytes}),
+  ok.
 
 
 disk_io(_Path, Fun) ->
@@ -32,6 +30,7 @@ disk_io(_Path, Fun) ->
       _Size = erlang:external_size(Frames),
       T3 = os:timestamp(),
       _ReadTime = timer:now_diff(T3,T1),
+
       % lager:info("Read ~B bytes in ~B us", [Size, ReadTime]),
       {ok, Frames};
     Else ->

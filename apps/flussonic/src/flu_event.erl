@@ -38,6 +38,7 @@
 -export([add_dvr_fragment/2, delete_dvr_fragment/2]).
 
 -export([hls_bitrate_down/2, hls_bitrate_up/2]).
+-export([hls_segment_drop/2]).
 
 -export([to_json/1, to_xml/1, to_proplist/1]).
 
@@ -179,7 +180,7 @@ remove_handler(Handler) ->
 user_connected(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = user.connected, stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
+  gen_event:notify(?MODULE, #flu_event{event = 'user.connected', stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
 %%--------------------------------------------------------------------
 %% @spec (Stream, Stats) -> ok
@@ -190,7 +191,7 @@ user_connected(Stream, Stats) ->
 user_disconnected(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = user.disconnected, stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
+  gen_event:notify(?MODULE, #flu_event{event = 'user.disconnected', stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
 %%--------------------------------------------------------------------
 %% @spec (User, Name) -> ok
@@ -199,7 +200,7 @@ user_disconnected(Stream, Stats) ->
 %% @end
 %%----------------------------------------------------------------------
 user_play(User, StreamName, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = user.play, user = User, stream = StreamName, options = Options}).
+  gen_event:notify(?MODULE, #flu_event{event = 'user.play', user = User, stream = StreamName, options = Options}).
 
 %%--------------------------------------------------------------------
 %% @spec (User, Name, Stats) -> ok
@@ -208,7 +209,7 @@ user_play(User, StreamName, Options) ->
 %% @end
 %%----------------------------------------------------------------------
 user_stop(User, StreamName, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = user.stop, user = User, stream = StreamName, options = Options}).
+  gen_event:notify(?MODULE, #flu_event{event = 'user.stop', user = User, stream = StreamName, options = Options}).
 
 %%--------------------------------------------------------------------
 %% @spec (Name, Stream, Options) -> ok
@@ -217,7 +218,7 @@ user_stop(User, StreamName, Options) ->
 %% @end
 %%----------------------------------------------------------------------
 stream_created(Name, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = stream.created, stream = Name, options = Options}).
+  gen_event:notify(?MODULE, #flu_event{event = 'stream.created', stream = Name, options = Options}).
 
 %%--------------------------------------------------------------------
 %% @spec (Name, Stream) -> ok
@@ -226,7 +227,7 @@ stream_created(Name, Options) ->
 %% @end
 %%----------------------------------------------------------------------
 stream_stopped(Name) ->
-  gen_event:notify(?MODULE, #flu_event{event = stream.stopped, stream = Name}).
+  gen_event:notify(?MODULE, #flu_event{event = 'stream.stopped', stream = Name}).
 
 %%--------------------------------------------------------------------
 %%
@@ -234,7 +235,7 @@ stream_stopped(Name) ->
 %% @end
 %%----------------------------------------------------------------------
 add_dvr_fragment(Name, Time) ->
-  gen_event:notify(?MODULE, #flu_event{event = stream.add_dvr_fragment, stream = Name, options = [{time,Time}]}).
+  gen_event:notify(?MODULE, #flu_event{event = 'stream.add_dvr_fragment', stream = Name, options = [{time,Time}]}).
 
 
 %%--------------------------------------------------------------------
@@ -243,7 +244,7 @@ add_dvr_fragment(Name, Time) ->
 %% @end
 %%----------------------------------------------------------------------
 delete_dvr_fragment(Name, Time) ->
-  gen_event:notify(?MODULE, #flu_event{event = stream.delete_dvr_fragment, stream = Name, options = [{time,Time}]}).
+  gen_event:notify(?MODULE, #flu_event{event = 'stream.delete_dvr_fragment', stream = Name, options = [{time,Time}]}).
 
 
 %%--------------------------------------------------------------------
@@ -253,10 +254,13 @@ delete_dvr_fragment(Name, Time) ->
 %% @end
 %%----------------------------------------------------------------------
 hls_bitrate_up(Name, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = hls.bitrate.up, stream = Name, options = Options}).
+  gen_event:notify(?MODULE, #flu_event{event = 'hls.bitrate.up', stream = Name, options = Options}).
 
 hls_bitrate_down(Name, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = hls.bitrate.down, stream = Name, options = Options}).
+  gen_event:notify(?MODULE, #flu_event{event = 'hls.bitrate.down', stream = Name, options = Options}).
+
+hls_segment_drop(Name, Options) ->
+  gen_event:notify(?MODULE, #flu_event{event = 'hls.segment.drop', stream = Name, options = Options}).
 
 
 %%%------------------------------------------------------------------------

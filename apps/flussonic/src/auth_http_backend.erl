@@ -7,7 +7,7 @@
 
 http_get(URL) ->
   T = flu_session:timeout(),
-  case lhttpc:request(URL, "GET", [], <<>>, T, [{connect_timeout, T},{pool_options, [{pool,auth_backend},{pool_ensure,true}]}]) of
+  case lhttpc:request(URL, "GET", [], <<>>, T, [{connect_timeout, T},{pool,auth_backend},{pool_ensure,true}]) of
     {ok, {{Code,_}, Headers, _Body}} ->
       {ok, {Code, [{string:to_lower(K),V} || {K,V} <- Headers]}};
     {error, _} = Error ->

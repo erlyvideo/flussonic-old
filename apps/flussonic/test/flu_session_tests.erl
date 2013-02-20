@@ -8,7 +8,7 @@
 
 
 setup_flu_session() ->
-  Apps = [crypto, ranch, gen_tracker, cowboy, flussonic, inets],
+  Apps = [crypto, ranch, gen_tracker, cowboy, public_key, ssl, lhttpc, flussonic, inets],
   [application:start(App) || App <- Apps],
   % cowboy:stop_listener(fake_http),
   gen_tracker_sup:start_tracker(flu_files),
@@ -31,17 +31,13 @@ setup_flu_session() ->
   {ok, _} = cowboy:start_http(our_http, 1, [{port, 5555}],
     [{env, [{dispatch, cowboy_router:compile(Dispatch)}]}]
   ),
-  {Modules}.
+  {Modules, Apps}.
 
-teardown_flu_session({Modules}) ->
+teardown_flu_session({Modules, Apps}) ->
   error_logger:delete_report_handler(error_logger_tty_h),
   ets:delete(flu_session:table()),
   % cowboy:stop_listener(fake_http),
-  application:stop(cowboy),
-  application:stop(flussonic),
-  application:stop(gen_tracker),
-  application:stop(ranch),
-  application:stop(inets),
+  [application:stop(App) || App <- lists:reverse(Apps)],
   meck:unload(Modules),
   error_logger:add_report_handler(error_logger_tty_h),
   ok.  

@@ -9,7 +9,7 @@
 
 %% External API
 -export([start_link/0]).
--export([stats/1, ifaces/0, default_iface/0]).
+-export([stats/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -20,88 +20,49 @@
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--record(entry, {
-  iface,
-  time,
-  ibytes,
-  obytes
-}).
-
 -record(traffic, {
   os,
-  stats
+  stats,
+  start_at,
+  interval,
+  n
 }).
 
-autostart() ->
-  case whereis(traffic_collector) of
-    undefined -> commercial:start();
-    _ -> ok
-  end.
-
-stats(Iface) ->
-  autostart(),
-  case gen_server:call(?MODULE, {stats, Iface}) of
-    {ok, Stats} -> parse_stats(Stats);
-    Else -> Else
-  end.
-
-ifaces() ->
-  gen_server:call(?MODULE, ifaces).
-
-
-default_iface() ->
-  gen_server:call(?MODULE, default_iface).
-
-parse_stats(Stats) ->
-  Stats1 = lists:ukeysort(1, Stats),
-  Precision = if
-    length(Stats) < 10 -> 1;
-    length(Stats) < 180 -> 10;
-    % length(Stats) < 20*60 -> {60, 60};
-    % length(Stats) < 4000 -> {60, 60}
-    true -> 60
-  end,
-  Stats2 = group_stats(Stats1, Precision),
-  % % Stats2 = Stats1,
-  Stats3 = calculate_speed(Stats2, []),
-  BaseT = case Stats3 of
-    [{T1,_,_}|_] -> T1;
-    _ -> 0
-  end,
-  Stats4 = [{T-BaseT, I*8,O*8} || {T,I,O} <- Stats3],
-  {ok, Stats4}.
-  % {ok, Stats2}.
-
-
-group_stats(Stats, Time) ->
-  Stats1 = group_stats0([{T div Time, I, O} || {T, I, O} <- Stats], []),
-  [{T*Time, I, O} || {T, I, O} <- Stats1].
-
-group_stats0([{T, I1, O1}, {T,I2,O2} | Stats], Acc) when I1 =< I2 andalso O1 =< O2 ->
-  group_stats0([{T, I2, O2}|Stats], Acc);
-
-group_stats0([{T1, I1, O1}, {T2,I2,O2} | Stats], Acc) when T1 < T2 andalso I1 =< I2 andalso O1 =< O2 ->
-  group_stats0([{T2, I2, O2}|Stats], [{T1,I1,O1}|Acc]);
-
-group_stats0([{T1, I1, O1}], Acc) ->
-  group_stats0([], [{T1,I1,O1}|Acc]);
-
-group_stats0([], Acc) ->
-  lists:reverse(Acc).
-
-speed(I1, I2, Delta) ->
-  (I2 - I1) div (Delta*1024).
-
-calculate_speed([{T1, I1, O1},{T2, I2, O2}|Stats], Acc) when T1 < T2 andalso I1 =< I2 andalso O1 =< O2 ->
-  Delta = T2 - T1,
-  calculate_speed([{T2,I2,O2}|Stats], [{T1, speed(I1, I2, Delta), speed(O1, O2, Delta)}|Acc]);
-
-calculate_speed([_], Acc) ->
-  lists:reverse(Acc).
 
 %%%------------------------------------------------------------------------
 %%% Callback functions from gen_server
 %%%------------------------------------------------------------------------
+
+stats() ->
+  Stats1 = lists:foldl(fun({{Iface,T},I,O}, Stats_) ->
+    case lists:keyfind(Iface,1,Stats_) of
+      {Iface, S} ->
+        lists:keystore(Iface, 1, Stats_, {Iface, [{T,I,O}|S]});
+      false ->
+        lists:keystore(Iface, 1, Stats_, {Iface, [{T,I,O}]})
+    end
+  end, [], ets:tab2list(pulse_traffic)),
+
+  Stats2 = [ [{iface,Iface},{traffic,group_traffic(Traffic)}] || {Iface, Traffic} <- Stats1],
+  Stats2.
+
+group_traffic(Traffic) ->
+  calculate_speed(group_traffic(lists:sort(Traffic), 60)).
+
+group_traffic([], _) -> [];
+group_traffic([{T1,I1,O1},{T2,I2,O2}|Traffic], Period) when T1 div Period == T2 div Period ->
+  group_traffic([{T1,I1+I2,O1+O2}|Traffic], Period);
+
+group_traffic([{T1,I1,O1}|Traffic], Period) ->
+  [{T1,I1,O1}|group_traffic(Traffic, Period)].
+
+calculate_speed([{T1,_,_},{T2,I2,O2}|Traffic]) ->
+  Delta = T2 - T1,
+  [[{time,T2},{input,I2*8 div (Delta*1024)},{output,O2*8 div (Delta*1024)}] | calculate_speed([{T2,I2,O2}|Traffic]) ];
+
+calculate_speed([_]) -> [];
+calculate_speed([]) -> [].
+
 
 %%----------------------------------------------------------------------
 %% @spec (Port::integer()) -> {ok, State}           |
@@ -120,9 +81,10 @@ init([]) ->
     "Linux\n" -> linux;
     _ -> bsd
   end,
-  Table = ets:new(?MODULE, [bag, named_table, {keypos, #entry.iface}]),
-  timer:send_interval(1000, collect),
-  {ok, #traffic{os = OS, stats = Table}}.
+  StartAt = os:timestamp(),
+  Interval = 5000,
+  self() ! collect,
+  {ok, #traffic{os = OS, stats = [], start_at = StartAt, n = 1, interval = Interval}}.
 
 %%-------------------------------------------------------------------------
 %% @spec (Request, From, State) -> {reply, Reply, State}          |
@@ -136,26 +98,6 @@ init([]) ->
 %% @end
 %% @private
 %%-------------------------------------------------------------------------
-handle_call({stats, Iface}, _From, #traffic{stats = Stats} = Server) ->
-  Stat = ets:select(Stats, ets:fun2ms(fun(#entry{time = T, iface = If, ibytes = Ibytes, obytes = Obytes}) when If == Iface ->
-    {T, Ibytes, Obytes}
-  end)),
-  {reply, {ok, Stat}, Server};
-
-handle_call(default_iface, _From, #traffic{stats = Stats} = Server) ->
-  Stat1 = ets:foldl(fun(#entry{iface = If, ibytes = I, obytes = O}, Acc) ->
-    lists:ukeymerge(1, [{If, I, O}], Acc)
-  end, [], Stats),
-  Stat2 = [{If, I+O} || {If, I, O} <- Stat1],
-  Iface = case lists:reverse(lists:keysort(2, Stat2)) of
-    [{If, _}|_] -> If;
-    _ -> undefined
-  end,
-  {reply, Iface, Server};
-
-handle_call(ifaces, _From, #traffic{stats = Stats} = Server) ->
-  Ifaces = lists:usort(ets:select(Stats, ets:fun2ms(fun(#entry{iface = If}) -> If end))),
-  {reply, Ifaces, Server};
 
 handle_call(Request, _From, State) ->
   {stop, {unknown_call, Request}, State}.
@@ -183,12 +125,28 @@ handle_cast(_Msg, State) ->
 %% @end
 %% @private
 %%-------------------------------------------------------------------------
-handle_info(collect, #traffic{os = OS, stats = Stats} = Server) ->
+handle_info(collect, #traffic{os = OS, stats = Stats1, n = N, start_at = StartAt, interval = Interval} = Server) ->
   Now = flu:now(),
-  Limit = Now - 3600,
-  ets:insert(Stats, [#entry{iface = Iface, time = Now, ibytes = Ibytes, obytes = Obytes} || {Iface,Ibytes,Obytes} <- ?MODULE:OS()]),
-  ets:select_delete(Stats, ets:fun2ms(fun(#entry{time = T}) -> T < Limit end)),
-  {noreply, Server};
+
+  MomentStats = ?MODULE:OS(),
+  Stats2 = lists:foldl(fun({Iface, NewIbytes, NewObytes} = S, Stats_) ->
+    case lists:keyfind(Iface, 1, Stats_) of
+      {Iface, PrevIbytes, PrevObytes} ->
+        Ibytes = NewIbytes - PrevIbytes,
+        Obytes = NewObytes - PrevObytes,
+        pulse:network_traffic(Now, Iface, Ibytes, Obytes),
+        lists:keystore(Iface, 1, Stats_, S);
+      false ->
+        lists:keystore(Iface, 1, Stats_, S)
+    end
+  end, Stats1, MomentStats),
+
+  RealDelta = timer:now_diff(os:timestamp(), StartAt) div 1000,
+  NeedDelta = N*Interval,
+  Sleep = if NeedDelta < RealDelta -> 0;
+    true -> NeedDelta - RealDelta end,
+  erlang:send_after(Sleep, self(), collect),
+  {noreply, Server#traffic{n = N+1, stats = Stats2}};
 
 handle_info(_Info, State) ->
   {stop, {unknown_message, _Info}, State}.
@@ -248,7 +206,7 @@ linux(Content) ->
   [Header1, Header2 | Lines] = [Line || Line <- string:tokens(Content, "\n"), Line =/= ""],
   Headers = parse_linux_headers(Header1, Header2),
   IfaceStats = collect_linux_stats(Headers, Lines),
-  [Iface || {_,Ibytes,Obytes} = Iface <- lists:ukeysort(1,IfaceStats), Ibytes > 0, Obytes > 0].
+  [{list_to_binary(Iface),Ibytes,Obytes} || {Iface,Ibytes,Obytes} <- lists:ukeysort(1,IfaceStats), Ibytes > 0, Obytes > 0].
 
 
 
@@ -272,7 +230,7 @@ bsd(Output) ->
     list_to_integer(proplists:get_value(obytes,Line))}
   end, Lines3),
   Lines5 = lists:ukeysort(1, Lines4),
-  [{Iface,Ibytes,Obytes} || {Iface,Ibytes,Obytes} <- Lines5, Ibytes > 0, Obytes > 0].
+  [{list_to_binary(Iface),Ibytes,Obytes} || {Iface,Ibytes,Obytes} <- Lines5, Ibytes > 0, Obytes > 0].
   
 
 
@@ -298,9 +256,9 @@ en3   1500  maxbp.local fe80:b::dc2b:61ff     4452     -    3482280     4962    
 en3   1500  172.20.10/28  172.20.10.3         4452     -    3482280     4962     -     589330     -
 ",
   ?assertEqual([
-    {"en1", 18536931, 2512375}
-    ,{"en3", 3482280, 589330}
-    ,{"lo0", 5156531, 5156531}
+    {<<"en1">>, 18536931, 2512375}
+    ,{<<"en3">>, 3482280, 589330}
+    ,{<<"lo0">>, 5156531, 5156531}
   ], bsd(Netstat)).
 
 linux_test() ->
@@ -312,8 +270,8 @@ linux_test() ->
   tun0:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
 ",
   ?assertEqual([
-    {"eth0", 5232390240044, 330435663363}
-    ,{"lo", 17553298465162, 17553298465162}
+    {<<"eth0">>, 5232390240044, 330435663363}
+    ,{<<"lo">>, 17553298465162, 17553298465162}
   ], linux(Netstat)).
 
 

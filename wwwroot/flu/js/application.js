@@ -39,6 +39,7 @@ Erlyvideo = {
     var height = info && info.height || 480;
 
     var app = "live";
+    if(url[0] == "/") url = url.substring(1, url.length);
     var slash = url.indexOf("/");
     if(slash != -1) {
       app = url.substring(0, slash);
@@ -532,10 +533,22 @@ Erlyvideo = {
     Erlyvideo.pulse_load_timer = setTimeout(Erlyvideo.load_pulse, 2000);
   },
 
+  format_pulse_seconds: function(t) {
+    var d = new Date(t*1000);
+    var h = "" + d.getHours();
+    if(h.length < 2) h = "0" + h;
+    var m = "" + d.getMinutes();
+    if(m.length < 2) m = "0" + m;
+    return h + ":" + m;
+  },
+
   draw_pulse_traffic: function(message) {
-    var i;
+    var i,j;
     for(i = 0; i < message.traffic.length; i++) {
       var t = message.traffic[i];
+      for(j = 0; j < t.traffic.length; j++) {
+        t.traffic[j].time = Erlyvideo.format_pulse_seconds(t.traffic[j].time);
+      }
       var h = Mustache.to_html(Erlyvideo.pulse_traffic_template, t);
       var el = $("#pulse-stats #stat-"+t.iface)
       if(el.length > 0) {

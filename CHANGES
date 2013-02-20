@@ -2,7 +2,10 @@ flussonic (3.68.15)
 
   * DVR packetizer now writes on disk in async manner with segment droping
   * file disk io is tagged with pulse measurements now
-  * migrating to lhttpc client
+  * migrating to lhttpc client in auth backend
+  * migrating to lhttpc client in licence client
+  * migrating to lhttpc client in hls_reader
+  * hls_reader now notifies if segment cannot download in proper time
 
 flussonic (3.68.14)
 
