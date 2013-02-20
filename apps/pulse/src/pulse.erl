@@ -2,13 +2,14 @@
 -include_lib("erlmedia/include/video_frame.hrl").
 -include("log.hrl").
 
--export([json_list/1]).
+-export([json_list/0, segment_info/0]).
 
--export([disk_io/2, segment_io/1, hls_read/3, network_traffic/4]).
+-export([read_segment/5, hls_read/3, network_traffic/3]).
+-export([disk_read/2]).
 
-json_list(traffic) ->
+json_list() ->
   Traffic = traffic_collector:stats(),
-  [{event, 'pulse.traffic'},{traffic,Traffic}].
+  [{event, 'pulse.traffic'},{interfaces,Traffic},{file,segment_info()}].
 
 
 
@@ -16,47 +17,42 @@ hls_read(_Time, _Duration, _Size) ->
   ok.
 
 
-network_traffic(Time, Iface, Ibytes, Obytes) ->
-  ets:insert(pulse_traffic, {{Iface, Time}, Ibytes, Obytes}),
+network_traffic(Iface, Ibytes, Obytes) ->
+  ets:insert(pulse_traffic_min, {{Iface, current_time()}, Ibytes, Obytes}),
   ok.
 
 
-disk_io(_Path, Fun) ->
-  T1 = os:timestamp(),
-  case Fun() of
-    % {ok, [#video_frame{}|_] = Frames} ->
-    %   {Size,Duration} = frames_metrics(Frames),
-    {ok, Frames} ->
-      _Size = erlang:external_size(Frames),
-      T3 = os:timestamp(),
-      _ReadTime = timer:now_diff(T3,T1),
 
-      % lager:info("Read ~B bytes in ~B us", [Size, ReadTime]),
-      {ok, Frames};
-    Else ->
-      Else
-  end.
+current_time() ->
+  {Mega, Sec, _} = os:timestamp(),
+  Mega*1000000 + Sec.
 
-% frames_metrics([#video_frame{dts = DTS}|_] = Frames) ->
-%   frames_metrics(Frames, DTS, DTS, 0).
+read_segment(_Path, Size, Duration, ReadTime, SegmentTime) ->
+  T = current_time(),
+
+  Speed = SegmentTime div Duration,
+
+  ets:insert_new(pulse_file_min, {T, 0, 0, 0, 0}),
+  ets:update_counter(pulse_file_min, T, [{2,ReadTime},{3,SegmentTime},{4,Size},{5,Duration}]),
+
+  % It is 30%, because Duration in ms and SegmentTime is us
+  if Speed > 300 ->
+    ets:insert_new(pulse_file_timeouts, {T, 0}),
+    ets:update_counter(pulse_file_timeouts, T, 1);
+  true -> ok end,
+
+  ok.
+
+segment_info() ->
+  [{minute,segment_info(pulse_file_min)},{hour,segment_info(pulse_file_hour)}].
+
+div_(_,0) -> 0;
+div_(Bytes, Time) -> Bytes div Time.
+
+segment_info(Table) ->
+  [ [{time,T},{disk,div_(Size*8, Disk)},{segment,div_(Size*8, Segment)},{size,Size},{speed,div_(Segment,Duration*10)}] 
+  || {T,Disk,Segment,Size,Duration} <- lists:sort(ets:tab2list(Table))].
 
 
-% frames_metrics([#video_frame{body = Body, dts = DTS}|Frames], StartDTS, _, Size) ->
-%   frames_metrics(Frames, StartDTS, DTS, Size + iolist_size(Body));
-
-% frames_metrics([], StartDTS, LastDTS, Size) ->
-%   {Size, round((LastDTS - StartDTS)*1000)}.
-
-
-segment_io(Fun) ->
-  T1 = os:timestamp(),
-  case Fun() of
-    {ok, IO} ->
-      T2 = os:timestamp(),
-      _Size = iolist_size(IO),
-      _Time = timer:now_diff(T2,T1),
-      % lager:info("Get ~B bytes in ~B us", [Size, Time]),
-      {ok, IO};
-    Else ->
-      Else
-  end.
+disk_read(_Path, Fun) ->
+  Fun().

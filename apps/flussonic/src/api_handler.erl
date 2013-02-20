@@ -146,14 +146,8 @@ handle(Req, {sendlogs, Opts}) ->
 
 handle(Req, {pulse, Opts}) ->
   check_auth(Req, Opts, http_auth, fun() ->
-    case erlang:function_exported(pulse, json_list, 1) of
-      true ->
-        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(pulse:json_list(traffic)), "\n"], Req),
-        {ok, R1, undefined};
-      false ->
-        {ok, R1} = cowboy_req:reply(401, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode([{error, <<"not_commercial">>}]), "\n"], Req),
-        {ok, R1, undefined}
-    end        
+    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(pulse:json_list()), "\n"], Req),
+    {ok, R1, undefined}
   end);
 
 
@@ -249,13 +243,8 @@ websocket_init(_TransportName, Req, Opts) ->
   {ok, Req, {Mode,Opts}}.
 
 websocket_handle({text, <<"pulse">>}, Req, State) ->
-  case erlang:function_exported(pulse, json_list, 1) of
-    true ->
-      JSON = iolist_to_binary(mochijson2:encode(pulse:json_list(traffic))),
-      {reply, {text,JSON}, Req, State};
-    false ->
-      {ok, Req, State}
-  end;
+  JSON = iolist_to_binary(mochijson2:encode(pulse:json_list())),
+  {reply, {text,JSON}, Req, State};
 
 websocket_handle({text, <<"streams">>}, Req, State) ->
   JSON = iolist_to_binary(mochijson2:encode(flu_stream:json_list())),

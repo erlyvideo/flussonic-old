@@ -25,6 +25,8 @@ start_link() ->
   stats,
   start_at,
   interval,
+  minute_timer,
+  second_timer,
   n
 }).
 
@@ -41,20 +43,33 @@ stats() ->
       false ->
         lists:keystore(Iface, 1, Stats_, {Iface, [{T,I,O}]})
     end
-  end, [], ets:tab2list(pulse_traffic)),
+  end, [], lists:sort(ets:tab2list(pulse_traffic_min))),
 
-  Stats2 = [ [{iface,Iface},{traffic,group_traffic(Traffic)}] || {Iface, Traffic} <- Stats1],
+  Stats2 = [ [{iface,Iface},{minute,minute_traffic(Traffic)},{hour,hour_traffic(Iface)}] || {Iface, Traffic} <- Stats1],
   Stats2.
 
-group_traffic(Traffic) ->
-  calculate_speed(group_traffic(lists:sort(Traffic), 60)).
+minute_traffic([]) -> [];
+minute_traffic([{T,I,O}|Traffic]) ->
+  minute_traffic(Traffic, [{T,I,O}], 1).
 
-group_traffic([], _) -> [];
-group_traffic([{T1,I1,O1},{T2,I2,O2}|Traffic], Period) when T1 div Period == T2 div Period ->
-  group_traffic([{T1,I1+I2,O1+O2}|Traffic], Period);
 
-group_traffic([{T1,I1,O1}|Traffic], Period) ->
-  [{T1,I1,O1}|group_traffic(Traffic, Period)].
+minute_traffic(_, Acc, 60) ->
+  [[{time,T},{input,I*8 div 1024},{output,O*8 div 1024}] || {T,I,O} <- Acc];
+
+minute_traffic([{T2,_I2,_O2}|_]= Traffic, [{T1,_I1,_O1}|_] = Acc, Count) when T2 < T1 - 1 ->
+  minute_traffic(Traffic, [{T1-1,0,0}|Acc], Count+1);
+
+minute_traffic([{T2,I2,O2}|Traffic], [{T1,_I1,_O1}|_] = Acc, Count) when T2 == T1 - 1 ->
+  minute_traffic(Traffic, [{T2,I2,O2}|Acc], Count+1).
+
+
+hour_traffic(Iface) ->
+  Stats1 = ets:select(pulse_traffic_hour, ets:fun2ms(fun({{If,Min},I,O}) when Iface == If ->
+    {Min,I,O}
+  end)),
+
+  calculate_speed(lists:sort(Stats1)).
+
 
 calculate_speed([{T1,_,_},{T2,I2,O2}|Traffic]) ->
   Delta = T2 - T1,
@@ -82,9 +97,10 @@ init([]) ->
     _ -> bsd
   end,
   StartAt = os:timestamp(),
-  Interval = 5000,
-  self() ! collect,
-  {ok, #traffic{os = OS, stats = [], start_at = StartAt, n = 1, interval = Interval}}.
+  Interval = 1000,
+  Second = erlang:send_after(1000, self(), collect),
+  Minute = erlang:send_after(60000, self(), flush_minute),
+  {ok, #traffic{os = OS, stats = [], start_at = StartAt, n = 1, interval = Interval, minute_timer = Minute, second_timer = Second}}.
 
 %%-------------------------------------------------------------------------
 %% @spec (Request, From, State) -> {reply, Reply, State}          |
@@ -125,16 +141,15 @@ handle_cast(_Msg, State) ->
 %% @end
 %% @private
 %%-------------------------------------------------------------------------
-handle_info(collect, #traffic{os = OS, stats = Stats1, n = N, start_at = StartAt, interval = Interval} = Server) ->
-  Now = flu:now(),
-
+handle_info(collect, #traffic{os = OS, stats = Stats1, n = N, start_at = StartAt, interval = Interval, second_timer = OldSecond} = Server) ->
+  erlang:cancel_timer(OldSecond),
   MomentStats = ?MODULE:OS(),
   Stats2 = lists:foldl(fun({Iface, NewIbytes, NewObytes} = S, Stats_) ->
     case lists:keyfind(Iface, 1, Stats_) of
       {Iface, PrevIbytes, PrevObytes} ->
         Ibytes = NewIbytes - PrevIbytes,
         Obytes = NewObytes - PrevObytes,
-        pulse:network_traffic(Now, Iface, Ibytes, Obytes),
+        pulse:network_traffic(Iface, Ibytes, Obytes),
         lists:keystore(Iface, 1, Stats_, S);
       false ->
         lists:keystore(Iface, 1, Stats_, S)
@@ -145,10 +160,39 @@ handle_info(collect, #traffic{os = OS, stats = Stats1, n = N, start_at = StartAt
   NeedDelta = N*Interval,
   Sleep = if NeedDelta < RealDelta -> 0;
     true -> NeedDelta - RealDelta end,
-  erlang:send_after(Sleep, self(), collect),
-  {noreply, Server#traffic{n = N+1, stats = Stats2}};
+  Second = erlang:send_after(Sleep, self(), collect),
+  {noreply, Server#traffic{n = N+1, stats = Stats2, second_timer = Second}};
 
-handle_info(_Info, State) ->
+
+handle_info(flush_minute, #traffic{minute_timer = OldMinute} = Server) ->
+  erlang:cancel_timer(OldMinute),
+  {Mega,Sec,_} = os:timestamp(),
+  Minute = ((Mega*1000000 + Sec) div 60) - 1,
+
+  Stats1 = ets:select(pulse_traffic_min, ets:fun2ms(fun({{Iface,Sec_},I,O}) when Sec_ div 60 == Minute ->
+    {Iface,I,O}
+  end)),
+  Stats2 = lists:foldl(fun({Iface,I,O}, Stats_) ->
+    case lists:keyfind(Iface,1,Stats_) of
+      {Iface,I1,O1} -> lists:keystore(Iface,1,Stats_, {Iface,I1+I,O1+O});
+      false -> [{Iface,I,O}|Stats_]
+    end
+  end, [], Stats1),
+
+  [ets:insert(pulse_traffic_hour, {{Iface,Minute*60}, I,O}) || {Iface, I,O} <- Stats2],
+
+  ets:select_delete(pulse_traffic_min, ets:fun2ms(fun({{_Iface,Sec_},_,_}) when Sec_ div 60 < Minute ->
+    true
+  end)),
+  % ets:select_delete(pulse_traffic_min, [{{{'_','$1'},'_','_'}, [{is_integer, '$1'}, {'<', '$1', Oldest}], ['true']}]),
+
+  NewMinute = erlang:send_after(60000, self(), flush_minute),
+  {noreply, Server#traffic{minute_timer = NewMinute}};
+
+handle_info({set_interval,Interval}, #traffic{} = Server) ->
+  {noreply, Server#traffic{interval = Interval}};
+
+handle_info(_Info, #traffic{} = State) ->
   {stop, {unknown_message, _Info}, State}.
 
 %%-------------------------------------------------------------------------

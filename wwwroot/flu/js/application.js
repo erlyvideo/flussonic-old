@@ -515,7 +515,7 @@ Erlyvideo = {
 
 // Statistics tab
   
-  pulse_traffic_template: "<caption>Traffic statistics for {{iface}} in kbits/s</caption> \
+  pulse_traffic_template: "<caption>Traffic for last {{period}} on {{iface}} in kbits/s</caption> \
   <thead><tr><td></td>\
   {{#traffic}}<th>{{time}}</th>{{/traffic}}\
   </tr></thead>\
@@ -527,6 +527,24 @@ Erlyvideo = {
   {{#traffic}}<td>{{output}}</td>{{/traffic}} \
   </tr>\
   </tbody>",
+
+  pulse_file_template: "<caption>File stats for last {{period}} in Mbits/s</caption> \
+  <thead><tr><td></td>\
+  {{#traffic}}<th>{{time}}</th>{{/traffic}}\
+  </tr></thead>\
+  <tbody>\
+  <tr><th scope='row'>Disk</th>\
+  {{#traffic}}<td>{{disk}}</td>{{/traffic}} \
+  </tr>\
+  <tr><th scope='row'>Segment</th>\
+  {{#traffic}}<td>{{segment}}</td>{{/traffic}} \
+  </tr>\
+  <tr><th scope='row'>Speed</th>\
+  {{#traffic}}<td>{{speed}}</td>{{/traffic}} \
+  </tr>\
+  </tbody>",
+  
+
   
   load_pulse: function() {
     Erlyvideo.request("pulse");
@@ -544,23 +562,57 @@ Erlyvideo = {
 
   draw_pulse_traffic: function(message) {
     var i,j;
-    for(i = 0; i < message.traffic.length; i++) {
-      var t = message.traffic[i];
-      for(j = 0; j < t.traffic.length; j++) {
-        t.traffic[j].time = Erlyvideo.format_pulse_seconds(t.traffic[j].time);
+    for(i = 0; i < message.interfaces.length; i++) {
+      var iface = message.interfaces[i];
+      for(j = 0; j < iface.hour.length; j++) {
+        iface.hour[j].time = j % 10 == 0 ? Erlyvideo.format_pulse_seconds(iface.hour[j].time) : "";
       }
-      var h = Mustache.to_html(Erlyvideo.pulse_traffic_template, t);
-      var el = $("#pulse-stats #stat-"+t.iface)
-      if(el.length > 0) {
-        el.html(h);
-        el.trigger("visualizeRefresh");
+      for(j = 0; j < iface.minute.length; j++) {
+        iface.minute[j].time = "";
+      }
+      var hour = Mustache.to_html(Erlyvideo.pulse_traffic_template, {iface : iface.iface, period : "hour", traffic : iface.hour});
+      var minute = Mustache.to_html(Erlyvideo.pulse_traffic_template, {iface : iface.iface, period : "minute", traffic : iface.minute});
+
+      if($("#pulse-stats #stat-hour-"+iface.iface).length > 0) {
+        $("#stat-hour-"+iface.iface).html(hour);
+        $("#stat-min-"+iface.iface).html(minute);
       } else {
-        $("#pulse-stats").append("<table id='stat-"+t.iface+"'>"+h+"</table><hr class='stats-separator'>");    
-        el = $("#pulse-stats #stat-"+t.iface);
-        el.hide();
-        el.visualize({type: 'line', width: '800px', lineWeight : 2, appendKey: true});
+        $("#pulse-stats").append(
+          "<table style='width:510px;float:left;margin-bottom: 20px' id='stat-hour-"+iface.iface+"'>"+hour+"</table>"+
+          "<table style='width:510px;float:left' id='stat-min-"+iface.iface+"'>"+minute+"</table>"+
+          "<hr class='stats-separator'>");    
+        $("#stat-hour-"+iface.iface+", #stat-min-"+iface.iface).
+          hide().
+          visualize({type: 'line', height: "70px", width: '500px', lineWeight : 2, appendKey: true});
+        $("#pulse-stats .visualize").css("margin-bottom", "40px");
       }
-    }    
+    }
+
+
+    for(j = 0; j < message.file.hour.length; j++) {
+      message.file.hour[j].time = j % 10 == 0 ? Erlyvideo.format_pulse_seconds(message.file.hour[j].time) : "";
+    }
+    for(j = 0; j < message.file.minute.length; j++) {
+      message.file.minute[j].time = "";
+    }
+
+    var file_hour = Mustache.to_html(Erlyvideo.pulse_file_template, {period : "hour", traffic : message.file.hour});
+    var file_minute = Mustache.to_html(Erlyvideo.pulse_file_template, {period : "minute", traffic : message.file.minute});
+
+    if($("#pulse-stats #stat-file-hour").length >0) {
+      $("#stat-file-hour").html(file_hour);
+      $("#stat-file-min").html(file_minute);
+    } else {
+      $("#pulse-stats").append(
+        "<table style='width:510px;float:left;margin-bottom: 20px' id='stat-file-hour'>"+file_hour+"</table>"+
+        "<table style='width:510px;float:left' id='stat-file-min'>"+file_minute+"</table>"+
+        "<hr class='stats-separator'>");
+      $("#stat-file-hour, #stat-file-min").
+        hide().
+        visualize({type: 'line', height: "70px", width: '500px', lineWeight : 2, appendKey: true});
+      $("#pulse-stats .visualize").css("margin-bottom", "40px");
+    }
+    $("#pulse-stats .visualize").trigger("visualizeRefresh");
   },
 
   stop_periodic_pulse_loader: function() {

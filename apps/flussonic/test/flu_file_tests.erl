@@ -29,6 +29,7 @@ flu_file_test_() ->
 
 setup_flu_file(Path) ->
   application:start(gen_tracker),
+  application:start(pulse),
   gen_tracker_sup:start_tracker(flu_files),
   {ok, File} = flu_file:start_link(Path, [{root, "../../../priv"}]),
   unlink(File),
@@ -41,6 +42,7 @@ teardown_flu_file({none, File}) ->
   erlang:exit(File, shutdown),
   error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(gen_tracker),
+  application:stop(pulse),
   error_logger:add_report_handler(error_logger_tty_h),
   % lager:set_loglevel(lager_console_backend, info),
   ok.
@@ -329,22 +331,15 @@ setup() ->
     {modules,[mod_alias,mod_range, ?MODULE, mod_auth, mod_actions, mod_dir, mod_get, mod_head]}
   ]),
 
-  http_file:start(),
-
-  start_flu(),
+  {ok, Apps} = start_flu(),
   set_config([{file, "http_vod", "http://localhost:9090/"}]),
-  {ok, Httpd}.
+  {ok, Httpd, Apps}.
 
 start_flu() ->
-  ok = application:start(gen_tracker),
+  Apps = [gen_tracker, flussonic, ranch, cowboy, public_key, ssl, lhttpc, pulse, http_file],
+  [application:start(App) || App <- Apps],
   gen_tracker_sup:start_tracker(flu_files),
-  ok = application:start(flussonic),
-  ok = application:start(ranch),
-  ok = application:start(cowboy),
-  application:start(public_key),
-  application:start(ssl),
-  application:start(lhttpc),
-  ok.
+  {ok,Apps}.
 
 set_config(Env) ->
   {ok, Conf} = flu_config:parse_config(Env,undefined),
@@ -357,18 +352,11 @@ set_config(Env) ->
   ok.
 
 
-teardown({ok, Httpd}) ->
+teardown({ok, Httpd, Apps}) ->
   error_logger:delete_report_handler(error_logger_tty_h),
-  application:stop(http_file),
   ok = inets:stop(httpd, Httpd),
   ok = application:stop(inets),
-  application:stop(ranch),
-  application:stop(cowboy),
-  application:stop(lhttpc),
-  application:stop(ssl),
-  application:stop(public_key),
-  application:stop(flussonic),
-  application:stop(gen_tracker),
+  [application:stop(App) || App <- lists:reverse(Apps)],
   error_logger:add_report_handler(error_logger_tty_h),
   ok.
 

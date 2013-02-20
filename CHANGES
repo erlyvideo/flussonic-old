@@ -1,3 +1,11 @@
+flussonic (3.68.16)
+
+  * fix admin panel playing rtmp files
+  * less debug in rtsp_socket when reconnecting
+  * pulse now shows realtime traffic stats
+  * flu_file sends single event about segment to pulse
+  * pulse shows file stats
+
 flussonic (3.68.15)
 
   * DVR packetizer now writes on disk in async manner with segment droping

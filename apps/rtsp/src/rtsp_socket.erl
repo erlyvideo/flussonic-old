@@ -294,12 +294,14 @@ handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetPar
   % For RTSP capturing we need to overwrite host and port from url but leave proper url
   % because we connect to local proxy
   {ConnectHost, ConnectPort} = proplists:get_value(hostport, Options, {Host, Port}),
-  io:format("Connect to ~p:~p~n", [ConnectHost, ConnectPort]),
   {ok, Socket} = case gen_tcp:connect(ConnectHost, ConnectPort, [binary, {active,false}, {send_timeout, 10000}, {recbuf, 1024*1024}]) of
   % {ok, Socket} = case gen_tcp:connect("localhost", 3300, [binary, {active,false}, {send_timeout, 10000}]) of
     {ok, Sock} -> {ok, Sock};
     {error, Error} ->
-      lager:error("Failed to connect to \"~s\": ~p", [URL, Error]),
+      case proplists:get_value(log_error,Options,true) of
+        false -> ok;
+        _ -> lager:error("Failed to connect to \"~s\": ~p", [URL, Error])
+      end,
       throw({stop, normal, RTSP})
   end,
 

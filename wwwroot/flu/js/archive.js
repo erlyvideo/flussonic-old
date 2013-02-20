@@ -90,7 +90,7 @@
   		if(selection_start > 0) {
   		  var play_name = opts.play_name || camera;
   			var selection_stop = parseInt($(this).attr('time'), 10);
-  			$(div).find(".dvr-export-url").attr("href", "/"+play_name+"/archive-"+selection_start+"-"+(selection_stop - selection_start)+".mp4").html("Export camera mp4");
+  			$(div).find(".dvr-export-url").attr("href", "/"+play_name+"/archive-"+selection_start+"-"+(selection_stop - selection_start)+".mp4?token=123").html("Export camera mp4");
   			$(div).find(".dvr-view-url").attr("href", "/"+play_name+"/archive/"+selection_start+"/"+(selection_stop - selection_start)).html("View archive");
   			$(div).find(".dvr-hls-url").attr("href", "/"+play_name+"/index-"+selection_start+"-"+(selection_stop - selection_start)+".m3u8").html("HLS");
   			$(div).find(".dvr-info-line").show();

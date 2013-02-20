@@ -99,7 +99,17 @@ hds_segment(File, Fragment) ->
   hds_segment(File, Fragment, undefined).
 
 hds_segment(File, Fragment, Tracks) when is_pid(File) ->
-  pulse:segment_io(fun() -> gen_server:call(File, {hds_segment, Fragment, Tracks}) end);
+  T1 = os:timestamp(),
+  case gen_server:call(File, {hds_segment, Fragment, Tracks}) of
+    {ok, Segment, Duration, ReadTime, Path} ->
+      T2 = os:timestamp(),
+      Size = iolist_size(Segment),
+      SegmentTime = timer:now_diff(T2,T1),
+      pulse:read_segment(Path, Size, Duration, ReadTime, SegmentTime),
+      {ok, Segment};
+    {error, _} = Error ->
+      Error
+  end;
 
 hds_segment(Name, Fragment, Tracks) ->
   {ok, File} = autostart(Name, []),
@@ -131,7 +141,17 @@ hls_segment(File, Segment) ->
   hls_segment(File, Segment, undefined).
 
 hls_segment(File, Segment, Tracks) when is_pid(File) ->
-  pulse:segment_io(fun() -> gen_server:call(File, {hls_segment, Segment, Tracks}) end);
+  T1 = os:timestamp(),
+  case gen_server:call(File, {hls_segment, Segment, Tracks}) of
+    {ok, Bin, Duration, ReadTime, Path} ->
+      T2 = os:timestamp(),
+      Size = iolist_size(Bin),
+      SegmentTime = timer:now_diff(T2,T1),
+      pulse:read_segment(Path, Size, Duration, ReadTime, SegmentTime),
+      {ok, Bin};
+    {error, _} = Error ->
+      Error
+  end;
 
 hls_segment(Name, Root, Fragment) when is_binary(Name), is_integer(Fragment) ->
   {ok, File} = autostart(Name, [{root,Root}]),
@@ -206,8 +226,8 @@ handle_call(hds_manifest, _From, #state{hds_manifest = undefined, format = Forma
 handle_call(hds_manifest, _From, #state{hds_manifest = HdsManifest, timeout = Timeout} = State) ->
   {reply, {ok, HdsManifest}, State, Timeout};
 
-handle_call({read_gop, Id, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, path = Path} = State) ->
-  Gop = pulse:disk_io(Path, fun() -> Format:read_gop(Reader, Id, Tracks) end),
+handle_call({read_gop, Id, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
+  Gop = Format:read_gop(Reader, Id, Tracks),
   {reply, Gop, State, Timeout};
 
 handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Timeout} = State) when
@@ -215,25 +235,35 @@ handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Tim
   {reply, {error, no_segment}, State, Timeout};  
 
 handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI, path = Path} = State) ->
-  Gop = case pulse:disk_io(Path, fun() -> Format:read_gop(Reader, Fragment, Tracks) end) of
+  T1 = os:timestamp(),
+  Gop = case Format:read_gop(Reader, Fragment, Tracks) of
     {ok, Gop_} -> Gop_;
     {error, _} = Error -> throw({reply, Error, State, Timeout})
   end,
+  T2 = os:timestamp(),
   HasVideo = case Gop of
     [#video_frame{content = video}|_] -> true;
     _ -> false
   end,
+  ReadTime = timer:now_diff(T2,T1),
+  Duration = gop_duration(Gop),
   {ok, Segment} = hds:segment(Gop, MI, [{tracks,Tracks},{no_metadata,not HasVideo}]),
-  {reply, {ok, Segment}, State, Timeout};
+  {reply, {ok, Segment, Duration, ReadTime, Path}, State, Timeout};
 
 
 handle_call({hls_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI, path = Path} = State) ->
-  Gop = case pulse:disk_io(Path, fun() -> Format:read_gop(Reader, Fragment, Tracks) end) of
+  T1 = os:timestamp(),
+  Gop = case Format:read_gop(Reader, Fragment, Tracks) of
     {ok, Gop_} -> Gop_;
     {error, _} = Error -> throw({reply, Error, State, Timeout})
   end,
+  T2 = os:timestamp(),
+
+  ReadTime = timer:now_diff(T2,T1),
+  Duration = gop_duration(Gop),
+
   Segment = hls:segment(Gop, MI, [{tracks,Tracks}]),
-  {reply, {ok, iolist_to_binary(Segment)}, State, Timeout};
+  {reply, {ok, iolist_to_binary(Segment), Duration, ReadTime, Path}, State, Timeout};
 
 
 handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Timeout, format = Format, reader = Reader} = State) 
@@ -274,6 +304,15 @@ handle_call(Call, _From, State) ->
 
 terminate(_,_) ->
   ok.
+
+
+gop_duration([#video_frame{dts = DTS}|_] = Frames) ->
+  gop_duration(Frames, DTS).
+
+gop_duration([#video_frame{dts = DTS}], StartDTS) -> round(DTS - StartDTS);
+gop_duration([_|Frames], StartDTS) -> gop_duration(Frames, StartDTS).
+
+
 
 open(#state{disk_path = Path, requested_path = Path1, access = Access, format = Format, file = undefined} = State) ->
   Options = case Access of
