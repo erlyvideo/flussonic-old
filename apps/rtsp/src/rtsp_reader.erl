@@ -60,6 +60,10 @@ handle_info(#video_frame{codec = Codec} = Frame, #rtsp{consumer = Consumer, queu
   end,
   {noreply, RTSP#rtsp{queue = Queue2}};
 
+handle_info(send_rr, #rtsp{proto = Proto} = RTSP) ->
+  Proto ! send_rr,
+  {noreply, RTSP};
+
 handle_info(#video_frame{}, #rtsp{} = RTSP) ->
   {noreply, RTSP};
 
@@ -130,13 +134,17 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
         {ok, {RTPport, RTCPport}} = rtsp_socket:add_channel(Proto, TrackId-1, StreamInfo, udp),
         io_lib:format("RTP/AVP;unicast;client_port=~B-~B", [RTPport, RTCPport])
     end,
-    {ok, SetupCode, _, _} = rtsp_socket:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
+    {ok, SetupCode, SetupHeaders, _} = rtsp_socket:call(Proto, 'SETUP', [{'Transport', Transport},{url, Track}]),
     case SetupCode of
       406 when RTPMode == tcp ->
         erlang:demonitor(Ref, [flush]),
         (catch rtsp_socket:stop(Proto)),
         throw({rtsp, restart, RTSP#rtsp{rtp_mode = udp}});
-      200 -> 
+      200 when RTPMode == udp ->
+        {match, [RTPPort, RTCPPort]} = re:run(rtsp:header(transport, SetupHeaders), "server_port=(\\d+)-(\\d+)", [{capture,all_but_first,list}]),
+        rtsp_socket:connect_channel(Proto, TrackId - 1, list_to_integer(RTPPort), list_to_integer(RTCPPort)),
+        ok;
+      200 when RTPMode == tcp ->
         ok;
       _ ->
         throw({rtsp, failed_setup, {SetupCode, Track, RTPMode}})

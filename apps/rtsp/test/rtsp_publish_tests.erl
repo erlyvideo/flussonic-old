@@ -21,7 +21,7 @@ rtsp_publish_test_() ->
     application:set_env(lager,crash_log,undefined),
     lager:start(),
 
-    rtsp:start_server(8854, fake_rtsp, fake_rtsp_callback)
+    rtsp:start_server(8854, fake_rtsp, fake_rtsp_callback, [{dump_rtsp,false}])
   end, fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
     application:stop(ranch),

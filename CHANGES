@@ -1,3 +1,10 @@
+flussonic (3.68.17)
+
+  * graphics in admin panel now using raphael.js
+  * fixed sending RTCP RR when no SSRC in Rtp-Info
+  * fixed sending RTCP RR on UDP connection
+  * fixed RTSP playout
+
 flussonic (3.68.16)
 
   * fix admin panel playing rtmp files

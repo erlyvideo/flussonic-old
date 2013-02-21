@@ -15,7 +15,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
--export([start_server/3, stop_server/1]).
+-export([start_server/3, start_server/4, stop_server/1]).
 -export([read/1]).
 -export([header/2, to_lower/1, dump/1]).
 
@@ -23,6 +23,9 @@
 
 start_server(Port, Name, Callback) ->
   ranch:start_listener(Name, 10, ranch_tcp, [{port, Port}], rtsp_socket, [Callback, []]).
+
+start_server(Port, Name, Callback, Options) ->
+  ranch:start_listener(Name, 10, ranch_tcp, [{port, Port}], rtsp_socket, [Callback, Options]).
 
 stop_server(Name) ->
   ranch:stop_listener(Name).

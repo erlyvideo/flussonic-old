@@ -515,43 +515,13 @@ Erlyvideo = {
 
 // Statistics tab
   
-  pulse_traffic_template: "<caption>Traffic for last {{period}} on {{iface}} in kbits/s</caption> \
-  <thead><tr><td></td>\
-  {{#traffic}}<th>{{time}}</th>{{/traffic}}\
-  </tr></thead>\
-  <tbody>\
-  <tr><th scope='row'>Input</th>\
-  {{#traffic}}<td>{{input}}</td>{{/traffic}} \
-  </tr>\
-  <tr><th scope='row'>Output</th>\
-  {{#traffic}}<td>{{output}}</td>{{/traffic}} \
-  </tr>\
-  </tbody>",
-
-  pulse_file_template: "<caption>File stats for last {{period}} in Mbits/s</caption> \
-  <thead><tr><td></td>\
-  {{#traffic}}<th>{{time}}</th>{{/traffic}}\
-  </tr></thead>\
-  <tbody>\
-  <tr><th scope='row'>Disk</th>\
-  {{#traffic}}<td>{{disk}}</td>{{/traffic}} \
-  </tr>\
-  <tr><th scope='row'>Segment</th>\
-  {{#traffic}}<td>{{segment}}</td>{{/traffic}} \
-  </tr>\
-  <tr><th scope='row'>Speed</th>\
-  {{#traffic}}<td>{{speed}}</td>{{/traffic}} \
-  </tr>\
-  </tbody>",
-  
-
   
   load_pulse: function() {
     Erlyvideo.request("pulse");
     Erlyvideo.pulse_load_timer = setTimeout(Erlyvideo.load_pulse, 2000);
   },
 
-  format_pulse_seconds: function(t) {
+  format_pulse_minutes: function(t) {
     var d = new Date(t*1000);
     var h = "" + d.getHours();
     if(h.length < 2) h = "0" + h;
@@ -560,59 +530,109 @@ Erlyvideo = {
     return h + ":" + m;
   },
 
+
+  format_pulse_seconds: function(t) {
+    var d = new Date(t*1000);
+    var h = "" + d.getHours();
+    if(h.length < 2) h = "0" + h;
+    var m = "" + d.getMinutes();
+    if(m.length < 2) m = "0" + m;
+    var s = "" + d.getSeconds();
+    if(s.length < 2) s = "0" + s;
+    return h + ":" + m + ":" + s;
+  },
+
   draw_pulse_traffic: function(message) {
     var i,j;
+
+    var txtattr = { font: "12px sans-serif" };
+    var lineattr = { nostroke: false, axis: "0 0 1 1", colors: ["#995555", "#555599"]};
+
     for(i = 0; i < message.interfaces.length; i++) {
       var iface = message.interfaces[i];
+
+      if($("#stat-"+iface.iface).length == 0) {
+        $("#pulse-stats").append("<div id='stat-"+iface.iface+"' style='height: 280px; width: 900px; margin-bottom: 30px'></div>");
+      }
+
+
+      var d = $("#stat-"+iface.iface)[0];
+      if(!d.r) {
+        d.r = Raphael("stat-"+iface.iface);
+        d.r.text(160, 10, "Traffic for last hour on "+iface.iface+" in kbit/s").attr(txtattr);
+        d.r.text(560, 10, "Traffic for last minute on "+iface.iface+" in kbit/s").attr(txtattr);      
+
+
+        d.r.path("M40 260 L70 260 z").attr('stroke', "#995555");
+        d.r.text(90, 260, "Input").attr(txtattr).attr('fill', "#995555");
+        d.r.path("M120 260 L150 260 z").attr('stroke', "#555599");
+        d.r.text(170, 260, "Output").attr(txtattr).attr('fill', "#555599");
+      }
+
+      var times = [];
+      var in_ = [];
+      var out_ = [];
       for(j = 0; j < iface.hour.length; j++) {
-        iface.hour[j].time = j % 10 == 0 ? Erlyvideo.format_pulse_seconds(iface.hour[j].time) : "";
+        // times.push(Erlyvideo.format_pulse_seconds(iface.hour[j].time));
+        times.push(iface.hour[j].time);
+        in_.push(iface.hour[j].input);
+        out_.push(iface.hour[j].output == iface.hour[j].input ? iface.hour[j].output - 1 : iface.hour[j].output);
       }
+      if(d.hour_graph) d.hour_graph.remove();
+      if(times.length > 10) {
+        d.hour_graph = d.r.linechart(20, 10, 400, 220, [times,times], [in_, out_], lineattr);
+        var k;
+        var labels = d.hour_graph.axis[0].text.items;
+        for(k = 0; k < labels.length; k++) {
+          labels[k].attr({'text' : Erlyvideo.format_pulse_minutes(labels[k].attr('text'))});
+        }
+      }
+
+      var times = [];
+      var in_ = [];
+      var out_ = [];
       for(j = 0; j < iface.minute.length; j++) {
-        iface.minute[j].time = "";
+        // times.push(Erlyvideo.format_pulse_seconds(iface.hour[j].time));
+        times.push(iface.minute[j].time);
+        in_.push(iface.minute[j].input);
+        out_.push(iface.minute[j].output == iface.minute[j].input ? iface.minute[j].output - 1 : iface.minute[j].output);
       }
-      var hour = Mustache.to_html(Erlyvideo.pulse_traffic_template, {iface : iface.iface, period : "hour", traffic : iface.hour});
-      var minute = Mustache.to_html(Erlyvideo.pulse_traffic_template, {iface : iface.iface, period : "minute", traffic : iface.minute});
+      if(d.minute_graph) d.minute_graph.remove();
+      d.minute_graph = d.r.linechart(450, 10, 400, 220, [times,times], [in_, out_], lineattr);
 
-      if($("#pulse-stats #stat-hour-"+iface.iface).length > 0) {
-        $("#stat-hour-"+iface.iface).html(hour);
-        $("#stat-min-"+iface.iface).html(minute);
-      } else {
-        $("#pulse-stats").append(
-          "<table style='width:510px;float:left;margin-bottom: 20px' id='stat-hour-"+iface.iface+"'>"+hour+"</table>"+
-          "<table style='width:510px;float:left' id='stat-min-"+iface.iface+"'>"+minute+"</table>"+
-          "<hr class='stats-separator'>");    
-        $("#stat-hour-"+iface.iface+", #stat-min-"+iface.iface).
-          hide().
-          visualize({type: 'line', height: "70px", width: '500px', lineWeight : 2, appendKey: true});
-        $("#pulse-stats .visualize").css("margin-bottom", "40px");
+      var k;
+      var labels = d.minute_graph.axis[0].text.items;
+      for(k = 0; k < labels.length; k++) {
+        labels[k].attr({'text' : Erlyvideo.format_pulse_seconds(labels[k].attr('text'))});
       }
+
     }
 
 
-    for(j = 0; j < message.file.hour.length; j++) {
-      message.file.hour[j].time = j % 10 == 0 ? Erlyvideo.format_pulse_seconds(message.file.hour[j].time) : "";
-    }
-    for(j = 0; j < message.file.minute.length; j++) {
-      message.file.minute[j].time = "";
-    }
+    // for(j = 0; j < message.file.hour.length; j++) {
+    //   message.file.hour[j].time = j % 10 == 0 ? Erlyvideo.format_pulse_seconds(message.file.hour[j].time) : "";
+    // }
+    // for(j = 0; j < message.file.minute.length; j++) {
+    //   message.file.minute[j].time = "";
+    // }
 
-    var file_hour = Mustache.to_html(Erlyvideo.pulse_file_template, {period : "hour", traffic : message.file.hour});
-    var file_minute = Mustache.to_html(Erlyvideo.pulse_file_template, {period : "minute", traffic : message.file.minute});
+    // var file_hour = Mustache.to_html(Erlyvideo.pulse_file_template, {period : "hour", traffic : message.file.hour});
+    // var file_minute = Mustache.to_html(Erlyvideo.pulse_file_template, {period : "minute", traffic : message.file.minute});
 
-    if($("#pulse-stats #stat-file-hour").length >0) {
-      $("#stat-file-hour").html(file_hour);
-      $("#stat-file-min").html(file_minute);
-    } else {
-      $("#pulse-stats").append(
-        "<table style='width:510px;float:left;margin-bottom: 20px' id='stat-file-hour'>"+file_hour+"</table>"+
-        "<table style='width:510px;float:left' id='stat-file-min'>"+file_minute+"</table>"+
-        "<hr class='stats-separator'>");
-      $("#stat-file-hour, #stat-file-min").
-        hide().
-        visualize({type: 'line', height: "70px", width: '500px', lineWeight : 2, appendKey: true});
-      $("#pulse-stats .visualize").css("margin-bottom", "40px");
-    }
-    $("#pulse-stats .visualize").trigger("visualizeRefresh");
+    // if($("#pulse-stats #stat-file-hour").length >0) {
+    //   $("#stat-file-hour").html(file_hour);
+    //   $("#stat-file-min").html(file_minute);
+    // } else {
+    //   $("#pulse-stats").append(
+    //     "<table style='width:510px;float:left;margin-bottom: 20px' id='stat-file-hour'>"+file_hour+"</table>"+
+    //     "<table style='width:510px;float:left' id='stat-file-min'>"+file_minute+"</table>"+
+    //     "<hr class='stats-separator'>");
+    //   $("#stat-file-hour, #stat-file-min").
+    //     hide().
+    //     visualize({type: 'line', height: "70px", width: '500px', lineWeight : 2, appendKey: true});
+    //   $("#pulse-stats .visualize").css("margin-bottom", "40px");
+    // }
+    // $("#pulse-stats .visualize").trigger("visualizeRefresh");
   },
 
   stop_periodic_pulse_loader: function() {

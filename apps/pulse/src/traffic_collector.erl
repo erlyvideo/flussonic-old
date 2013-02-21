@@ -60,7 +60,11 @@ minute_traffic([{T2,_I2,_O2}|_]= Traffic, [{T1,_I1,_O1}|_] = Acc, Count) when T2
   minute_traffic(Traffic, [{T1-1,0,0}|Acc], Count+1);
 
 minute_traffic([{T2,I2,O2}|Traffic], [{T1,_I1,_O1}|_] = Acc, Count) when T2 == T1 - 1 ->
-  minute_traffic(Traffic, [{T2,I2,O2}|Acc], Count+1).
+  minute_traffic(Traffic, [{T2,I2,O2}|Acc], Count+1);
+
+minute_traffic([], Acc, _) ->
+  minute_traffic([], Acc, 60).
+
 
 
 hour_traffic(Iface) ->
