@@ -32,12 +32,20 @@ read(S) ->
 
 
 prepare_interleaved_session() ->
+  prepare_interleaved_session([]).
+
+
+prepare_interleaved_session(Opts) ->
   {ok, R} = rtsp_reader:start_link("rtsp://localhost:8554/stream", [{consumer,self()}]),
   {ok, S} = accept_rtsp(8554),
 
   {ok, {rtsp, request, {<<"OPTIONS">>,<<"rtsp://localhost:8554/stream">>}, 
     [{<<"CSeq">>,<<"1">>}], undefined},<<>>} = read(S),
-  gen_tcp:send(S, "RTSP/1.0 200 OK\r\nCSeq: 1\r\nPublic: SETUP, TEARDOWN, ANNOUNCE, RECORD, PLAY, OPTIONS, DESCRIBE, GET_PARAMETER\r\n\r\n"),
+  GP = case proplists:get_value(get_parameter, Opts, true) of
+    true -> ", GET_PARAMETER";
+    _ -> ""
+  end,
+  gen_tcp:send(S, ["RTSP/1.0 200 OK\r\nCSeq: 1\r\nPublic: SETUP, TEARDOWN, ANNOUNCE, RECORD, PLAY, OPTIONS, DESCRIBE",GP,"\r\n\r\n"]),
 
   {ok,{rtsp,request, {<<"DESCRIBE">>,<<"rtsp://localhost:8554/stream">>},
     [{<<"CSeq">>,<<"2">>},{<<"Accept">>,<<"application/sdp">>}],undefined},<<>>} = read(S),
@@ -107,6 +115,7 @@ rtsp_interleaved_read_no_rr_test() ->
   {ok, S, R} = prepare_interleaved_session(),
 
   R ! send_rr,
+  R ! keepalive,
   % We have not send any SR with SSRC so we shouldn't receive any RR, only GET_PARAMETER
   {ok,{rtsp,request, {<<"GET_PARAMETER">>,<<"rtsp://localhost:8554/stream">>},
       [{<<"CSeq">>,<<"5">>}], undefined}, <<>>} = read(S),
@@ -116,16 +125,40 @@ rtsp_interleaved_read_no_rr_test() ->
 
 
 
+rtsp_interleaved_read_no_get_parameter_test() ->
+  {ok, S, R} = prepare_interleaved_session([{get_parameter,false}]),
+
+  SSRC = 143,
+  RTP = <<2:2, 0:1, 0:1, 0:4, 1:1, 97:7, 0:16, 0:32, SSRC:32, 9,0>>,
+  gen_tcp:send(S, [<<$$, 0, (size(RTP)): 16>>, RTP]),
+
+  R ! keepalive,
+  R ! send_rr,
+  % We send response without GET_PARAMETER among methods, so flussonic must keepalive 
+  % only with RTCP RR
+  {ok,{rtsp,rtp,1,undefined,<<129,201,0,7,0,0,0,143,0,0,0,143,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>},<<>>} 
+    = read(S),
+
+  gen_tcp:close(S),
+  erlang:exit(R,normal),
+  ok.
+
+
 rtsp_interleaved_read_test() ->
   {ok, S, R} = prepare_interleaved_session(),
 
   SSRC = 143,
   RTP = <<2:2, 0:1, 0:1, 0:4, 1:1, 97:7, 0:16, 0:32, SSRC:32, 9,0>>,
   gen_tcp:send(S, [<<$$, 0, (size(RTP)): 16>>, RTP]),
+  R ! keepalive,
   R ! send_rr,
+
+  {ok,{rtsp,request,{<<"GET_PARAMETER">>,<<"rtsp://localhost:8554/stream">>},
+    [{<<"CSeq">>,<<"5">>}],undefined},
+    NextRTCP} = read(S),
   % We have sent RTP packet with SSRC, so we receive some RR
   {ok,{rtsp,rtp,1,undefined,<<129,201,0,7,0,0,0,143,0,0,0,143,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>},<<>>} 
-    = read(S),
+    = rtsp:read(NextRTCP),
   gen_tcp:close(S),
   erlang:exit(R,normal),
   ok.

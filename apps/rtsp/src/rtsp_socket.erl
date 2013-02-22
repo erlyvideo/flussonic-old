@@ -193,7 +193,7 @@ init([Options]) ->
     false -> false;
     _ -> proplists:get_value(dump_rtsp, Options, true)
   end,
-  GetParameter = proplists:get_value(get_parameter, Options, true),
+  GetParameter = proplists:get_value(get_parameter, Options, get_parameter),
   {ok, #rtsp{consumer = Consumer, url = URL, dump = Dump, get_parameter = GetParameter, options = Options}}.
 
 
@@ -302,7 +302,7 @@ handle_info(#video_frame{content = audio, dts = DTS, pts = PTS} = Frame,
 
 
 
-handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetParameter, options = Options} = RTSP) when URL =/= undefined ->
+handle_info(connect, #rtsp{socket = undefined, url = URL, options = Options} = RTSP) when URL =/= undefined ->
   {_, AuthInfo, Host, Port, _, _} = http_uri2:parse(URL),
   put(host,{Host,Port}),
   % For RTSP capturing we need to overwrite host and port from url but leave proper url
@@ -327,11 +327,7 @@ handle_info(connect, #rtsp{socket = undefined, url = URL, get_parameter = GetPar
   % AuthType = undefined,
   CleanURL = re:replace(URL, "^rtsp://(.+@)?(.*)$", "rtsp://\\2", [{return, list}]),
   RRTimer = erlang:send_after(?KEEPALIVE, self(), send_rr),
-  case GetParameter of
-    true -> erlang:send_after(?KEEPALIVE, self(), keepalive);
-    false -> ok
-  end,
-
+  erlang:send_after(?KEEPALIVE, self(), keepalive),
   {ok, {PeerAddr,_}} = inet:peername(Socket),
 
   {noreply, RTSP#rtsp{url = CleanURL, peer_addr = PeerAddr, socket = Socket, 
@@ -342,8 +338,12 @@ handle_info({request, Ref, Request, RequestHeaders}, #rtsp{socket = Socket} = RT
   inet:setopts(Socket, [{active,once},{packet,raw}]),
   {noreply, RTSP1#rtsp{last_request = {Ref, Request, RequestHeaders}}};
 
-handle_info(keepalive, #rtsp{socket = Socket, dump = Dump} = RTSP) ->
-  RTSP2 = send(RTSP#rtsp{dump = false}, 'GET_PARAMETER', []),
+handle_info(keepalive, #rtsp{socket = Socket, dump = Dump, get_parameter = GP} = RTSP) ->
+  RTSP2 = case GP of
+    get_parameter -> send(RTSP#rtsp{dump = true}, 'GET_PARAMETER', []);
+    options -> send(RTSP#rtsp{dump = true}, 'OPTIONS', []);
+    _ -> RTSP
+  end,
   inet:setopts(Socket, [{active,once},{packet,raw}]),
   erlang:send_after(?KEEPALIVE*3, self(), keepalive),
   {noreply, RTSP2#rtsp{dump = Dump}};
@@ -908,13 +908,22 @@ handle_response(401 = Code, Headers, Body, #rtsp{auth_type = Auth, auth_info = A
       RTSP1
   end;
 
-handle_response(Code, Headers, Body, #rtsp{consumer = Pid, last_request = {Ref,_,_}} = RTSP) ->
+handle_response(Code, Headers, Body, #rtsp{consumer = Pid, last_request = {Ref,_,_}, get_parameter = GP1} = RTSP) ->
   RTSP2 = case proplists:get_value(<<"Session">>, Headers) of
     undefined -> RTSP;
     SessToken -> RTSP#rtsp{session = hd(binary:split(SessToken, <<";">>))}
   end,
+  GP2 = case rtsp:header(public, Headers) of
+    undefined -> GP1;
+    Methods_ ->
+      Methods = [M || M <- binary:split(Methods_, [<<",">>,<<" ">>], [global]), M =/= <<>>],
+      case lists:member(<<"GET_PARAMETER">>, Methods) of
+        true -> get_parameter;
+        false -> false
+      end
+  end,
   Pid ! {response, Ref, Code, Headers, Body},
-  RTSP2#rtsp{last_request = undefined}.
+  RTSP2#rtsp{last_request = undefined, get_parameter = GP2}.
 
 
 

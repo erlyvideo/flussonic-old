@@ -1,3 +1,10 @@
+flussonic (3.68.18)
+
+  * don't set GET_PARAMETER is rtsp camera doesn't support it
+  * fix graphic layout
+  * fix dvr_hour_storage when blob is being deleted
+  * show disk and segment traffic in panel
+
 flussonic (3.68.17)
 
   * graphics in admin panel now using raphael.js

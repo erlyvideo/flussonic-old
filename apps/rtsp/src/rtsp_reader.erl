@@ -64,6 +64,10 @@ handle_info(send_rr, #rtsp{proto = Proto} = RTSP) ->
   Proto ! send_rr,
   {noreply, RTSP};
 
+handle_info(keepalive, #rtsp{proto = Proto} = RTSP) ->
+  Proto ! keepalive,
+  {noreply, RTSP};
+
 handle_info(#video_frame{}, #rtsp{} = RTSP) ->
   {noreply, RTSP};
 

@@ -408,45 +408,6 @@ Erlyvideo = {
     });
   },
 
-// Licenses on server. Disable it
-  
-  // load_license_info: function() {
-  //   $.get("/erlyvideo/api/licenses", {}, function(licenses) {
-  //     licenses = licenses["licenses"];
-  //     var i,j;
-  //     for(i = 0; i < licenses.length; i++) {
-  //       var vers = [];
-  //       var name = licenses[i].name;
-  //       for(j = 0; j < licenses[i].versions.length; j++) {
-  //         var ver = licenses[i].versions[j];
-  //         vers[vers.length] = {
-  //           version: ver,
-  //           name: name,
-  //           checked: licenses[i].current_version == ver
-  //         };
-  //       }
-  //       licenses[i].versions = vers;
-  //     }
-  //     if(licenses.length > 0) {
-  //       $("#license-list").html(Mustache.to_html(Erlyvideo.license_template, {"licenses" : licenses}));
-  //     }
-  //   });
-  // },
-  
-  // enable_licenses: function() {
-  //   $("#license-save-form").submit(function() {
-  //     $.post(this.action, $(this).serialize(), function(reply) {
-  //       reply = eval('('+reply+')');
-  //       if(reply) {
-  //         alert("Licenses loaded, restart erlyvideo to see effects");
-  //       } else {
-  //         alert("Failed to select software versions. Consult logs for details");
-  //       }
-  //     });
-  //     return false;
-  //   });
-  // },
-  
   
 // Play tab
 
@@ -513,6 +474,18 @@ Erlyvideo = {
   
 
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
 // Statistics tab
   
   
@@ -560,7 +533,7 @@ Erlyvideo = {
       if(!d.r) {
         d.r = Raphael("stat-"+iface.iface);
         d.r.text(160, 10, "Traffic for last hour on "+iface.iface+" in kbit/s").attr(txtattr);
-        d.r.text(560, 10, "Traffic for last minute on "+iface.iface+" in kbit/s").attr(txtattr);      
+        d.r.text(600, 10, "Traffic for last minute on "+iface.iface+" in kbit/s").attr(txtattr);      
 
 
         d.r.path("M40 260 L70 260 z").attr('stroke', "#995555");
@@ -580,7 +553,7 @@ Erlyvideo = {
       }
       if(d.hour_graph) d.hour_graph.remove();
       if(times.length > 10) {
-        d.hour_graph = d.r.linechart(20, 10, 400, 220, [times,times], [in_, out_], lineattr);
+        d.hour_graph = d.r.linechart(40, 10, 400, 220, [times,times], [in_, out_], lineattr);
         var k;
         var labels = d.hour_graph.axis[0].text.items;
         for(k = 0; k < labels.length; k++) {
@@ -598,7 +571,7 @@ Erlyvideo = {
         out_.push(iface.minute[j].output == iface.minute[j].input ? iface.minute[j].output - 1 : iface.minute[j].output);
       }
       if(d.minute_graph) d.minute_graph.remove();
-      d.minute_graph = d.r.linechart(450, 10, 400, 220, [times,times], [in_, out_], lineattr);
+      d.minute_graph = d.r.linechart(490, 10, 400, 220, [times,times], [in_, out_], lineattr);
 
       var k;
       var labels = d.minute_graph.axis[0].text.items;
@@ -609,30 +582,94 @@ Erlyvideo = {
     }
 
 
-    // for(j = 0; j < message.file.hour.length; j++) {
-    //   message.file.hour[j].time = j % 10 == 0 ? Erlyvideo.format_pulse_seconds(message.file.hour[j].time) : "";
-    // }
-    // for(j = 0; j < message.file.minute.length; j++) {
-    //   message.file.minute[j].time = "";
-    // }
 
-    // var file_hour = Mustache.to_html(Erlyvideo.pulse_file_template, {period : "hour", traffic : message.file.hour});
-    // var file_minute = Mustache.to_html(Erlyvideo.pulse_file_template, {period : "minute", traffic : message.file.minute});
 
-    // if($("#pulse-stats #stat-file-hour").length >0) {
-    //   $("#stat-file-hour").html(file_hour);
-    //   $("#stat-file-min").html(file_minute);
-    // } else {
-    //   $("#pulse-stats").append(
-    //     "<table style='width:510px;float:left;margin-bottom: 20px' id='stat-file-hour'>"+file_hour+"</table>"+
-    //     "<table style='width:510px;float:left' id='stat-file-min'>"+file_minute+"</table>"+
-    //     "<hr class='stats-separator'>");
-    //   $("#stat-file-hour, #stat-file-min").
-    //     hide().
-    //     visualize({type: 'line', height: "70px", width: '500px', lineWeight : 2, appendKey: true});
-    //   $("#pulse-stats .visualize").css("margin-bottom", "40px");
-    // }
-    // $("#pulse-stats .visualize").trigger("visualizeRefresh");
+    if($("#stat-file").length == 0) {
+      $("#pulse-stats").append("<div id='stat-file' style='height: 280px; width: 900px; margin-bottom: 30px'></div>");      
+    }
+    var d_file = $("#stat-file")[0];
+    if(!d_file.r) {
+      d_file.r = Raphael("stat-file");
+      d_file.r.text(160, 10, "Disk read for last hour in kbit/s").attr(txtattr);
+      d_file.r.text(600, 10, "Disk read for last minute in kbit/s").attr(txtattr);
+    }
+    var times = [];
+    var traf = [];
+    for(j = 0; j < message.file.hour.length; j++) {
+      times.push(message.file.hour[j].time);
+      traf.push(message.file.hour[j].disk);
+    }
+    if(d_file.hour_graph) d_file.hour_graph.remove();
+    d_file.hour_graph = d_file.r.linechart(40, 10, 400, 220, [times], [traf], lineattr);
+
+    var labels = d_file.hour_graph.axis[0].text.items;
+    for(k = 0; k < labels.length; k++) {
+      labels[k].attr({'text' : Erlyvideo.format_pulse_minutes(labels[k].attr('text'))});
+    }
+
+
+    var times = [];
+    var traf = [];
+    for(j = 0; j < message.file.minute.length; j++) {
+      times.push(message.file.minute[j].time);
+      traf.push(message.file.minute[j].disk);
+    }
+    if(d_file.minute_graph) d_file.minute_graph.remove();
+    d_file.minute_graph = d_file.r.linechart(490, 10, 400, 220, [times], [traf], lineattr);
+
+    var labels = d_file.minute_graph.axis[0].text.items;
+    for(k = 0; k < labels.length; k++) {
+      labels[k].attr({'text' : Erlyvideo.format_pulse_seconds(labels[k].attr('text'))});
+    }
+
+
+
+
+
+
+    if($("#stat-segment").length == 0) {
+      $("#pulse-stats").append("<div id='stat-segment' style='height: 280px; width: 900px; margin-bottom: 30px'></div>");      
+    }
+    var d_seg = $("#stat-segment")[0];
+    if(!d_seg.r) {
+      d_seg.r = Raphael("stat-segment");
+      d_seg.r.text(160, 10, "Segment read for last hour in kbit/s").attr(txtattr);
+      d_seg.r.text(600, 10, "Segment read for last minute in kbit/s").attr(txtattr);
+    }
+    var times = [];
+    var traf = [];
+    for(j = 0; j < message.file.hour.length; j++) {
+      times.push(message.file.hour[j].time);
+      traf.push(message.file.hour[j].segment);
+    }
+    if(d_seg.hour_graph) d_seg.hour_graph.remove();
+    d_seg.hour_graph = d_seg.r.linechart(40, 10, 400, 220, [times], [traf], lineattr);
+
+    var labels = d_seg.hour_graph.axis[0].text.items;
+    for(k = 0; k < labels.length; k++) {
+      labels[k].attr({'text' : Erlyvideo.format_pulse_minutes(labels[k].attr('text'))});
+    }
+
+
+    var times = [];
+    var traf = [];
+    for(j = 0; j < message.file.minute.length; j++) {
+      times.push(message.file.minute[j].time);
+      traf.push(message.file.minute[j].segment);
+    }
+    if(d_seg.minute_graph) d_seg.minute_graph.remove();
+    d_seg.minute_graph = d_seg.r.linechart(490, 10, 400, 220, [times], [traf], lineattr);
+
+    var labels = d_seg.minute_graph.axis[0].text.items;
+    for(k = 0; k < labels.length; k++) {
+      labels[k].attr({'text' : Erlyvideo.format_pulse_seconds(labels[k].attr('text'))});
+    }
+
+
+
+
+
+
   },
 
   stop_periodic_pulse_loader: function() {
