@@ -255,5 +255,5 @@ segment0(Frames0, #media_info{streams = Streams1} = MI, Options) ->
   % Metadata = flv_video_frame:to_tag(MetaFrame),
   Blocks = [Configs, Frames],
   Segment = [<<(iolist_size(Blocks) + 8):32, "mdat">>, Blocks],
-  {ok, iolist_to_binary(Segment)}.
+  {ok, Segment}.
   

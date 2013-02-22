@@ -356,6 +356,7 @@ teardown({ok, Httpd, Apps}) ->
   error_logger:delete_report_handler(error_logger_tty_h),
   ok = inets:stop(httpd, Httpd),
   ok = application:stop(inets),
+  application:stop(http_file),
   [application:stop(App) || App <- lists:reverse(Apps)],
   error_logger:add_report_handler(error_logger_tty_h),
   ok.
@@ -410,6 +411,9 @@ handle_test_req(#mod{absolute_uri = _URI} = _Mod) ->
 
 
 flu_file_http_test_() ->
+  T = fun(Path, Atom) ->
+    fun() -> ?MODULE:Atom(Path) end
+  end,
   {foreach,
   fun() ->
     start_flu(),
@@ -430,42 +434,56 @@ flu_file_http_test_() ->
     error_logger:add_report_handler(error_logger_tty_h),
     ok
   end, [
-    {"test_flu_hds_no_segment", fun test_flu_hds_no_segment/0}
-    ,{"test_flu_hls_no_segment", fun test_flu_hls_no_segment/0}
-    ,{"test_answer_404_on_no_file", fun test_answer_404_on_no_file/0}
-    ,{"test_answer_404_on_no_file_with_auth", fun test_answer_404_on_no_file_with_auth/0}
-    ,{"test_flu_hds_good_manifest", fun test_flu_hds_good_manifest/0}
-    ,{"test_flu_hds_good_segment", fun test_flu_hds_good_segment/0}
+    {"test_flu_hds_good_manifest_mp4", T("bunny.mp4", test_flu_hds_good_manifest)}
+    ,{"test_flu_hds_good_segment_mp4", T("bunny.mp4", test_flu_hds_good_segment)}
+    ,{"test_flu_hls_good_segment_mp4", T("bunny.mp4", test_flu_hls_good_segment)}
+
+
+    ,{"test_flu_hds_good_manifest_flv", T("bunny.flv", test_flu_hds_good_manifest)}
+    ,{"test_flu_hds_good_segment_flv", T("bunny.flv", test_flu_hds_good_segment)}
+    ,{"test_flu_hls_good_segment_flv", T("bunny.flv", test_flu_hls_good_segment)}
+
+
+    ,{"test_flu_hds_no_segment", T("bunny.mp4", test_flu_hds_no_segment)}
+    ,{"test_flu_hls_no_segment", T("bunny.mp4", test_flu_hls_no_segment)}
+    ,{"test_answer_404_on_no_file", T("bunny10.mp4", test_answer_404_on_no_file)}
+    ,{"test_answer_404_on_no_file_with_auth", T("bunny10.mp4", test_answer_404_on_no_file_with_auth)}
   ]}.
 
-test_flu_hds_good_manifest() ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny.mp4/manifest.f4m",[{keepalive,false},{no_fail,true}]),
+test_flu_hds_good_manifest(Path) ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/manifest.f4m",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 200, _, _}}, Result).
 
-test_flu_hds_good_segment() ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny.mp4/hds/0/Seg0-Frag4",[{keepalive,false},{no_fail,true}]),
-  ?assertMatch({ok, {_, 200, _, _}}, Result).
+test_flu_hds_good_segment(Path) ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/hds/0/Seg0-Frag4",[{keepalive,false},{no_fail,true}]),
+  ?assertMatch({ok, {_, 200, _, Bin}} when size(Bin) > 1024, Result).
 
-test_flu_hds_no_segment() ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny.mp4/hds/0/Seg0-Frag100",[{keepalive,false},{no_fail,true}]),
+
+test_flu_hls_good_segment(Path) ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/hls/segment4.ts",[{keepalive,false},{no_fail,true}]),
+  ?assertMatch({ok, {_, 200, _, Bin}} when size(Bin) > 1024, Result).
+
+
+test_flu_hds_no_segment(Path) ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/hds/0/Seg0-Frag100",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 404, _, _}}, Result).
 
 
-test_flu_hls_no_segment() ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny.mp4/hls/segment100.ts",[{keepalive,false},{no_fail,true}]),
+test_flu_hls_no_segment(Path) ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/hls/segment100.ts",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 404, _, _}}, Result).
 
-test_answer_404_on_no_file() ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m",[{keepalive,false},{no_fail,true}]),
+test_answer_404_on_no_file(Path) ->
+  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/manifest.f4m",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 404, _, _}}, Result).
 
-test_answer_404_on_no_file_with_auth() ->
+test_answer_404_on_no_file_with_auth(Path) ->
   set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:5555/crossdomain.xml"}]},{root, "../../../wwwroot"}]),
 
-  Result1 = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m",[{keepalive,false}]),
+  Result1 = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/manifest.f4m",[{keepalive,false}]),
   ?assertMatch({error, {http_code, 403}}, Result1),
 
-  Result2 = http_stream:request_body("http://127.0.0.1:5555/vod/bunny10.mp4/manifest.f4m?token=a",[{keepalive,false},{no_fail,true}]),
+  Result2 = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/manifest.f4m?token=a",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 404, _, _}}, Result2),
   ok.
 

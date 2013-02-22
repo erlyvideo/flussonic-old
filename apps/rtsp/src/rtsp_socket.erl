@@ -340,8 +340,8 @@ handle_info({request, Ref, Request, RequestHeaders}, #rtsp{socket = Socket} = RT
 
 handle_info(keepalive, #rtsp{socket = Socket, dump = Dump, get_parameter = GP} = RTSP) ->
   RTSP2 = case GP of
-    get_parameter -> send(RTSP#rtsp{dump = true}, 'GET_PARAMETER', []);
-    options -> send(RTSP#rtsp{dump = true}, 'OPTIONS', []);
+    get_parameter -> send(RTSP#rtsp{dump = false}, 'GET_PARAMETER', []);
+    options -> send(RTSP#rtsp{dump = false}, 'OPTIONS', []);
     _ -> RTSP
   end,
   inet:setopts(Socket, [{active,once},{packet,raw}]),
@@ -371,6 +371,7 @@ handle_info({send_rr, N}, #rtsp{chan1 = Chan1, chan2 = Chan2, socket = Socket, r
     1 -> R1;
     2 -> R2
   end,
+
   case Chan of
     #rtp{ssrc = SSRC, channel = Channel, seq = Seq, ntp = LSR_, last_sr_at = LastSRAt} when SSRC + Seq > 0 ->
       Delay = case LastSRAt of
@@ -383,7 +384,6 @@ handle_info({send_rr, N}, #rtsp{chan1 = Chan1, chan2 = Chan2, socket = Socket, r
       end,
     % <<1:2, 0:1, Count:5, ?RTCP_RR, Length:16, StreamId:32, FractionLost, LostPackets:24, MaxSeq:32, Jitter:32, LSR:32, DLSR:32>>.
       RR = <<2:2, 0:1, 1:5, ?RTCP_RR, 7:16, SSRC:32, SSRC:32, 0:32, Seq:32, 0:32, (LSR bsr 16):32, Delay:32>>,
-      % ?D({rr,Channel*2+1, RR}),
       if 
         is_port(RTCP) -> gen_udp:send(RTCP, RR);
         true -> gen_tcp:send(Socket, [<<$$, (Channel*2 + 1), (size(RR)): 16>>, RR])
@@ -473,7 +473,7 @@ decode_rtcp(RTCP, #rtsp{} = RTSP, ChannelId) ->
     throw:#rtsp{} = RTSP1 -> RTSP1
   end.
 
-decode_rtcp0(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _PktCount:32, _OctCount:32, _/binary>>, #rtsp{} = RTSP, ChannelId) ->
+decode_rtcp0(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _PktCount:32, _OctCount:32, RTCP/binary>>, #rtsp{} = RTSP, ChannelId) ->
   Id = case element(#rtsp.chan1, RTSP) of
     #rtp{ssrc = SSRC} -> 0;
     _ ->
@@ -491,11 +491,14 @@ decode_rtcp0(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _Pk
   },
 
   RTSP1 = setelement(#rtsp.chan1 + Id, RTSP, Chan1),
-  RTSP1;
+  decode_rtcp0(RTCP, RTSP1, ChannelId);
 
-decode_rtcp0(_RTCP, #rtsp{} = RTSP, _ChannelId) ->
+decode_rtcp0(<<_, _Code, Len:16, _P1:Len/binary, _P2:Len/binary, _P3:Len/binary, _P4:Len/binary, RTCP/binary>>, #rtsp{} = RTSP, ChannelId) ->
+  % ?debugFmt("unknown RTCP ~p", [Code]),
+  decode_rtcp0(RTCP, RTSP, ChannelId);
+
+decode_rtcp0(_, RTSP, _ChannelId) ->
   RTSP.
-
 
 
 

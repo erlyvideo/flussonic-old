@@ -151,10 +151,10 @@ to_tag(#video_frame{content = Content, stream_id = StreamId, dts = DTS1} = Frame
   DTS = round(DTS1),
   % By spec StreamId MUST be 0. But fuck the spec, we need this streamid
   Body = encode(Frame),
-	BodyLength = size(Body),
+	BodyLength = iolist_size(Body),
 	<<TimeStampExt:8,TimeStamp:24>> = <<DTS:32>>,
 	PrevTagSize = BodyLength + 11,
-	<<(flv:frame_format(Content)):8,BodyLength:24,TimeStamp:24,TimeStampExt:8,StreamId:24,Body/binary,PrevTagSize:32>>.
+	[<<(flv:frame_format(Content)):8,BodyLength:24,TimeStamp:24,TimeStampExt:8,StreamId:24>>,Body,<<PrevTagSize:32>>].
 
 
 -include_lib("eunit/include/eunit.hrl").

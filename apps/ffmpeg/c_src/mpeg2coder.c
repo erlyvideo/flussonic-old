@@ -150,29 +150,32 @@ int main(int argc, char *argv[]) {
   raw_video = avcodec_alloc_frame();
   raw_audio = avcodec_alloc_frame();
 
+  int in_buffer_size = 1024*1024;
+  uint8_t *in_buffer = av_malloc(in_buffer_size);
+
   while(1) {
-    AVPacket packet;
-    av_init_packet(&packet);
-    packet.data = NULL;
-    packet.size = 0;
+    AVPacket in_pkt;
+    av_init_packet(&in_pkt);
+    in_pkt.data = in_buffer;
+    in_pkt.size = in_buffer_size;
 
     AVPacket out_pkt;
 
-    if(av_read_frame(input_ctx, &packet) < 0) 
+    if(av_read_frame(input_ctx, &in_pkt) < 0) 
       error("eof");
 
-    if(first_dts == -1) first_dts = packet.dts;
+    if(first_dts == -1) first_dts = in_pkt.dts;
     int decoded = 0;
     int encoded = 0;
-    if(packet.stream_index == video_stream_index) {
+    if(in_pkt.stream_index == video_stream_index) {
       // if(first_vdts == -1) first_vdts = (packet.dts / vdts_step)*vdts_step;
-      if(first_vdts == -1) first_vdts = packet.dts - first_dts;
+      if(first_vdts == -1) first_vdts = in_pkt.dts - first_dts;
 
       // while(packet.dts >= first_vdts + vcount*vdts_step + vdts_step) {
       //   printf("missed video frame %llu\n", (unsigned long long)vcount);
       //   vcount++;
       // }
-      avcodec_decode_video2(vdec_ctx, raw_video, &decoded, &packet);
+      avcodec_decode_video2(vdec_ctx, raw_video, &decoded, &in_pkt);
       // raw_video->pts = first_vdts + vcount*vdts_step;
       raw_video->pts = vcount*vdts_step;
       // printf("video %llu\n", raw_video->pts);
@@ -188,12 +191,14 @@ int main(int argc, char *argv[]) {
         *(AVPicture *)raw_video = picture2;
 
 
-        int i = packet.stream_index;
+        int i = in_pkt.stream_index;
         encoded = 0;
         av_new_packet(&out_pkt, 65536);
 
         if(avcodec_encode_video2(tracks[i].venc_ctx, &out_pkt, raw_video, &encoded) < 0)
           error("Failed to encode h264");
+
+        av_free(deinterlaced);
         
         if(encoded) {
 
@@ -235,15 +240,15 @@ int main(int argc, char *argv[]) {
       }
 
       vcount++;
-    } else if(packet.stream_index == audio_stream_index) {
+    } else if(in_pkt.stream_index == audio_stream_index) {
       // if(first_adts == -1) first_adts = (packet.dts / adts_step)*adts_step;
-      if(first_dts == -1) first_adts = packet.dts - first_dts;
+      if(first_dts == -1) first_adts = in_pkt.dts - first_dts;
       // while(packet.dts >= first_adts + acount*adts_step + adts_step) {
       //   printf("missed audio frame %llu\n", (unsigned long long)acount);
       //   acount++;
       // }
       decoded = 0;
-      if(avcodec_decode_audio4(adec_ctx, raw_audio, &decoded, &packet) < 0) {
+      if(avcodec_decode_audio4(adec_ctx, raw_audio, &decoded, &in_pkt) < 0) {
         printf("failed to decode\n");
       }
       // *1152 / sample_rate
@@ -302,8 +307,7 @@ int main(int argc, char *argv[]) {
       }
 
     }
-    av_free_packet(&packet);
-    av_init_packet(&packet);
+    av_free_packet(&in_pkt);
   }
 }
 

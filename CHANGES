@@ -1,3 +1,8 @@
+flussonic (3.68.19)
+
+  * fix flv problem with pulse and small segments
+  * speed up HDS segment generation in 10 times from 15 ms to 1.5 ms
+
 flussonic (3.68.18)
 
   * don't set GET_PARAMETER is rtsp camera doesn't support it

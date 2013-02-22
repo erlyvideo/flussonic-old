@@ -135,7 +135,7 @@ parse_metadata([<<"onMetaData">>, Meta], #flv_media{media_info = MI1} = Media) -
       Offsets = proplists:get_value(filepositions, KF),
       Times = proplists:get_value(times, KF),
       Keyframes = lists:zip([round(T*1000) || T <- Times], [round(O) || O <- Offsets]),
-      Media1#flv_media{keyframes = Keyframes};
+      Media1#flv_media{keyframes = video_frame:reduce_keyframes(Keyframes)};
     _ -> 
       Media1
   end;

@@ -28,7 +28,12 @@ accept_rtsp(Port) ->
 
 read(S) ->
   {ok, Bin} = gen_tcp:recv(S, 0),
-  rtsp:read(Bin).
+  case rtsp:read(Bin) of
+    more ->
+      {ok, Bin2} = gen_tcp:recv(S, 0),
+      rtsp:read(<<Bin/binary, Bin2/binary>>);
+    Else -> Else
+  end.
 
 
 prepare_interleaved_session() ->
@@ -107,6 +112,32 @@ prepare_udp_session() ->
   {ok, S, R, RTP, RTCP}.
 
 
+
+rtsp_interleaved_axis_test() ->
+  {ok, S, R} = prepare_interleaved_session(),
+
+  R ! send_rr,
+  R ! keepalive,
+  {ok,{rtsp,request, {<<"GET_PARAMETER">>,<<"rtsp://localhost:8554/stream">>},
+      [{<<"CSeq">>,<<"5">>}], undefined}, <<>>} = read(S),
+  % First we check that no RTCP is available
+
+
+  RTCP_SR = <<128,200,0,6,118,32,142,25,212,206,1,246,245,1,108,231,67,184,129,254,0,0,0,80,0,0,
+  107,79,129,202,0,9,118,32,142,25,1,26,115,116,114,101,97,109,101,114,64,97,120,105,
+  115,45,48,48,52,48,56,99,97,53,49,51,51,52,0,0,0,0>>,
+  ok = gen_tcp:send(S, [<<$$, 1, (size(RTCP_SR)):16>>, RTCP_SR]),
+
+  R ! keepalive,
+  {ok,{rtsp,request, {<<"GET_PARAMETER">>,<<"rtsp://localhost:8554/stream">>},
+      [{<<"CSeq">>,<<"6">>}], undefined}, <<>>} = read(S),
+  % First we check that no RTCP is available
+
+
+  R ! send_rr,
+  {ok,{rtsp,rtp,1,undefined,<<129,201,0,7,118,32,142,25,118,32,142,25,0,0,0,0,0,0,0,0,0,0,0,0,_:32,_:32>>},<<>>} 
+    = read(S),
+  ok.
 
 
 

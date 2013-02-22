@@ -30,13 +30,11 @@ current_time() ->
 read_segment(_Path, Size, Duration, ReadTime, SegmentTime) ->
   T = current_time(),
 
-  Speed = SegmentTime div Duration,
-
   ets:insert_new(pulse_file_min, {T, 0, 0, 0, 0}),
   ets:update_counter(pulse_file_min, T, [{2,ReadTime},{3,SegmentTime},{4,Size},{5,Duration}]),
 
   % It is 30%, because Duration in ms and SegmentTime is us
-  if Speed > 300 ->
+  if SegmentTime > 300*Duration ->
     ets:insert_new(pulse_file_timeouts, {T, 0}),
     ets:update_counter(pulse_file_timeouts, T, 1);
   true -> ok end,
