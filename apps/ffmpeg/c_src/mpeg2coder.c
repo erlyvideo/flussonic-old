@@ -193,7 +193,7 @@ int main(int argc, char *argv[]) {
 
         int i = in_pkt.stream_index;
         encoded = 0;
-        av_new_packet(&out_pkt, 65536);
+        av_new_packet(&out_pkt, 1024*1024);
 
         if(avcodec_encode_video2(tracks[i].venc_ctx, &out_pkt, raw_video, &encoded) < 0)
           error("Failed to encode h264");

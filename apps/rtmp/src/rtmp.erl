@@ -155,6 +155,8 @@ encode(State, #rtmp_message{stream_id = StreamId} = Message) when is_float(Strea
 encode(_State, #rtmp_message{stream_id = StreamId}) when not is_number(StreamId) ->
   erlang:error({invalid_rtmp_stream_id,StreamId});
 
+encode(#rtmp_socket{} = State, #rtmp_message{type = Type, body = Data} = Message) when is_list(Data) and is_integer(Type)-> 
+  encode_bin(State, Message#rtmp_message{body = iolist_to_binary(Data)});
 
 encode(#rtmp_socket{} = State, #rtmp_message{type = Type, body = Data} = Message) when is_binary(Data) and is_integer(Type)-> 
   encode_bin(State, Message).

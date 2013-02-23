@@ -27,11 +27,14 @@ accept_rtsp(Port) ->
 
 
 read(S) ->
-  {ok, Bin} = gen_tcp:recv(S, 0),
+  read(S, <<>>).
+
+read(S, Acc) ->
+  {ok, C} = gen_tcp:recv(S, 1),
+  Bin = <<Acc/binary,C/binary>>,
   case rtsp:read(Bin) of
-    more ->
-      {ok, Bin2} = gen_tcp:recv(S, 0),
-      rtsp:read(<<Bin/binary, Bin2/binary>>);
+    more -> read(S, Bin);
+    {more,_} -> read(S, Bin);
     Else -> Else
   end.
 
@@ -186,10 +189,10 @@ rtsp_interleaved_read_test() ->
 
   {ok,{rtsp,request,{<<"GET_PARAMETER">>,<<"rtsp://localhost:8554/stream">>},
     [{<<"CSeq">>,<<"5">>}],undefined},
-    NextRTCP} = read(S),
+    <<>>} = read(S),
   % We have sent RTP packet with SSRC, so we receive some RR
   {ok,{rtsp,rtp,1,undefined,<<129,201,0,7,0,0,0,143,0,0,0,143,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>},<<>>} 
-    = rtsp:read(NextRTCP),
+    = read(S),
   gen_tcp:close(S),
   erlang:exit(R,normal),
   ok.
@@ -204,7 +207,7 @@ rtsp_udp_test() ->
   gen_udp:send(RTP, Bin),
   R ! send_rr,
   % We have sent RTP packet with SSRC, so we receive some RR
-  {ok, {_, _, <<129,201,0,7,0,0,0,143,0,0,0,143,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}} = gen_udp:recv(RTCP,0),
+  {ok, {_, _, <<129,201,0,7,SSRC:32,SSRC:32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}} = gen_udp:recv(RTCP,0),
   gen_tcp:close(S),
   erlang:exit(R,normal),
   ok.

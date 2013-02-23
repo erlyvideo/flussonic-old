@@ -15,7 +15,7 @@ read_gop_test() ->
   file:close(F),
 
   {ok, HDS} = hds:segment(Frames, mp4_reader:media_info(R), [{tracks, [1,2]}]),
-  Frames1 = flv:read_all_frames(HDS),
+  Frames1 = flv:read_all_frames(iolist_to_binary(HDS)),
   Ats = [round(DTS) || #video_frame{dts = DTS, content = audio, flavor = frame} <- Frames1],
   Vts = [round(DTS) || #video_frame{dts = DTS, content = video} <- Frames1],
 
@@ -35,7 +35,7 @@ read_lang_gop_test() ->
   file:close(F),
 
   {ok, HDS} = hds:segment(Frames, mp4_reader:media_info(R), [{tracks, [2]},{no_metadata,true}]),
-  Frames1 = flv:read_all_frames(HDS),
+  Frames1 = flv:read_all_frames(iolist_to_binary(HDS)),
   Ats = [round(DTS) || #video_frame{dts = DTS, content = audio, flavor = frame} <- Frames1],
   ?assertEqual([], [Frame || #video_frame{content = video} = Frame <- Frames1]),
   ?assertEqual([], [Frame || #video_frame{content = metadata} = Frame <- Frames1]),

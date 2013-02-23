@@ -9,9 +9,9 @@
 keyframes_test() ->
   {ok, F} = file:open("../../../priv/bunny.flv", [read,binary,raw]),
   {ok, Reader} = flv_reader:init({file,F},[]),
-  equal([21,2021,4021,6021,8021,10021,11896,13896,15771,17771,19771,21771,23063,25063,
-    27063,29063,31063,33063,35063,37063,39063,41063,43063,45063,47063,
-    49063,51063,53063,55063,56105,58105,59980], [T || {T,_Offset} <- flv_reader:keyframes(Reader)]),
+  equal([21,4021,8021,11896,15771,19771,23063,
+    27063,31063,35063,39063,43063,47063,
+    51063,55063,58105], [T || {T,_Offset} <- flv_reader:keyframes(Reader)]),
   file:close(F).
 
 equal([A|Alist], [A|Blist]) -> equal(Alist, Blist);
@@ -35,15 +35,15 @@ gop_test() ->
   {ok, F} = file:open("../../../priv/bunny.flv", [read,binary,raw]),
   {ok, Reader} = flv_reader:init({file,F},[]),
 
-  {ok, Gop} = flv_reader:read_gop(Reader, 30, undefined),
+  {ok, Gop} = flv_reader:read_gop(Reader, 15, undefined),
 
   Ats = [round(DTS) || #video_frame{dts = DTS, content = audio} <- Gop],
   Vts = [round(DTS) || #video_frame{dts = DTS, content = video} <- Gop],
 
-  ?assertEqual(56105, hd(Vts)),
+  ?assertEqual(55063, hd(Vts)),
   ?assertEqual(58063, lists:last(Vts)),
 
-  ?assertEqual(56107, hd(Ats)),
+  ?assertEqual(55083, hd(Ats)),
   ?assertEqual(58091, lists:last(Ats)),
 
   file:close(F),

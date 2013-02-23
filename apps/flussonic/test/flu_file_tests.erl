@@ -51,8 +51,10 @@ test_hds_missing_segment({_, File}) ->
   ?assertEqual({error, no_segment}, flu_file:hds_segment(File, 100)).
 
 test_hds_segment({_,File}) ->
-  ?assertMatch({ok, <<_Size:32, "mdat", _FLV/binary>>}, flu_file:hds_segment(File, 4)),
-  {ok, <<_Size:32, "mdat", FLV/binary>>} = flu_file:hds_segment(File, 4),
+  ?assertMatch({ok, _Seg}, flu_file:hds_segment(File, 4)),
+  {ok, Seg} = flu_file:hds_segment(File, 4),
+
+  <<_Size:32, "mdat", FLV/binary>> = iolist_to_binary(Seg),
   Frames = flv:read_all_frames(FLV),
   ?assertMatch(_ when length(Frames) > 10, Frames),
 
@@ -76,9 +78,9 @@ test_hds_segment({_,File}) ->
 
 
 test_hds_lang_segment({_,File}) ->
-  ?assertMatch({ok, <<_Size:32, "mdat", _FLV/binary>>}, flu_file:hds_segment(File, 4, [2])),
   {ok, HDS} = flu_file:hds_segment(File, 4, [2]),
-  Frames = flv:read_all_frames(HDS),
+  <<_Size:32, "mdat", _FLV/binary>> = iolist_to_binary(HDS),
+  Frames = flv:read_all_frames(iolist_to_binary(HDS)),
   ?assertMatch(_ when length(Frames) > 10, Frames),
 
   Audio = [Frame || #video_frame{content = audio, flavor = frame} = Frame <- Frames],
@@ -152,8 +154,8 @@ test_hls_video_segment({_,File}) ->
   ok.
 
 test_hds_video_segment({_,File}) ->
-  ?assertMatch({ok, <<_Size:32, "mdat", _FLV/binary>>}, flu_file:hds_segment(File, 4)),
-  {ok, <<_Size:32, "mdat", FLV/binary>>} = flu_file:hds_segment(File, 4),
+  {ok, Seg} = flu_file:hds_segment(File, 4),
+  <<_Size:32, "mdat", FLV/binary>> = iolist_to_binary(Seg),
   Frames = flv:read_all_frames(FLV),
   ?assertMatch(_ when length(Frames) > 10, Frames),
   ok.
@@ -199,7 +201,7 @@ test_mbr_hds_manifest({_,File}) ->
 
 test_mbr_first_track_segment({_,File}) ->
   {ok, HDS} = flu_file:hds_segment(File, 2, [1,4]),
-  Frames = flv:read_all_frames(HDS),
+  Frames = flv:read_all_frames(iolist_to_binary(HDS)),
   ?assertMatch(Len when Len > 400 andalso Len < 500, length(Frames)),
   Video = [F || #video_frame{content = video} = F <- Frames],
   Audio = [F || #video_frame{content = audio} = F <- Frames],
@@ -210,7 +212,7 @@ test_mbr_first_track_segment({_,File}) ->
 
 test_mbr_lang_segment({_,File}) ->
   {ok, HDS} = flu_file:hds_segment(File, 2, [4]),
-  Frames = flv:read_all_frames(HDS),
+  Frames = flv:read_all_frames(iolist_to_binary(HDS)),
   % ?assertMatch(Len when Len > 300 andalso Len < 400, length(Frames)),
   Video = [F || #video_frame{content = video} = F <- Frames],
   Audio = [F || #video_frame{content = audio} = F <- Frames],
