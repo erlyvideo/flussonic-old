@@ -96,18 +96,24 @@ add_ts_delay(Attrs) ->
 
 
 send_frame(Stream, #video_frame{} = Frame) when is_pid(Stream) ->
-  try gen_server:call(Stream, Frame)
-  catch
-    exit:{timeout, _} ->
-      Dict = case process_info(Stream, dictionary) of
-        {dictionary, Dict_} -> Dict_;
-        undefined -> []
-      end,
-      Name = proplists:get_value(name, Dict, <<"dead stream">>),
-      Status = proplists:get_value(status, Dict),
-      lager:error("failed to send frame to ~s (~p) in status ~p, ~p", [Name, Stream, Status, erlang:get_stacktrace()]),
-      % [io:format("~10.. s: ~p~n", [K,V]) || {K,V} <- process_info(Stream)]
-      {error, timeout}
+  {message_queue_len, MsgCount} = erlang:process_info(Stream, message_queue_len),
+  if MsgCount > 40 ->
+    timer:sleep(1000),
+    {error, busy};
+  true ->
+    try gen_server:call(Stream, Frame)
+    catch
+      exit:{timeout, _} ->
+        Dict = case process_info(Stream, dictionary) of
+          {dictionary, Dict_} -> Dict_;
+          undefined -> []
+        end,
+        Name = proplists:get_value(name, Dict, <<"dead stream">>),
+        Status = proplists:get_value(status, Dict),
+        lager:error("failed to send frame to ~s (~p) in status ~p, ~p", [Name, Stream, Status, erlang:get_stacktrace()]),
+        % [io:format("~10.. s: ~p~n", [K,V]) || {K,V} <- process_info(Stream)]
+        {error, timeout}
+    end
   end.
 
 

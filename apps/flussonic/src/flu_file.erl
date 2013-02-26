@@ -237,7 +237,7 @@ handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Tim
 handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI, path = Path} = State) ->
   T1 = os:timestamp(),
   Gop = case Format:read_gop(Reader, Fragment, Tracks) of
-    {ok, Gop_} -> Gop_;
+    {ok, Gop_} -> limited_gop(Fragment, Gop_);
     {error, _} = Error -> throw({reply, Error, State, Timeout})
   end,
   T2 = os:timestamp(),
@@ -254,7 +254,7 @@ handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, fo
 handle_call({hls_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI, path = Path} = State) ->
   T1 = os:timestamp(),
   Gop = case Format:read_gop(Reader, Fragment, Tracks) of
-    {ok, Gop_} -> Gop_;
+    {ok, Gop_} -> limited_gop(Fragment, Gop_);
     {error, _} = Error -> throw({reply, Error, State, Timeout})
   end,
   T2 = os:timestamp(),
@@ -312,6 +312,17 @@ gop_duration([#video_frame{dts = DTS}|_] = Frames) ->
 gop_duration([#video_frame{dts = DTS}], StartDTS) -> round(DTS - StartDTS);
 gop_duration([_|Frames], StartDTS) -> gop_duration(Frames, StartDTS).
 
+
+
+limited_gop(N, Gop) ->
+  Count = length(Gop),
+  if Count < 5000 -> Gop;
+    true ->
+      {flu_file,URL} = get(name),
+      lager:error("File ~p has broken gop ~p with ~p frames", [URL, N, Count]),
+      {Frames, _} = lists:split(5000, Gop),
+      Frames
+  end.
 
 
 open(#state{disk_path = Path, requested_path = Path1, access = Access, format = Format, file = undefined} = State) ->

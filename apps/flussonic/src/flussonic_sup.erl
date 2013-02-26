@@ -68,7 +68,7 @@ start_stream_helper(Stream, Id, {M,F,A}) when is_binary(Stream) ->
   case lists:keyfind(Stream, 1, supervisor:which_children(flu_streams_sup)) of
     {Stream, Sup, _, _} ->
       {helper, Helper, _, _} = lists:keyfind(helper, 1, supervisor:which_children(Sup)),
-      ChildSpec = {Id, {M, F, A}, transient, 2000, worker, []},
+      ChildSpec = {Id, {M, F, A}, transient, 200, worker, []},
       case supervisor:start_child(Helper, ChildSpec) of
         {ok, Pid} -> {ok, Pid};
         {error, _} ->

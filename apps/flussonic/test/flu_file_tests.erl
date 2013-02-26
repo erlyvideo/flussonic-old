@@ -43,6 +43,7 @@ teardown_flu_file({none, File}) ->
   error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(gen_tracker),
   application:stop(pulse),
+  application:stop(http_file),
   error_logger:add_report_handler(error_logger_tty_h),
   % lager:set_loglevel(lager_console_backend, info),
   ok.
@@ -338,7 +339,7 @@ setup() ->
   {ok, Httpd, Apps}.
 
 start_flu() ->
-  Apps = [gen_tracker, flussonic, ranch, cowboy, public_key, ssl, lhttpc, pulse, http_file],
+  Apps = [gen_tracker, flussonic, crypto, ranch, cowboy, public_key, ssl, lhttpc, pulse, http_file],
   [application:start(App) || App <- Apps],
   gen_tracker_sup:start_tracker(flu_files),
   {ok,Apps}.
@@ -358,7 +359,6 @@ teardown({ok, Httpd, Apps}) ->
   error_logger:delete_report_handler(error_logger_tty_h),
   ok = inets:stop(httpd, Httpd),
   ok = application:stop(inets),
-  application:stop(http_file),
   [application:stop(App) || App <- lists:reverse(Apps)],
   error_logger:add_report_handler(error_logger_tty_h),
   ok.

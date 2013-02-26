@@ -1,3 +1,11 @@
+flussonic (3.68.20)
+
+  * flu_stream message queue length is checked before publish
+  * added http event notifiers
+  * admin panel now shows live timeshift on dvr enabled streams
+  * hls_dvr_writer now checks timeouts and restart delaying writer
+  * added protection to flu_file from GOP more than 5000 frames long
+
 flussonic (3.68.19)
 
   * fix flv problem with pulse and small segments

@@ -43,6 +43,10 @@ expand_entry_test_() ->
     flu_config:parse_config([{api,[{pass,"admin","passw"}]},{http_auth,"user", "zzz"}], undefined)),
 
 
+  ?_assertEqual({ok, [{flu_event, flu_event_http, [<<"http://ya.ru/">>, []]}]}, 
+    flu_config:parse_config([{http_events, "http://ya.ru/"}], undefined)),
+
+
   ?_assertEqual({ok, [{plugin, iptv, []}]}, 
     flu_config:parse_config([{plugin, iptv}], undefined)),
   ?_assertEqual({ok, [{plugin, iptv, [{cas,none}]}]}, 

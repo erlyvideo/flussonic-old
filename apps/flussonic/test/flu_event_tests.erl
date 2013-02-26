@@ -31,3 +31,70 @@ disconnect_event() ->
       {last_access_time,1358267356425},
       {bytes_sent,0},{pid,erlang:list_to_pid("<0.5379.0>")},{ref,make_ref()},{options,[]}]
   }.
+
+
+configuration_test_() ->
+  {foreach, fun() ->
+    application:load(flussonic),
+    gen_event:start_link({local, flu_event})
+  end, fun(_) ->
+    gen_event:stop(flu_event),
+    ok
+  end, 
+    [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
+    lists:prefix("test_", atom_to_list(F))]  
+  }.
+
+
+test_initialize() ->
+  Self = self(),
+  Conf1 = [Self, 1, 2],
+  flu_config:set_config([{flu_event, fake_event_handler, Conf1}]),
+  ?assertEqual([], gen_event:which_handlers(flu_event)),
+  flu_event:start_handlers(),
+  ?assertEqual([fake_event_handler], gen_event:which_handlers(flu_event)),
+  ?assertEqual(Conf1, gen_event:call(flu_event, fake_event_handler, options)),
+  ok.
+
+
+test_update_conf() ->
+  Self = self(),
+
+  Conf1 = [Self, 1, 2],
+  flu_config:set_config([{flu_event, fake_event_handler, Conf1}]),
+  flu_event:start_handlers(),
+
+
+  Conf2 = [Self, 3, 4],
+  flu_config:set_config([{flu_event, fake_event_handler, Conf2}]),
+  flu_event:start_handlers(),
+
+  ?assertEqual(Conf2, gen_event:call(flu_event, fake_event_handler, options)),
+  ok.
+
+
+test_install_new_conf() ->
+  flu_config:set_config([{flu_event, fake_event_handler, [1,2]}]),
+  flu_event:start_handlers(),
+
+
+  flu_config:set_config([{flu_event, fake_event_handler, [3,4]}, {flu_event, flu_event_consumer, [self()]}]),
+  flu_event:start_handlers(),
+
+  ?assertEqual([3,4], gen_event:call(flu_event, fake_event_handler, options)),
+  gen_event:notify(flu_event, my_test_event),
+
+  receive
+    my_test_event -> ok
+  after
+    100 -> error({flu_event_consumer,not_installed})
+  end.
+
+
+
+
+
+
+
+
+

@@ -32,7 +32,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
-set_config(Config) ->
+set_config(Config) when is_list(Config) ->
   application:set_env(flussonic, config, Config).
 
 get_config() ->
@@ -131,6 +131,7 @@ expand_entry({file, Prefix, Root},GlobalOptions) -> {file, to_b(Prefix), to_b(Ro
 expand_entry({file, Prefix, Root, Options},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), merge(Options,GlobalOptions)};
 expand_entry(api, GlobalOptions) -> {api, GlobalOptions};
 expand_entry({api, Options}, GlobalOptions) -> {api, merge(Options,GlobalOptions)};
+expand_entry({http_events, URL},_GlobalOptions) -> {flu_event, flu_event_http, [list_to_binary(URL), []]};
 expand_entry({plugin, Plugin},_GlobalOptions) -> {plugin, Plugin, []};
 expand_entry(Entry,_GlobalOptions) -> Entry.
 

@@ -17,15 +17,15 @@ rtsp_publish_test_() ->
 
     application:load(lager),
     application:set_env(lager,handlers,[{lager_console_backend,info}]),
-    application:set_env(lager,error_logger_redirect,true),
+    application:set_env(lager,error_logger_redirect,false),
     application:set_env(lager,crash_log,undefined),
     lager:start(),
 
     rtsp:start_server(8854, fake_rtsp, fake_rtsp_callback, [{dump_rtsp,false}])
   end, fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
-    application:stop(ranch),
     application:stop(lager),
+    application:stop(ranch),
     error_logger:add_report_handler(error_logger_tty_h),
   ok
   end, Tests

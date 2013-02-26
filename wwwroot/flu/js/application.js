@@ -261,7 +261,8 @@ Erlyvideo = {
     var new_streams = {};
     
     for(i = 0; i < streams["streams"].length; i++) {
-      var s = streams["streams"][i];
+      var s1 = streams["streams"][i];
+      var s = JSON.parse(JSON.stringify(s1));
       s.vname = s.name.replace(/\//g, "_");
       s.play_name = s.name;
       s.lifetime = Erlyvideo.format_seconds(s.lifetime / 1000);
@@ -271,11 +272,8 @@ Erlyvideo = {
         s.ts_delay = 0;
         total_file += s.client_count;
       }
-      if(s.play_prefix) {
-        s.play_name = s.play_prefix + "/" + s.play_name;
-      }
       if(!Erlyvideo.current_streams[s.name]) {
-        Erlyvideo.current_streams[s.name] = true;
+        Erlyvideo.current_streams[s.name] = s1;
         s.hds = s.hds ? "visible" : "hidden";
         s.hls = s.hls ? "visible" : "hidden";
         s.dvr = s.dvr ? "visible" : "hidden";
@@ -292,7 +290,7 @@ Erlyvideo = {
         s1.find(".s-dvr").css('visibility', s.dvr ? "visible" : "hidden");
         s1.find(".s-rtmp").css('visibility', s.rtmp ? "visible" : "hidden");
       }
-      new_streams[s.name] = true;
+      new_streams[s.name] = s;
       total += s.client_count;
     }
 
@@ -444,6 +442,11 @@ Erlyvideo = {
       }
 
       if(player == "hds") {
+        if(Erlyvideo.current_streams[stream] && Erlyvideo.current_streams[stream].hds && stream.indexOf("archive") == -1) {
+          var t = Math.round((new Date()) / 1000) - 15*60;
+          stream = stream+"/archive/"+t+"/now/manifest.f4m";
+        }
+        console.log(Erlyvideo.current_streams[stream]);
         Erlyvideo.osmf_player("player-embed", stream, info);
       } else if(player == "rtmp") {
         Erlyvideo.jwplayer("player-embed", stream, info);
@@ -458,10 +461,10 @@ Erlyvideo = {
     }
 
 
-    if(stream[0] != "/") stream = "/" + stream;
+    var stream_ = stream[0] == "/" ? stream : "/" + stream;
     $.ajax({
       type: 'GET',
-      url: "/erlyvideo/api/media_info"+stream,
+      url: "/erlyvideo/api/media_info"+stream_,
       dataType: 'json',
 
       success: play,

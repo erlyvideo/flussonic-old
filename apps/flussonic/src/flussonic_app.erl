@@ -146,6 +146,8 @@ load_config() ->
     end
   end || {plugin, Plugin, Options} <- flu_config:get_config()],
 
+  flu_event:start_handlers(),
+
   [catch flu_stream:update_options(Stream, [{url,URL}|StreamOpts]) || {stream, Stream, URL, StreamOpts} <- Env],
   ConfigStreams = [Stream || {stream, Stream, _URL, _StreamOpts} <- Env],
   [catch flu_stream:non_static(Name) || {Name, _} <- flu_stream:list(), not lists:member(Name, ConfigStreams)],  

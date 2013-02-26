@@ -201,10 +201,10 @@ rtsp_interleaved_read_test() ->
 
 rtsp_udp_test() ->
   {ok, S, R, RTP, RTCP} = prepare_udp_session(),
-
   SSRC = 143,
   Bin = <<2:2, 0:1, 0:1, 0:4, 1:1, 97:7, 0:16, 0:32, SSRC:32, 9,0>>,
   gen_udp:send(RTP, Bin),
+  timer:sleep(50),
   R ! send_rr,
   % We have sent RTP packet with SSRC, so we receive some RR
   {ok, {_, _, <<129,201,0,7,SSRC:32,SSRC:32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>}} = gen_udp:recv(RTCP,0),
