@@ -997,7 +997,7 @@ send(#rtsp{socket = Socket, seq = Seq, url = URL, session = Session, auth = Auth
 
 
 
-dump_out(#rtsp{dump = true}, Call) -> io:format(">>>>>> RTSP OUT (~p:~p) >>>>>~n~s~n", [?MODULE, ?LINE, Call]);
+dump_out(#rtsp{dump = true}, Request) -> lager:info(">>>>>> RTSP OUT >>>>>~n~s~n", [Request]);
 dump_out(_, _) -> ok.
 
 

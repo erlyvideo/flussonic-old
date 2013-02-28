@@ -72,7 +72,7 @@ Erlyvideo = {
 // Tab control
 
   enable_tabs: function() {
-    $(".tabbed-menu a, a.link-button").live('click', function() {
+    $(".tabbed-menu a, a.link-button").on('click', function() {
       Erlyvideo.activate_tab($(this).attr('href').substring(1));
     });
   },
@@ -442,11 +442,10 @@ Erlyvideo = {
       }
 
       if(player == "hds") {
-        if(Erlyvideo.current_streams[stream] && Erlyvideo.current_streams[stream].hds && stream.indexOf("archive") == -1) {
+        if(Erlyvideo.current_streams[stream] && Erlyvideo.current_streams[stream].dvr && stream.indexOf("archive") == -1) {
           var t = Math.round((new Date()) / 1000) - 15*60;
           stream = stream+"/archive/"+t+"/now/manifest.f4m";
         }
-        console.log(Erlyvideo.current_streams[stream]);
         Erlyvideo.osmf_player("player-embed", stream, info);
       } else if(player == "rtmp") {
         Erlyvideo.jwplayer("player-embed", stream, info);

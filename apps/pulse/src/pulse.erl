@@ -48,7 +48,8 @@ div_(_,0) -> 0;
 div_(Bytes, Time) -> Bytes div Time.
 
 segment_info(Table) ->
-  [ [{time,T},{disk,div_(Size*8, Disk)},{segment,div_(Size*8, Segment)},{size,Size},{speed,div_(Segment,Duration*10)}] 
+  C = 8*1000000 div 1024,
+  [ [{time,T},{disk,div_(Size*C, Disk)},{segment,div_(Size*C, Segment)},{size,Size},{speed,div_(Segment,Duration*10)}] 
   || {T,Disk,Segment,Size,Duration} <- lists:sort(ets:tab2list(Table))].
 
 

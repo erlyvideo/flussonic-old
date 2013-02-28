@@ -29,7 +29,7 @@
 
 
 -export([calculate_new_stream_shift/2, shift_dts_delta/2, fix_large_dts_jump/2]).
--export([check_dts_wallclock/2, store_gop/2, save_config/2, save_last_dts/2]).
+-export([check_dts_wallclock/2, save_config/2, save_last_dts/2]).
 -export([handle_frame/2]).
 
 handle_frame(#video_frame{} = Frame, Media) ->
@@ -38,7 +38,6 @@ handle_frame(#video_frame{} = Frame, Media) ->
     calculate_new_stream_shift,
     shift_dts_delta,
     save_last_dts,
-    store_gop,
     save_config
   ],
   
@@ -111,24 +110,6 @@ check_dts_wallclock(#video_frame{dts = DTS} = Frame, Media) ->
     true -> ok
   end,
   {Frame, Media}.
-
-store_gop(#video_frame{flavor = keyframe, dts = DTS} = F, #stream{gop = GOP, gop_start = GopStart, dump_frames = Dump} = Stream) when 
-  GOP == undefined orelse (DTS - GopStart >= 6000) ->
-  case Dump of
-    true -> lager:info("gop ~.2f - ~.2f = ~.2f", [GopStart, DTS, DTS - GopStart]);
-    _ -> ok
-  end,
-  Stream1 = case GOP of
-    undefined -> Stream;
-    _ -> flu_stream:pass_message({gop, lists:reverse(GOP)}, Stream)
-  end,
-  {F, Stream1#stream{gop = [F], gop_start = DTS}};
-
-store_gop(#video_frame{} = F, #stream{gop = GOP} = Stream) when is_list(GOP) ->
-  {F, Stream#stream{gop = [F|GOP]}};
-
-store_gop(#video_frame{} = F, #stream{gop = undefined} = Stream) ->
-  {F, Stream}.
 
 
 save_config(#video_frame{flavor = config} = Frame, #stream{media_info = MI1} = Stream) ->

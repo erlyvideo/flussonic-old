@@ -20,7 +20,5 @@
   udp,
   rtmp,
   monotone,
-  gop = undefined,
-  gop_start = undefined,
   check_timer
 }).

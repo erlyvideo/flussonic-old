@@ -19,13 +19,12 @@ hds_packetizer_test_() ->
 setup() ->
   application:start(gen_tracker),
   gen_tracker_sup:start_tracker(flu_streams),
-  {ok, Pid} = flu_stream_data:start_link(),
-  unlink(Pid),
-  {ok, Pid}.
+  application:start(flussonic),
+  ok.
 
-teardown({ok, Pid}) ->
+teardown(_) ->
   error_logger:delete_report_handler(error_logger_tty_h),
-  erlang:exit(Pid, shutdown),
+  application:stop(flussonic),
   application:stop(gen_tracker),
   error_logger:add_report_handler(error_logger_tty_h),
   ok.
@@ -43,21 +42,39 @@ test_terminate() ->
   ok.
 
 
-test_gop_with_empty_media_info() ->
-  {ok, HDS1} = hds_packetizer:init([{name,<<"stream1">>}]),
-  {noreply, _HDS2} = hds_packetizer:handle_info({gop, gop(2)}, HDS1),
-  ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, hds_manifest)),
-  ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, {hds_segment, 1, 1})),
-  ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, bootstrap)),
-  ok.
+% test_gop_with_empty_media_info() ->
+%   {ok, HDS1} = hds_packetizer:init([{name,<<"stream1">>}]),
+%   {noreply, _HDS2} = hds_packetizer:handle_info({gop, gop(2)}, HDS1),
+%   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, hds_manifest)),
+%   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, {hds_segment, 1, 1})),
+%   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, bootstrap)),
+%   ok.
 
 
+wait(_,_,0) -> undefined;
 
-test_gop_with_media_info() ->
-  {ok, HDS1} = hds_packetizer:init([{name,<<"stream1">>}]),
-  {noreply, HDS2} = hds_packetizer:handle_info(media_info(), HDS1),
-  Gop = gop(2),
-  {noreply, _HDS3} = hds_packetizer:handle_info({gop, Gop}, HDS2),
+wait(K,V,Count) ->
+  case gen_tracker:getattr(flu_streams, K, V) of
+    undefined ->
+      timer:sleep(50),
+      wait(K,V,Count-1);
+    Else ->
+      Else
+  end.
+
+
+test_full_cycle() ->
+  {ok, S} = flu_stream:autostart(<<"stream1">>, [{url,<<"passive://ok">>}]),
+  S ! media_info(),
+
+  ?assertEqual({ok, true}, wait(<<"stream1">>, hds, 10)),
+
+  ?assertEqual(undefined, flu_stream_data:get(<<"stream1">>, hds_manifest)),
+
+  Gop = gop(1),
+  [flu_stream:send_frame(S, Frame) || Frame <- Gop],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(2)],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(3)],
 
   ?assertMatch({ok, Fragment} when is_binary(Fragment),
     flu_stream_data:get(<<"stream1">>, {hds_segment, 1, 1})),

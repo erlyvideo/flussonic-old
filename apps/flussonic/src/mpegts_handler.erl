@@ -81,6 +81,8 @@ handle(Req, State) ->
       {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined};
     exit:timeout ->
       {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined};
+    exit:enotconn ->
+      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined};
     Class:Error ->
       lager:error("~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()]),
       {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined}      
@@ -103,7 +105,7 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
   #media_info{streams = Streams} = await_media_info(Name, Req),
 
   Mpegts = mpegts:init([{resync_on_keyframe,true}]),
-  flu_stream:subscribe(Pid, Options),
+  flu_stream:subscribe(Pid, [{proto,tcp_mpegts},{socket,Socket}|Options]),
   Started = length([S || #stream_info{content = video} = S <- Streams]) == 0,
   ?MODULE:write_loop(Req, Mpegts, Started);
 
@@ -200,7 +202,10 @@ write_loop(Req, Mpegts, Started) ->
     #media_info{} = MI ->
       {Mpegts1, Data} = mpegts:encode(Mpegts, MI),
       tcp_send(Req, Data),
-      ?MODULE:write_loop(Req, Mpegts1, Started);      
+      ?MODULE:write_loop(Req, Mpegts1, Started);
+    refresh_auth ->
+      % TODO add rechecking session info
+      ?MODULE:write_loop(Req, Mpegts, Started);
     Message ->
       ?D(Message)
   after

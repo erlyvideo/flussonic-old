@@ -3,6 +3,9 @@
 %%! 
 
 
+% sublime: syntax Erlang
+
+
 main([FromUrl, ToUrl]) ->
   Root = filename:join(filename:dirname(escript:script_name()), ".."),
   [code:add_pathz(Path) || Path <- filelib:wildcard(Root ++ "/apps/*/ebin")],

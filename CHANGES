@@ -1,3 +1,17 @@
+flussonic (3.69.1)
+
+  * flu_stream monotonic now passed data directly to sockets
+  * flu_rtmp now uses fast RTMP sending path
+  * hds_packetizer now doesn't use gop collector
+  * fixed playing of HDS streams in admin panel
+  * support for intra-refresh streams in DVB-S
+  * flu_stream overload protection in publish
+  * updated jquery
+  * pulse now properly tells segment read speeds
+  * dvr_hour_storage now caches blobs content in memory
+  * mpegts_handler now also is receiving live via direct socket write
+  * fixed mpegts_handler exiting due to auth_refresh message
+
 flussonic (3.68.20)
 
   * flu_stream message queue length is checked before publish

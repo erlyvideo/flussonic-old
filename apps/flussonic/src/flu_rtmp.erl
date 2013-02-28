@@ -363,9 +363,29 @@ play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media
 play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _StreamName) ->
   {ok, Media} = flu_stream:find(StreamName),
   erlang:monitor(process, Media),
-  flu_stream:subscribe(Media, []),
-  Session1 = rtmp_session:set_stream(rtmp_stream:construct([{pid, Media}, {stream_id, StreamId}, {name, StreamName}, 
-    {started, false}, {options, [{media_type,stream}]}]), Session),
+  ?D({play,StreamName,StreamId}),
+  Session1 = case StreamId of
+    1 ->
+      RTMP = rtmp_session:get(Session, socket),
+      {rtmp, Socket} = rtmp_socket:get_socket(RTMP),
+      #media_info{streams = Streams} = flu_stream:media_info(StreamName),
+      rtmp_lib:play_start(RTMP, StreamId, 0, live),
+      case lists:keyfind(audio, #stream_info.content, Streams) of
+        false -> ok;
+        _ -> rtmp_socket:notify_audio(RTMP, StreamId, 0)
+      end,
+      case lists:keyfind(video, #stream_info.content, Streams) of
+        false -> ok;
+        _ -> rtmp_socket:notify_video(RTMP, StreamId, 0)
+      end,
+      flu_stream:subscribe(Media, [{proto,rtmp},{socket,Socket}]),
+      rtmp_session:set_stream(rtmp_stream:construct([{pid, Media}, {stream_id, StreamId}, {name, StreamName}, 
+        {started, true}, {options, [{media_type,stream}]}]), Session);
+    _ ->
+      flu_stream:subscribe(Media, []),
+      rtmp_session:set_stream(rtmp_stream:construct([{pid, Media}, {stream_id, StreamId}, {name, StreamName}, 
+        {started, false}, {options, [{media_type,stream}]}]), Session)
+  end,
   Session1.
 
 

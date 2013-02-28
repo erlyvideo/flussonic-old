@@ -432,6 +432,9 @@ flu_file_http_test_() ->
     application:stop(lhttpc),
     application:stop(public_key),
     application:stop(inets),
+    application:stop(http_file),
+    application:stop(pulse),
+    application:stop(crypto),
     ok = application:stop(gen_tracker),
     error_logger:add_report_handler(error_logger_tty_h),
     ok

@@ -2,6 +2,7 @@
 
 -include_lib("erlmedia/include/video_frame.hrl").
 -mode(compile).
+% sublime: syntax Erlang
 
 main([Path]) ->
   {ok, F} = file:open(Path, [binary, read]),

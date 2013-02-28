@@ -254,9 +254,9 @@ subscribe(Stream, Options) when is_binary(Stream) ->
   {ok, Pid} = autostart(Stream, Options),
   subscribe(Pid, Options);
 
-subscribe(Pid, _Options) when is_pid(Pid) ->
+subscribe(Pid, Options) when is_pid(Pid) ->
   erlang:monitor(process, Pid),
-  gen_server:call(Pid, {subscribe, self()}).
+  gen_server:call(Pid, {subscribe, self(), Options}).
 
 set_source(Stream, Source) when is_pid(Stream) andalso (is_pid(Source) orelse Source == undefined) ->
   gen_server:call(Stream, {set_source, Source}).
@@ -401,39 +401,26 @@ handle_call({update_options, NewOptions}, _From, #stream{name = Name} = Stream) 
   Stream1 = set_options(Stream#stream{options = NewOptions1}),
   {reply, ok, Stream1};
 
-handle_call(start_monotone, _From, #stream{name = Name, last_dts = DTS, monotone = undefined, media_info = MediaInfo} = Stream) ->
-  case flussonic_sup:find_stream_helper(Name, monotone) of
-    {ok, M} ->
-      {reply, {ok,M}, Stream#stream{monotone = M}};
-    {error, _} ->
-      {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]}),
-      flu_monotone:send_media_info(M, MediaInfo),
-      flu_monotone:set_current_dts(M, DTS),
-      {reply, {ok,M}, Stream#stream{monotone = M}}
-  end;
-
-handle_call(start_monotone, _From, #stream{monotone = M1} = Stream) ->
-  {reply, {ok, M1}, Stream};
-
-handle_call({subscribe, Pid}, From, #stream{name = Name, last_dts = DTS, monotone = undefined, media_info = MediaInfo} = Stream) ->
-  put(status, start_monotone),
-  {ok, Monotone} = case flussonic_sup:find_stream_helper(Name, monotone) of
-    {ok, M} ->
-      {ok, M};
-    {error, _} ->
-      {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]}),
-      erlang:monitor(process, M),
-      flu_monotone:send_media_info(M, MediaInfo),
-      flu_monotone:set_current_dts(M, DTS),
-      {ok, M}
-  end,
-  handle_call({subscribe, Pid}, From, Stream#stream{monotone = Monotone});
+handle_call(start_monotone, _From, #stream{} = Stream) ->
+  {ok, M, Stream1} = start_monotone_if_need(Stream),
+  {reply, {ok, M}, Stream1};
 
 
-handle_call({subscribe, Pid}, _From, #stream{monotone = Monotone} = Stream) ->
+handle_call({subscribe, Pid, Options}, _From, #stream{} = Stream) ->
+  {ok, Monotone, Stream1} = start_monotone_if_need(Stream),
   put(status, subscribe_pid_to_monotone),
-  Reply = flu_monotone:subscribe(Monotone, Pid),
-  {reply, Reply, Stream};
+  % TODO: make subscribing to events via ets table
+  {Proto, Socket} = case proplists:get_value(proto, Options) of
+    undefined -> {raw, undefined};
+    Proto_ ->
+      case lists:keyfind(socket, 1, Options) of
+        false -> {raw, undefined};
+        {socket, Socket_} -> {Proto_, Socket_}
+      end
+  end,
+
+  Reply = flu_monotone:add_client(Monotone, Pid, Proto, Socket),
+  {reply, Reply, Stream1};
 
 handle_call({set_source, undefined}, _From, #stream{source_ref = Ref} = Stream) ->
   case Ref of
@@ -673,8 +660,20 @@ handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Du
 
 
 
+start_monotone_if_need(#stream{name = Name, last_dts = DTS, monotone = undefined, media_info = MediaInfo} = Stream) ->
+  put(status, start_monotone),
+  case flussonic_sup:find_stream_helper(Name, monotone) of
+    {ok, M} ->
+      {ok, M, Stream#stream{monotone = M}};
+    {error, _} ->
+      {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]}),
+      flu_monotone:send_media_info(M, MediaInfo),
+      flu_monotone:set_current_dts(M, DTS),
+      {ok, M, Stream#stream{monotone = M}}
+  end;
 
-
+start_monotone_if_need(#stream{monotone = M1} = Stream) ->
+  {ok, M1, Stream}.
 
 
 

@@ -23,6 +23,7 @@
 
 -record(stream_info, {
   content        = undefined ::frame_content(),
+  title          = undefined ::undefined|binary(), % Human readable localized title for HDS/HLS
 	track_id       = undefined ::non_neg_integer(),
   codec 	       = undefined ::frame_codec()|undefined,
   config         = undefined ::stream_decoder_config(),

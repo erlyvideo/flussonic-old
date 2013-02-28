@@ -1,5 +1,7 @@
 #!/usr/bin/env escript
 
+% sublime: syntax Erlang
+
 
 main(Options) ->
   % Root = filename:join(filename:dirname(escript:script_name()), ".."),

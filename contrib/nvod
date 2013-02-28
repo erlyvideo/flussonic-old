@@ -1,6 +1,7 @@
 #!/usr/bin/env escript
 
 -mode(compile).
+% sublime: syntax Erlang
 
 main([Path]) ->
   {ok, F} = file:open(Path, [read,binary,raw]),

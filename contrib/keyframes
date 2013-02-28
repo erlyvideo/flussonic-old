@@ -1,5 +1,7 @@
 #!/usr/bin/env ERL_LIBS=apps escript
 
+% sublime: syntax Erlang
+
 -mode(compile).
 
 -include_lib("erlmedia/include/video_frame.hrl").

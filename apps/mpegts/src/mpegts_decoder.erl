@@ -494,6 +494,7 @@ separate_nals(NALs) ->
 h264_frames(#stream{dts = DTS, pts = PTS, es_buffer = AnnexB, sent_config = SentConfig, private = Private0} = Stream) ->
   NALs = [NAL || NAL <- binary:split(iolist_to_binary(lists:reverse(AnnexB)), [<<1:32>>, <<1:24>>], [global]), NAL =/= <<>>, h264:type(NAL) =/= delim],
   NalTypes = [h264:type(NAL) || NAL <- NALs],
+
   {ConfigNals, PayloadNals} = separate_nals(NALs),
   {Config, Private2} = case ConfigNals of
     [] -> {[], Private0};
@@ -515,7 +516,7 @@ h264_frames(#stream{dts = DTS, pts = PTS, es_buffer = AnnexB, sent_config = Sent
         end
     end
   end,
-  Keyframe = lists:member(idr, NalTypes),
+  Keyframe = lists:member(idr, NalTypes) orelse lists:member(pps, NalTypes),
   Payload = case PayloadNals of
     [] -> [];
     _ -> 

@@ -5,18 +5,24 @@
 
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([delay/2]).
+-export([add_client/4]).
+
 -include("log.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 
+subscribe(Monotone, Pid) ->
+  add_client(Monotone, Pid, raw, undefined).
+
+add_client(Monotone, Pid, Proto, Socket) when
+  Proto == rtmp orelse Proto == tcp_mpegts orelse Proto == udp_mpegts orelse Proto == raw ->
+  gen_server:call(Monotone, {add_client, Pid, Proto, Socket}).
 
 start_link(Name) ->
   gen_server:start_link(?MODULE, [Name], []).
 
-subscribe(Monotone, Pid) ->
-  gen_server:call(Monotone, {subscribe, Pid}).
 
 clients_count(undefined) -> 0;
 clients_count(Monotone) ->
@@ -27,15 +33,15 @@ clients_count(Monotone) ->
 
 
 send_frame(undefined, _) -> ok;
-send_frame(Monotone, Frame) -> 
-  try gen_server:call(Monotone, Frame, 1000)
-  catch
-    exit:{timeout, _} ->
-      lager:error("stream ~p failed to send frame to monotone", [get(name)]),
-      % [io:format("~20.. s: ~p~n", [K,V]) || {K,V} <- process_info(Monotone)],
-      {error, timeout};
-    exit:{noproc, _} ->
-      {error, noproc}
+send_frame(Monotone, Frame) ->
+  case erlang:process_info(Monotone, message_queue_len) of
+    {message_queue_len, Len} when Len > 1000 ->
+      {error, busy};
+    undefined ->
+      {error, noproc};
+    {message_queue_len, _} ->
+      Monotone ! Frame,
+      ok
   end.
 
 set_current_dts(Pid, DTS) -> 
@@ -65,40 +71,54 @@ stop(Monotone) ->
   first_dts,
   start_at,
   timer,
-  subscribers = [],
   waiting = [],
+  udp_mpegts = [],
+  tcp_mpegts = [],
+  mpegts,
+  rtmp = [],
+  raw = [],
   frames,
   queue_len = 0
 }).
 
+-record(client, {
+  pid,
+  ref,
+  proto,
+  start_dts,
+  socket
+}).
+
+
 init([Name]) ->
   put(name, {flu_monotone,Name}),
   {ok, Stream} = flu_stream:find(Name),
+  put(clients_count,0),
   {ok, #monotone{name = Name, stream = Stream, frames = queue:new()}}.
 
 
-handle_call({subscribe, Pid}, _From, #monotone{subscribers = S, stream = Stream, waiting = W, media_info = MI} = M) ->
-  erlang:monitor(process, Pid),
-  M1 = case MI of
-    [#stream_info{content = audio}] ->
-      [Pid ! C#video_frame{stream_id = Stream} || C <- configs(M)],
-      M#monotone{subscribers = [Pid|S]};
-    _ ->
-      M#monotone{waiting = [Pid|W]}
-  end,
-  put(clients_count, length(S) + 1),
-  {reply, ok, M1};
+handle_call({add_client, Pid, Proto, Socket}, _From, #monotone{waiting = W, media_info = MI} = Monotone) ->
+  Ref = erlang:monitor(process, Pid),
+  Client = #client{pid = Pid, ref = Ref, proto = Proto, socket = Socket},
 
-handle_call(clients_count, _From, #monotone{subscribers = S} = M) ->
-  {reply, length(S), M};
+  put(clients_count, get(clients_count) + 1),
+  case MI of
+    [#stream_info{content = audio}] ->
+      {ok, Reply, Monotone1} = add_client_to_list(Monotone, Client),
+      {reply, Reply, Monotone1};
+    _ ->
+      % ?D({add_client,Proto}),
+      {reply, ok, Monotone#monotone{waiting = [Client|W]}}
+  end;
+
 
 handle_call(#media_info{} = MI, _From, #monotone{frames = Frames} = M) ->
   {reply, ok, M#monotone{frames = queue:in(MI, Frames), media_info = MI}};
 
-handle_call(#video_frame{} = Frame, From, #monotone{frames = Frames, queue_len = QueueLen} = M) ->
-  % M#monotone.queue_len == queue:len(M#monotone.frames) orelse error({broken_queue_len, M#monotone.queue_len, queue:len(M#monotone.frames)}),
+handle_call(#video_frame{} = Frame, From, #monotone{} = M) ->
   gen_server:reply(From, ok),
-  {noreply, handle_frame(M#monotone{frames = queue:in(Frame, Frames), queue_len = QueueLen + 1})};
+  {noreply, M1} = handle_info(Frame, M),
+  {noreply, M1};
 
 handle_call({set_current_dts, DTS}, _From, #monotone{current_dts = undefined} = M) ->
   {reply, ok, M#monotone{current_dts = DTS}};
@@ -119,19 +139,22 @@ handle_call(Call, _From, #monotone{} = M) ->
 
 
 
-
 handle_info(#video_frame{} = Frame, #monotone{frames = Frames, queue_len = QueueLen} = M) ->
   % M#monotone.queue_len == queue:len(M#monotone.frames) orelse error({broken_queue_len, M#monotone.queue_len, queue:len(M#monotone.frames)}),
   M1 = handle_frame(M#monotone{frames = queue:in(Frame, Frames), queue_len = QueueLen + 1}),
   {noreply, M1};
 
-handle_info({'DOWN', _, process, Pid, _}, #monotone{subscribers = S} = M) ->
-  put(clients_count, length(S) - 1),
-  {noreply, M#monotone{subscribers = lists:delete(Pid, S)}};
+handle_info({'DOWN', _, process, Pid, _}, #monotone{} = M) ->
+  M1 = delete_client(M, Pid),
+  put(clients_count, get(clients_count) - 1),
+  {noreply, M1};
 
 handle_info(next_frame, #monotone{} = M) ->
   % M#monotone.queue_len == queue:len(M#monotone.frames) orelse error({broken_queue_len, M#monotone.queue_len, queue:len(M#monotone.frames)}),
   {noreply, handle_frame(M)};
+
+handle_info({inet_reply, _, _}, #monotone{} = M) ->
+  {noreply, M};
 
 handle_info(Msg, #monotone{} = M) ->
   ?D(Msg),
@@ -141,6 +164,25 @@ handle_info(Msg, #monotone{} = M) ->
 terminate(_,_) ->
   ok.
 
+
+delete_client(#monotone{raw = Raw, waiting = Waiting, udp_mpegts = UDP} = M, Pid) ->
+  M#monotone{
+    raw = lists:keydelete(Pid, #client.pid, Raw),
+    waiting = lists:keydelete(Pid, #client.pid, Waiting),
+    udp_mpegts = lists:keydelete(Pid, #client.pid, UDP)
+  }.
+
+
+
+add_client_to_list(#monotone{raw = Raw, stream = Stream} = M, #client{proto = raw, pid = Pid} = Client) ->
+  [Pid ! C#video_frame{stream_id = Stream} || C <- configs(M)],
+  M#monotone{raw = [Client|Raw]};
+
+add_client_to_list(#monotone{udp_mpegts = UDP} = M, #client{proto = udp_mpegts} = Client) ->
+  {ok, ok, M#monotone{udp_mpegts = [Client|UDP]}};
+
+add_client_to_list(#monotone{} = M, #client{} = _Client) ->
+  {ok, {error, not_implemented}, M}.
 
 
 first_dts(Frames) ->
@@ -198,19 +240,59 @@ delay(#video_frame{dts = DTS}, #monotone{first_dts = FirstDTS, start_at = StartA
 deliver_frame(undefined, #monotone{} = M) ->
   M;
 
-deliver_frame(#media_info{} = MI, #monotone{subscribers = S} = M) ->
-  [Pid ! MI || Pid <- S],
-  M;
+deliver_frame(#media_info{} = MI, #monotone{raw = S, mpegts = Mpegts1, tcp_mpegts = TCP} = M) ->
+  [Pid ! MI || #client{pid = Pid} <- S],
+  Mpegts2 = send_mpegts(MI, MI, Mpegts1, TCP),
+  M#monotone{mpegts = Mpegts2};
 
-deliver_frame(#video_frame{flavor = keyframe, dts = DTS} = Frame, #monotone{waiting = W, stream = Stream, subscribers = S} = M) when W =/= [] ->
-  [Pid ! C#video_frame{stream_id = Stream} || C <- configs(M#monotone{current_dts = DTS}), Pid <- W],
-  deliver_frame(Frame, M#monotone{waiting = [], subscribers = W ++ S});
+deliver_frame(#video_frame{flavor = keyframe, dts = DTS} = Frame, #monotone{waiting = W, stream = Stream} = Monotone) when W =/= [] ->
+  Configs = configs(Monotone#monotone{current_dts = DTS}),
+  RTMPConfigs = [(flv:rtmp_tag_generator(C))(DTS, 1) || C <- Configs],
+  Monotone1 = lists:foldl(fun
+    (#client{proto = raw, pid = Pid} = C, #monotone{raw = Raw} = M) ->
+      [Pid ! F#video_frame{stream_id = Stream} || F <- Configs],
+      M#monotone{raw = [C|Raw]};
+    (#client{proto = rtmp, socket = Socket} = C, #monotone{rtmp = RTMP} = M) ->
+      (catch port_command(Socket, RTMPConfigs, [nosuspend])),
+      M#monotone{rtmp = [C#client{start_dts = DTS}|RTMP]};
+    (#client{proto = tcp_mpegts} = C, #monotone{tcp_mpegts = MPEG} = M) ->
+      M#monotone{tcp_mpegts = [C|MPEG]};
+    (#client{proto = Proto} = _C, #monotone{} = M) ->
+      lager:info("Proto ~p is not supported yet", [Proto]),
+      M
+  end, Monotone, W),
+  % ?D({start_clients,W}),
+  deliver_frame(Frame, Monotone1#monotone{waiting = []});
 
-deliver_frame(#video_frame{} = Frame, #monotone{subscribers = S, stream = Stream} = M) ->
+deliver_frame(#video_frame{} = Frame, #monotone{raw  = S, rtmp = RTMP, tcp_mpegts = TCP,stream = Stream, mpegts = Mpegts1, media_info = MI} = M) ->
   % ?debugFmt("deliver ~p ~p to ~p", [M#monotone.name, round(Frame#video_frame.dts), S]),
   Frame2 = Frame#video_frame{stream_id = Stream},
-  [Pid ! Frame2 || Pid <- S],
-  M.
+  [Pid ! Frame2 || #client{pid = Pid} <- S],
+
+  Mpegts2 = send_mpegts(MI, Frame, Mpegts1, TCP),
+
+
+  RTMPFrame = flv:rtmp_tag_generator(Frame2),
+  [(catch port_command(Socket, RTMPFrame(StartDTS,1), [nosuspend])) || #client{socket = Socket, start_dts = StartDTS} <- RTMP],
+  M#monotone{mpegts = Mpegts2}.
+
+
+send_mpegts(_MI, _Frame, Mpegts, []) ->
+  Mpegts;
+
+send_mpegts(MI, Frame, undefined, TCP) ->
+  Mpegts1_ = mpegts:init([{resync_on_keyframe,true}]),
+  {Mpegts2_, Data1} = mpegts:encode(Mpegts1_, MI),
+  [(catch port_command(Socket, Data1, [nosuspend])) || #client{socket = Socket} <- TCP],
+  send_mpegts(MI, Frame, Mpegts2_, TCP);
+
+send_mpegts(_MI, Frame, Mpegts1, TCP) ->
+  {Mpegts3_, Data2} = mpegts:encode(Mpegts1, Frame),
+  [(catch port_command(Socket, Data2, [nosuspend])) || #client{socket = Socket} <- TCP],
+  Mpegts3_.
+
+
+
 
 
 schedule_timer(Delay, #monotone{} = M) ->
