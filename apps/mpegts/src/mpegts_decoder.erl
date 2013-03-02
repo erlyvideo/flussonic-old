@@ -24,7 +24,7 @@
 
 
 bench(Path) ->
-  {ok, F} = mmap:open(Path, []),
+  {ok, F} = file:open(Path, [read,raw,binary]),
   Decoder = ?MODULE:init(),
   T1 = erlang:now(),
   Count = bench_loop(F, Decoder, 0, 0),
@@ -34,7 +34,7 @@ bench(Path) ->
   ok.
 
 bench_loop(F, Decoder, Offset, Count) ->
-  case mmap:pread(F, Offset, 819200) of
+  case file:pread(F, Offset, 819200) of
     {ok, Bin} ->
       {ok, Decoder1, Frames} = ?MODULE:decode(Bin, Decoder),
       bench_loop(F, Decoder1, Offset + size(Bin), Count + length(Frames));

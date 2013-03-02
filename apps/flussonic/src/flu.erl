@@ -10,7 +10,6 @@
 -export([extract_config_if_required/0]).
 -export([to_hex/1]).
 -export([version/0]).
--export([default_file_access/0]).
 -export([status/0]).
 -export([json_info/0]).
 
@@ -100,14 +99,6 @@ reload_mod(Module) when is_atom(Module) ->
 	code:load_file(Module),
 	Module.
 
-
-default_file_access() ->
-  MmapReady = mmap:ready(),
-  case proplists:get_value(file_access, flu_config:get_config(), mmap) of
-    file -> file;
-    mmap when MmapReady -> mmap;
-    mmap when not MmapReady -> file
-  end.
 
 
 now() ->

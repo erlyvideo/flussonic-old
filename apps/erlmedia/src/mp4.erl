@@ -233,7 +233,6 @@ dump_trun_entries(Bin, Flags, SampleCount, List) ->
 open(Reader, _Options) ->
   {_T1, {ok, Mp4Media}} = timer:tc(fun() -> read_header(Reader) end),
   % {_T2, Index} = timer:tc(fun() -> build_index(Tracks) end),
-  ?D({mp4_init, {read_header,_T1}}),
   {ok, Mp4Media#mp4_media{reader = Reader}}.
 
 
@@ -366,7 +365,7 @@ abst(<<_Version, 0:24, InfoVersion:32, Profile:2, Live:1, Update:1, 0:4,
   FragmentRunTableCount = 1,
   {ok, afrt, FragmentRunTable, <<>>} = decode_atom(Rest4, State),
   {'Bootstrap', [{version,InfoVersion},{profile,Profile},{live,Live},{update,Update},{timescale,TimeScale},{current_time,CurrentMediaTime},
-  {id,MovieIdentifier},{segments,SegmentRunTable},{fragments, FragmentRunTable}], Rest4}.
+  {id,MovieIdentifier},{segments,SegmentRunTable},{fragments, FragmentRunTable}], <<>>}.
 
 
 asrt(<<_Version, Update:24, QualityEntryCount, SegmentRunEntryCount:32, Rest/binary>>, _State) ->
@@ -933,7 +932,8 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
   [Frame|VideoFrames1] = load_frames(V, VStart, VEnd-1),
   VideoFrames2 = [Frame#video_frame{flavor = keyframe}|VideoFrames1],
   % TODO: optimize this place by gluing all offsets together
-  VideoFrames3 = [F#video_frame{body = unok(Module:pread(Device, Offset, Size))} || #video_frame{body = {Offset,Size}} = F <- VideoFrames2],
+
+  VideoFrames3 = read_disk_frames(Module, Device, VideoFrames2),
   VideoFrames = VideoFrames3,
 
   % ?debugFmt("lookup aframes in (~.1f,~.1f) -> (~B,~B) (dur: ~p)", 
@@ -942,10 +942,30 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
   AOffsets = lookup_offsets(A, AStart, AEnd),
   length(TSList) == length(AOffsets) orelse error({bad_audio,length(TSList), length(AOffsets)}),
   AFrames1 = collect_frames(TSList, undefined, AOffsets, audio, ACodec, A_, AScale),
-  AFrames = [F#video_frame{body = unok(Module:pread(Device, Offset,Size))} || #video_frame{body = {Offset,Size}} = F <- AFrames1],
+  AFrames = read_disk_frames(Module, Device, AFrames1),
   {ok, video_frame:sort(VideoFrames ++ AFrames)}.
 
 unok({ok, Bin}) -> Bin.
+
+read_disk_frames(_Module, _Device, []) ->
+  [];
+
+read_disk_frames(Module, Device, Frames) ->
+  Requests = [{RequestOffset,_}|_] = lists:sort([Body || #video_frame{body = Body} <- Frames]),
+  {LastOffset,LastSize} = lists:last(Requests),
+  RequestSize = LastOffset + LastSize - RequestOffset,
+  SumSize = lists:sum([Size || {_,Size} <- Requests]),
+  if SumSize > 0.3*RequestSize ->
+    {ok, Bin} = Module:pread(Device, RequestOffset, RequestSize),
+    [begin
+      SmallOffset = Offset - RequestOffset,
+      <<_:SmallOffset/binary, Body:Size/binary, _/binary>> = Bin,
+      F#video_frame{body = Body}
+    end || #video_frame{body = {Offset,Size}} = F <- Frames];
+  true ->
+    [F#video_frame{body = unok(Module:pread(Device, Offset, Size))} || #video_frame{body = {Offset,Size}} = F <- Frames]
+  end.
+
 
 
 default_keyframes(#mp4_media{} = Media, TrackId) -> default_keyframes(Media, TrackId, 1).

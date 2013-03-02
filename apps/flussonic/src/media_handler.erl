@@ -278,6 +278,10 @@ call_mfa({M,F,A}, ReplyHeaders, Name, Req) ->
     {error, no_segment} ->
       {ok, R1} = cowboy_req:reply(404, [], "No segment found\n", Req),
       {ok, R1, undefined};
+    {error, busy} ->
+      lager:info("Server is busy serving ~p:~p(~p,~p)", [M,F,Name,A]),
+      {ok, R1} = cowboy_req:reply(503, [], "Server is overloaded\n", Req),
+      {ok, R1, undefined};
     {error, Error} ->
       {ok, R1} = cowboy_req:reply(500, [], iolist_to_binary(["Error: ", io_lib:format("~p~n", [Error]), "\n"]), Req),
       {ok, R1, undefined};

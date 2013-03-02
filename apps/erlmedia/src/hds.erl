@@ -163,14 +163,14 @@ generate_bootstrap(Duration, Keyframes,Options) ->
     live -> lists:last(Keyframes);
     _ -> proplists:get_value(duration, Options, Duration)
   end,
-  Bin = mp4_writer:mp4_serialize([
+  Bootstrap = [
   {abst, [abst_info(CurrentMediaTime, Options),
     <<1>>,
     {asrt, asrt_info(length(Keyframes))},
     <<1>>,
     {afrt, afrt_info(Duration, Keyframes,Options)}
-  ]}]),
-  iolist_to_binary(Bin).
+  ]}],
+  iolist_to_binary(mp4_writer:mp4_serialize(Bootstrap)).
 
 
 % or_(undefined, B) -> B;

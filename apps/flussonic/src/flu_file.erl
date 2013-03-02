@@ -52,8 +52,7 @@
   timeout,
   hls_playlist,
   hls_mbr_playlist,
-  hls_length=?SEGMENT_DURATION,
-  mpegts
+  hls_length=?SEGMENT_DURATION
 }).
 
 
@@ -65,7 +64,7 @@ autostart(Name, Options) ->
   gen_tracker:find_or_open(flu_files, Name, fun() -> flussonic_sup:start_flu_file(Name, Options) end).
 
 start_link(Name, Options) ->
-  gen_server:start_link(?MODULE, [Name, Options], []).
+  proc_lib:start_link(?MODULE, init, [[Name, Options]]).
 
 media_info(File) -> get(File, media_info).
 
@@ -79,7 +78,7 @@ get(File, Key) when is_binary(File) ->
   end;
 
 get(File, Key) ->
-  R = gen_server:call(File, Key),
+  R = make_call(File, Key),
   R.
 
 keyframes(File) -> 
@@ -100,7 +99,7 @@ hds_segment(File, Fragment) ->
 
 hds_segment(File, Fragment, Tracks) when is_pid(File) ->
   T1 = os:timestamp(),
-  case gen_server:call(File, {hds_segment, Fragment, Tracks}) of
+  case make_call(File, {hds_segment, Fragment, Tracks}) of
     {ok, Segment, Duration, ReadTime, Path} ->
       T2 = os:timestamp(),
       Size = iolist_size(Segment),
@@ -116,6 +115,35 @@ hds_segment(Name, Fragment, Tracks) ->
   hds_segment(File, Fragment, Tracks).
 
 
+-define(MAX_POOL_SIZE, 50).
+-define(RETRY_LIMIT, 5).
+
+make_call(Pid, Call) ->
+  make_call(Pid, Call, ?RETRY_LIMIT, 1).
+
+
+make_call(_Pid, _Call, 0, _PoolSize) ->
+  {error, busy};
+
+make_call(Pid, Call, RetryCount, ?MAX_POOL_SIZE) ->
+  timer:sleep(50),
+  make_call(Pid, Call, RetryCount - 1, 0);
+
+make_call(Pid, Call, RetryCount, Count) ->
+  case erlang:process_info(Pid, [message_queue_len,dictionary]) of
+    [{message_queue_len, Len},_] when Len < 5 ->
+      gen_server:call(Pid, Call, 20000);
+    [_,{dictionary,Dict}] ->
+      {start_args, {Name,Options}} = lists:keyfind(start_args, 1, Dict),
+      BinCount = $0 + Count,
+      {ok, Pid1} = gen_tracker:find_or_open(flu_files, <<BinCount, ":", Name/binary>>, fun() ->
+        lager:info("Started duplicating file ~s number ~B because of overload", [Name, Count]),
+        flussonic_sup:start_flu_file(Name, Options) 
+      end),
+      make_call(Pid1, Call, RetryCount, Count + 1);
+    undefined ->
+      {error, busy}
+  end.
 
 
 hls_playlist(File) -> 
@@ -142,7 +170,7 @@ hls_segment(File, Segment) ->
 
 hls_segment(File, Segment, Tracks) when is_pid(File) ->
   T1 = os:timestamp(),
-  case gen_server:call(File, {hls_segment, Segment, Tracks}) of
+  case make_call(File, {hls_segment, Segment, Tracks}) of
     {ok, Bin, Duration, ReadTime, Path} ->
       T2 = os:timestamp(),
       Size = iolist_size(Bin),
@@ -176,12 +204,12 @@ init([Path, Options]) ->
   end,
 
   put(name, {flu_file,URL}),
+  put(start_args, {Path, Options}),
 
   Access = case re:run(URL, "http://") of
-    nomatch -> flu:default_file_access();
+    nomatch -> file;
     _ -> http_file
   end,
-  lager:warning("open ~s file \"~s\", fullpath: \"~s\", options: ~p",[Access, Path, URL, Options]),
   Format = case re:run(URL, "\\.flv$") of
     nomatch -> mp4_reader;
     _ -> flv_reader
@@ -198,7 +226,42 @@ init([Path, Options]) ->
     options = Options,
     requested_path = Path
   },
-  {ok, State, Timeout}.
+  open(State).
+
+
+open(#state{disk_path = Path, requested_path = Path1, access = Access, format = Format, file = undefined, timeout = Timeout} = State) ->
+  Options = case Access of
+    file -> [read,binary,raw,{read_ahead,5*1024*1024}];
+    http_file -> []
+  end,
+  case Access:open(Path, Options) of
+    {ok, File} ->
+      {ok, Reader} = Format:init({Access, File}, []),
+      MediaInfo = Format:media_info(Reader),
+      case MediaInfo of
+        #media_info{streams = Streams} when length(Streams) > 0 -> ok;
+        _ -> throw({stop, {invalid_media_info, MediaInfo}, {return, 500, "Invalid media_info in file"}, State})
+      end,
+      Keyframes = video_frame:reduce_keyframes(Format:keyframes(Reader)),
+      
+      proc_lib:init_ack({ok, self()}),
+      lager:info("open ~s file \"~s\"",[Access, Path]),
+      gen_server:enter_loop(?MODULE, [], State#state{file = File, media_info = MediaInfo, keyframes = Keyframes, reader = Reader}, Timeout);
+    {error, Error} ->
+      Message = case Error of
+        enoent -> {return, 404, lists:flatten(io_lib:format("No such file ~s", [Path1]))};
+        eaccess -> {return, 403, lists:flatten(io_lib:format("Forbidden to open file ~s", [Path1]))};
+        _ -> {return, 500, lists:flatten(io_lib:format("Error ~p opening file ~s", [Error, Path1]))}
+      end,
+      lager:info("error opening ~s file \"~s\": ~p",[Access, Path, Error]),
+      proc_lib:init_ack({error, Message}),
+      ok
+  end.
+
+
+
+
+
 
 
 handle_info(timeout, State) ->
@@ -208,9 +271,6 @@ handle_info(Info, State) ->
   {stop, {unknown_info,Info}, State}.
 
 
-
-handle_call(Call, From, #state{file = undefined} = State) ->
-  handle_call(Call, From, open(State));
 
 handle_call(media_info, _From, #state{format = Format, reader = Reader, timeout = Timeout} = State) ->
   {reply, Format:media_info(Reader), State, Timeout};
@@ -323,38 +383,6 @@ limited_gop(N, Gop) ->
       {Frames, _} = lists:split(5000, Gop),
       Frames
   end.
-
-
-open(#state{disk_path = Path, requested_path = Path1, access = Access, format = Format, file = undefined} = State) ->
-  Options = case Access of
-    file -> [read,binary];
-    mmap -> [];
-    http_file -> []
-  end,
-  case Access:open(Path, Options) of
-    {ok, File} ->
-      {ok, Reader} = Format:init({Access, File}, []),
-      MediaInfo = Format:media_info(Reader),
-      case MediaInfo of
-        #media_info{streams = Streams} when length(Streams) > 0 -> ok;
-        _ -> throw({stop, {invalid_media_info, MediaInfo}, {return, 500, "Invalid media_info in file"}, State})
-      end,
-      Keyframes = video_frame:reduce_keyframes(Format:keyframes(Reader)),
-      
-      MPEGTS = mpegts:init([{interleave,3}]),
-      MPEGTS1 = mpegts:encode(MPEGTS, MediaInfo),
-      % MPEGTS2 = lists:foldl(fun(Mpeg, Frame) -> {Mpeg1,_} = mpegts:encode(Frame, Mpeg), Mpeg1 end, MPEGTS1, video_frame:config_frames(MediaInfo)),
-      State#state{file = File, media_info = MediaInfo, keyframes = Keyframes, reader = Reader, mpegts = MPEGTS1};
-    {error, enoent} ->
-      throw({stop, normal, {return, 404, lists:flatten(io_lib:format("No such file ~s", [Path1]))}, State});
-    {error, eaccess} ->
-      throw({stop, normal, {return, 403, lists:flatten(io_lib:format("Forbidden to open file ~s", [Path1]))}, State});
-    {error, Error} ->
-      throw({stop, normal, {return, 500, lists:flatten(io_lib:format("Error ~p opening file ~s", [Error, Path1]))}, State})
-  end;
-
-open(State) ->
-  State.
 
 
 

@@ -95,6 +95,8 @@ handle_call({find_or_open, Name, SpawnFun}, _From, #tracker{zone = Zone} = Track
           link(Pid),
           ets:insert(Zone, #entry{name = Name, pid = Pid}),
           {reply, {ok,Pid}, Tracker};
+        {error, Error} ->
+          {reply, {error, Error}, Tracker};
         Error ->
           error_logger:error_msg("Spawn function in gen_tracker ~p~n for name ~240p~n returned error: ~p~n", [Zone, Name, Error]),
           {reply, Error, Tracker}

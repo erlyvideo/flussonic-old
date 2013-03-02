@@ -95,6 +95,12 @@ calculate_speed([]) -> [].
 %%----------------------------------------------------------------------
 
 
+current_second() ->
+  {Mega, Sec, Micro} = os:timestamp(),
+  Milli = Micro div 1000,
+  Delay = 500 + 1000 - Milli,
+  {Mega*1000000 + Sec, Delay}.
+
 init([]) ->
   OS = case os:cmd("uname") of
     "Linux\n" -> linux;
@@ -102,9 +108,10 @@ init([]) ->
   end,
   StartAt = os:timestamp(),
   Interval = 1000,
-  Second = erlang:send_after(1000, self(), collect),
   Minute = erlang:send_after(60000, self(), flush_minute),
-  {ok, #traffic{os = OS, stats = [], start_at = StartAt, n = 1, interval = Interval, minute_timer = Minute, second_timer = Second}}.
+  {N, Delay} = current_second(),
+  Second = erlang:send_after(Delay, self(), collect),
+  {ok, #traffic{os = OS, stats = [], start_at = StartAt, n = N, interval = Interval, minute_timer = Minute, second_timer = Second}}.
 
 %%-------------------------------------------------------------------------
 %% @spec (Request, From, State) -> {reply, Reply, State}          |
@@ -145,27 +152,25 @@ handle_cast(_Msg, State) ->
 %% @end
 %% @private
 %%-------------------------------------------------------------------------
-handle_info(collect, #traffic{os = OS, stats = Stats1, n = N, start_at = StartAt, interval = Interval, second_timer = OldSecond} = Server) ->
+handle_info(collect, #traffic{os = OS, stats = Stats1, second_timer = OldSecond} = Server) ->
   erlang:cancel_timer(OldSecond),
   MomentStats = ?MODULE:OS(),
+  {N, Sleep} = current_second(),
+
   Stats2 = lists:foldl(fun({Iface, NewIbytes, NewObytes} = S, Stats_) ->
     case lists:keyfind(Iface, 1, Stats_) of
       {Iface, PrevIbytes, PrevObytes} ->
         Ibytes = NewIbytes - PrevIbytes,
         Obytes = NewObytes - PrevObytes,
-        pulse:network_traffic(Iface, Ibytes, Obytes),
+        pulse:network_traffic(N, Iface, Ibytes, Obytes),
         lists:keystore(Iface, 1, Stats_, S);
       false ->
         lists:keystore(Iface, 1, Stats_, S)
     end
   end, Stats1, MomentStats),
 
-  RealDelta = timer:now_diff(os:timestamp(), StartAt) div 1000,
-  NeedDelta = N*Interval,
-  Sleep = if NeedDelta < RealDelta -> 0;
-    true -> NeedDelta - RealDelta end,
   Second = erlang:send_after(Sleep, self(), collect),
-  {noreply, Server#traffic{n = N+1, stats = Stats2, second_timer = Second}};
+  {noreply, Server#traffic{n = N, stats = Stats2, second_timer = Second}};
 
 
 handle_info(flush_minute, #traffic{minute_timer = OldMinute} = Server) ->

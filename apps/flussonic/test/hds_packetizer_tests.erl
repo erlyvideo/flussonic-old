@@ -93,6 +93,37 @@ test_full_cycle() ->
   GopLen = length(Gop),
   ?assertEqual(GopLen, length(Frames)-2),
 
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(4)],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(5)],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(6)],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(7)],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(8)],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(9)],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(10)],
+  [flu_stream:send_frame(S, Frame) || Frame <- gop(11)],
+
+
+
+  {ok, Bootstrap} = flu_stream_data:get(<<"stream1">>, bootstrap),
+  Atom = mp4:parse_atom(Bootstrap, state),
+  {'Bootstrap', Options, <<>>} = Atom,
+  ?assertEqual(1, proplists:get_value(live, Options)),
+  ?assertEqual(1000, proplists:get_value(timescale, Options)),
+  ?assertEqual(35042, proplists:get_value(current_time, Options)),
+
+  ?assertEqual({'SegmentRunTable',[{update,0}],[{1,6}]}, proplists:get_value(segments, Options)),
+  ?assertMatch({'FragmentRunEntry', _, _}, proplists:get_value(fragments, Options)),
+
+  {'FragmentRunEntry', AFRTOptions, AFRTData} = proplists:get_value(fragments, Options),
+
+  ?assertEqual(0, proplists:get_value(update, AFRTOptions)),
+  ?assertEqual(1000, proplists:get_value(timescale, AFRTOptions)),
+
+
+  ?assertEqual([5,6,7,8,9,10], [N || {N,_,_} <- AFRTData]),
+
+  [?assertMatch(_ when Start > 0 andalso End > 0, {N,Start,End}) || {N,Start,End} <- AFRTData],
+
   ok.
 
 

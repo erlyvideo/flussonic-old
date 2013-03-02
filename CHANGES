@@ -1,3 +1,12 @@
+flussonic (3.69.2)
+
+  * fixed HDS live broken in 3.69.1, #128, #126, #119
+  * enabled batch disk IO in mp4 segment access
+  * enabled file requests throttling: return 503 on overloaded files
+  * flu_file now autostarts second copy of file is first is overloaded
+  * remove mmap because it is useless since R16
+  * flu_file now opens file synchronously
+
 flussonic (3.69.1)
 
   * flu_stream monotonic now passed data directly to sockets

@@ -4,7 +4,7 @@
 
 -export([json_list/0, segment_info/0]).
 
--export([read_segment/5, hls_read/3, network_traffic/3]).
+-export([read_segment/5, hls_read/3, network_traffic/4]).
 -export([disk_read/2]).
 
 json_list() ->
@@ -17,8 +17,8 @@ hls_read(_Time, _Duration, _Size) ->
   ok.
 
 
-network_traffic(Iface, Ibytes, Obytes) ->
-  ets:insert(pulse_traffic_min, {{Iface, current_time()}, Ibytes, Obytes}),
+network_traffic(Time, Iface, Ibytes, Obytes) ->
+  ets:insert(pulse_traffic_min, {{Iface, Time}, Ibytes, Obytes}),
   ok.
 
 

@@ -19,9 +19,9 @@ main([Path|Args]) ->
 
   T1 = erlang:now(),
   {OpenTime, {ok, M}} = timer:tc(fun() -> 
-    mmap:open(Path, [binary])
+    file:open(Path, [read,raw,binary])
   end),
-  io:format("Mmap open time ~B us\n", [OpenTime]),
+  io:format("open time ~B us\n", [OpenTime]),
 
   Tracks = [1,2],
 
@@ -29,7 +29,7 @@ main([Path|Args]) ->
   io:format("T2: ~B\n", [timer:now_diff(T2,T1)]),
 
   {T, R} = timer:tc(fun() -> 
-    {ok, R1} = mp4:open({mmap, M}, []),
+    {ok, R1} = mp4:open({file, M}, []),
     % Module:keyframes(R1, [1,2]),
     % Module:keyframes(R1, [6,7]),
     R1#mp4_media{handler = mp4}

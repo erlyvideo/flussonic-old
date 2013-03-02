@@ -99,11 +99,10 @@ flush_fragment(#hds{media_info = undefined} = HDS, _NextDTS) ->
 flush_fragment(#hds{start_dts = undefined} = HDS, _NextDTS) ->
   HDS#hds{gop = []};
 
-flush_fragment(#hds{start_dts = StartDTS} = HDS, NextDTS) ->
-  Duration = NextDTS - StartDTS,
+flush_fragment(#hds{} = HDS, NextDTS) ->
   HDS1 = create_new_fragment(HDS),
   HDS2 = delete_old_fragment(HDS1),
-  HDS3 = regenerate_bootstrap(HDS2, Duration),
+  HDS3 = regenerate_bootstrap(HDS2, NextDTS),
   HDS3.
 
 
@@ -128,10 +127,10 @@ delete_old_fragment(#hds{segment = Segment, fragments_count = FragmentsCount, fr
   end,
   HDS#hds{fragments = NewFragments}.
 
-regenerate_bootstrap(#hds{fragments = Fragments, options = Options, name = Name, media_info = MediaInfo} = HDS, Duration) ->
+regenerate_bootstrap(#hds{fragments = Fragments, options = Options, name = Name, media_info = MediaInfo} = HDS, NextDTS) ->
   #fragment{number = FirstNumber} = queue:get(Fragments),
   Timestamps = [D || #fragment{dts = D} <- queue:to_list(Fragments)],
-  {ok,Bootstrap} = hds:stream_bootstrap(Timestamps,[{start_fragment, FirstNumber},{duration,Duration}|Options]),
+  {ok,Bootstrap} = hds:stream_bootstrap(Timestamps,[{start_fragment, FirstNumber},{duration,NextDTS}|Options]),
   flu_stream_data:set(Name,bootstrap,Bootstrap),
   % erlang:put(bootstrap,Bootstrap),
   {ok,Manifest} = hds:stream_manifest(MediaInfo#media_info{duration=0}, [{stream_type,live}|Options]),

@@ -5,7 +5,7 @@
 main([Path, Out]) ->
   code:add_pathz("/opt/flussonic/apps/flussonic/ebin"),
   code:add_pathz("/opt/flussonic/deps/lager/ebin"),
-  {ok, M} = mmap:open(Path,[binary]),
+  {ok, M} = file:open(Path,[binary,read,raw]),
   {ok, F} = file:open(Out, [write,binary,raw]),
   dump(M, 0, F),
   file:close(F).

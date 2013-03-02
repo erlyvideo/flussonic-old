@@ -131,7 +131,7 @@ unpack_flv(FLV) ->
   unpack_flv(FLV, 0, []).
 
 unpack_flv(FLV, Offset, Acc) ->
-  case flv:read_frame({mmap, FLV}, Offset) of
+  case flv:read_frame({mem_read, FLV}, Offset) of
     #video_frame{next_id = Next} = Frame ->
       unpack_flv(FLV, Next, [Frame|Acc]);
     eof ->
