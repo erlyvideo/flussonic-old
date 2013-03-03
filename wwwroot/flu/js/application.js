@@ -442,7 +442,7 @@ Erlyvideo = {
       }
 
       if(player == "hds") {
-        if(Erlyvideo.current_streams[stream] && Erlyvideo.current_streams[stream].dvr && stream.indexOf("archive") == -1) {
+        if(false && Erlyvideo.current_streams[stream] && Erlyvideo.current_streams[stream].dvr && stream.indexOf("archive") == -1) {
           var t = Math.round((new Date()) / 1000) - 15*60;
           stream = stream+"/archive/"+t+"/now/manifest.f4m";
         }
@@ -526,6 +526,8 @@ Erlyvideo = {
     for(i = 0; i < message.interfaces.length; i++) {
       var iface = message.interfaces[i];
 
+      if(iface.iface == "lo") continue;
+
       if($("#stat-"+iface.iface).length == 0) {
         $("#pulse-stats").append("<div id='stat-"+iface.iface+"' style='height: 280px; width: 900px; margin-bottom: 30px'></div>");
       }
@@ -592,8 +594,8 @@ Erlyvideo = {
     var d_file = $("#stat-file")[0];
     if(!d_file.r) {
       d_file.r = Raphael("stat-file");
-      d_file.r.text(160, 10, "Disk read for last hour in kbit/s").attr(txtattr);
-      d_file.r.text(600, 10, "Disk read for last minute in kbit/s").attr(txtattr);
+      d_file.r.text(160, 10, "Disk read time for last hour in % from duration").attr(txtattr);
+      d_file.r.text(600, 10, "Disk read time for last minute in % from duration").attr(txtattr);
     }
     var times = [];
     var traf = [];
@@ -607,6 +609,11 @@ Erlyvideo = {
     var labels = d_file.hour_graph.axis[0].text.items;
     for(k = 0; k < labels.length; k++) {
       labels[k].attr({'text' : Erlyvideo.format_pulse_minutes(labels[k].attr('text'))});
+    }
+
+    var labels = d_file.hour_graph.axis[1].text.items;
+    for(k = 0; k < labels.length; k++) {
+      labels[k].attr({'text' : labels[k].attr('text') + "%"});
     }
 
 
@@ -624,6 +631,10 @@ Erlyvideo = {
       labels[k].attr({'text' : Erlyvideo.format_pulse_seconds(labels[k].attr('text'))});
     }
 
+    var labels = d_file.minute_graph.axis[1].text.items;
+    for(k = 0; k < labels.length; k++) {
+      labels[k].attr({'text' : labels[k].attr('text') + "%"});
+    }
 
 
 
@@ -635,8 +646,8 @@ Erlyvideo = {
     var d_seg = $("#stat-segment")[0];
     if(!d_seg.r) {
       d_seg.r = Raphael("stat-segment");
-      d_seg.r.text(160, 10, "Segment read for last hour in kbit/s").attr(txtattr);
-      d_seg.r.text(600, 10, "Segment read for last minute in kbit/s").attr(txtattr);
+      d_seg.r.text(160, 10, "Segment read time for last hour in % from duration").attr(txtattr);
+      d_seg.r.text(600, 10, "Segment read time for last minute in % from duration").attr(txtattr);
     }
     var times = [];
     var traf = [];
@@ -651,6 +662,12 @@ Erlyvideo = {
     for(k = 0; k < labels.length; k++) {
       labels[k].attr({'text' : Erlyvideo.format_pulse_minutes(labels[k].attr('text'))});
     }
+
+    var labels = d_seg.hour_graph.axis[1].text.items;
+    for(k = 0; k < labels.length; k++) {
+      labels[k].attr({'text' : labels[k].attr('text') + "%"});
+    }
+
 
 
     var times = [];
@@ -667,6 +684,10 @@ Erlyvideo = {
       labels[k].attr({'text' : Erlyvideo.format_pulse_seconds(labels[k].attr('text'))});
     }
 
+    var labels = d_seg.minute_graph.axis[1].text.items;
+    for(k = 0; k < labels.length; k++) {
+      labels[k].attr({'text' : labels[k].attr('text') + "%"});
+    }
 
 
 

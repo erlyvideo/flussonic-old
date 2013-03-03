@@ -43,26 +43,20 @@ terminate(_,_,_) ->
   ok.
 
 handle(Req, Opts) ->
-  {Path, Req1} = cowboy_req:path(Req),
-  {Method, Req2} = cowboy_req:method(Req1),
+  % {Path, Req1} = cowboy_req:path(Req),
+  % {Method, Req2} = cowboy_req:method(Req1),
   % lager:notice([{tag,http}],"HTTP ~s ~s",[Method, Path]),
-  try handle1(Req2, Opts) of
+  try handle1(Req, Opts) of
     Reply ->
       Reply
   catch
     throw:{return, Code, Msg} ->
       % lager:notice([{tag,http}],"HTTP ~s ~s ~s",[Method, Path, Code]),
-      {ok, R1} = cowboy_req:reply(Code, [], [Msg, "\n"], Req2),
+      {ok, R1} = cowboy_req:reply(Code, [], [Msg, "\n"], Req),
       {ok, R1, undefined};
     throw:{return,Code,Headers,Msg} ->
       % lager:notice([{tag,http}],"HTTP ~s ~s ~s",[Method, Path, Code]),
-      {ok, R1} = cowboy_req:reply(Code, Headers, [Msg, "\n"], Req2),
-      {ok, R1, undefined};
-    Class:Reason ->
-      % lager:notice([{tag,http}],"HTTP ~s ~s ~s",[Method, Path, 500]),
-      Stacktrace = erlang:get_stacktrace(),
-      lager:error("Error handling HTTP ~s ~s: ~p:~p~n~s", [Method, Path, Class, Reason, [io_lib:format("    ~240p~n", [T]) || T <- Stacktrace]]),
-      {ok, R1} = cowboy_req:reply(500, [], ["Internal server error\n", lager_format:format("~p:~p~n~p~n", [Class, Reason, Stacktrace], 10000)], Req2),
+      {ok, R1} = cowboy_req:reply(Code, Headers, [Msg, "\n"], Req),
       {ok, R1, undefined}
   end.
 
@@ -263,9 +257,26 @@ wait4(Name, Count) ->
       ok
   end.
 
+now_ms() ->
+  {Mega, Sec, Micro} = os:timestamp(),
+  (Mega*1000000 + Sec)*1000 + (Micro div 1000).
+
+
 call_mfa({M,F,A}, ReplyHeaders, Name, Req) ->
-  {_Time, Result} = timer:tc(M, F, [Name|A]),
-  % ?D({M,F,_Time}),
+  T1 = now_ms(),
+  {Path, _} = cowboy_req:path(Req),
+  Result = erlang:apply(M, F, [Name|A]),
+  T2 = now_ms(),
+  {Size, Code} = case Result of
+    {ok, Reply_} -> {iolist_size(Reply_), 200};
+    {error, busy} -> {0, 503};
+    {error, no_segment} -> {0, 404};
+    undefined -> {0, 404};
+    {return, C,_} -> {0, C};
+    {error, _} -> {0, 500};
+    _ -> {0,0}
+  end,
+  lager:debug([{request,web},{time,T1},{duration,T2-T1}],"~3..0B ~5.. B ~B ~s", [Code,T2-T1, Size, Path]),
   case Result of
     {done, R1} ->
       {ok, R1, undefined};

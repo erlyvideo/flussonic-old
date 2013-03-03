@@ -4,7 +4,7 @@
 
 -export([json_list/0, segment_info/0]).
 
--export([read_segment/5, hls_read/3, network_traffic/4]).
+-export([read_segment/4, hls_read/3, network_traffic/4]).
 -export([disk_read/2]).
 
 json_list() ->
@@ -27,7 +27,7 @@ current_time() ->
   {Mega, Sec, _} = os:timestamp(),
   Mega*1000000 + Sec.
 
-read_segment(_Path, Size, Duration, ReadTime, SegmentTime) ->
+read_segment(Size, Duration, ReadTime, SegmentTime) ->
   T = current_time(),
 
   ets:insert_new(pulse_file_min, {T, 0, 0, 0, 0}),
@@ -48,8 +48,7 @@ div_(_,0) -> 0;
 div_(Bytes, Time) -> Bytes div Time.
 
 segment_info(Table) ->
-  C = 8*1000000 div 1024,
-  [ [{time,T},{disk,div_(Size*C, Disk)},{segment,div_(Size*C, Segment)},{size,Size},{speed,div_(Segment,Duration*10)}] 
+  [ [{time,T},{disk,div_(Disk,Duration*10)},{segment,div_(Segment,Duration*10)},{size,Size}] 
   || {T,Disk,Segment,Size,Duration} <- lists:sort(ets:tab2list(Table))].
 
 

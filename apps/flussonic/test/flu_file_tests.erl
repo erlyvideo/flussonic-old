@@ -17,9 +17,13 @@ flu_file_test_() ->
     ,{with, [fun test_hds_segment/1]}
     ,{with, [fun test_hds_lang_segment/1]}
     ,{with, [fun test_hds_missing_segment/1]}
+    ,{with, [fun test_read_gop/1]}
   ],
   Tests = case file:read_file_info("../../hls") of
-    {ok, _} -> [{with, [fun test_hls_playlist/1]},{with, [fun test_hls_segment/1]}] ++ CommonTests;
+    {ok, _} -> 
+      [{with, [fun test_hls_playlist/1]},
+      {with, [fun test_hls_segment/1]},
+      {with, [fun test_hls_segment_with_video_track/1]}] ++ CommonTests;
     {error, _} -> CommonTests
   end,
   {foreach,
@@ -95,16 +99,40 @@ test_hds_lang_segment({_,File}) ->
   ?assertEqual(15744, lists:last(Ats)),
   ok.
 
+
+test_read_gop({_,File}) ->
+  {ok, List} = flu_file:read_gop(File, 2),
+  ?assertMatch([#video_frame{}|_], List),
+  ok.
+
+
+
+
+
+
+
 test_hls_playlist({_,File}) ->
   ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hls_playlist(File)).
 
 test_hls_segment({_,File}) ->
-  ?assertMatch({ok, IOlist} when is_binary(IOlist), flu_file:hls_segment(File, 2)),
-  {ok, Bin} = flu_file:hls_segment(File, 2),
+  ?assertMatch({ok, IOlist} when is_binary(IOlist) orelse is_list(IOlist), flu_file:hls_segment(File, 2)),
+  {ok, Bin_} = flu_file:hls_segment(File, 2),
+  Bin = iolist_to_binary(Bin_),
   Pids = lists:usort([Pid || <<16#47, _:3, Pid:13, _:185/binary>> <= Bin]),
   ?assertEqual([0, 201, 202, 4095], Pids),
   {ok, Frames} = mpegts_decoder:decode_file(Bin),
   ?assert(length(Frames) > 10),
+  ok.
+
+
+test_hls_segment_with_video_track({_,File}) ->
+  {ok, Bin_} = flu_file:hls_segment(File, 2, [1]),
+  Bin = iolist_to_binary(Bin_),
+  Pids = lists:usort([Pid || <<16#47, _:3, Pid:13, _:185/binary>> <= Bin]),
+  ?assertEqual([0, 201, 4095], Pids),
+  {ok, Frames} = mpegts_decoder:decode_file(Bin),
+  AudioFrames = [F || #video_frame{content = audio} = F <- Frames],
+  ?assertEqual(0, length(AudioFrames)),
   ok.
 
 test_hds_manifest({_,File}) ->
@@ -151,7 +179,7 @@ test_hds_video_manifest({_,File}) ->
 
 
 test_hls_video_segment({_,File}) ->
-  ?assertMatch({ok, IOlist} when is_binary(IOlist), flu_file:hls_segment(File, 2)),
+  ?assertMatch({ok, IOlist} when is_binary(IOlist) orelse is_list(IOlist), flu_file:hls_segment(File, 2)),
   ok.
 
 test_hds_video_segment({_,File}) ->
@@ -371,7 +399,11 @@ test_local_http_file_playlist() ->
 
 test_local_http_file_segment() ->
   {ok, File} = flussonic_sup:start_flu_file(<<"bunny.mp4">>, [{root, <<"http://localhost:9090/">>}]),
-  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hls_segment(File, 2)),
+  ?assertMatch({ok, Bin} when is_binary(Bin) orelse is_list(Bin), flu_file:hls_segment(File, 2)),
+  {ok, Bin_} = flu_file:hls_segment(File, 2),
+  Bin = iolist_to_binary(Bin_),
+  {ok, Frames} = mpegts_decoder:decode_file(Bin),
+  ?assert(length(Frames) > 10),
   ok.
 
 

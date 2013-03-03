@@ -29,7 +29,11 @@
 -export([hds_manifest/1, hds_segment/2, hds_segment/4, hds_segment/3]).
 -export([hls_segment/2, hls_segment/3, hls_segment/4, hls_mbr_playlist/1, hls_playlist/1, hls_playlist/2]).
 -export([get/2]).
+-export([list/0]).
 -export([read_gop/3, read_gop/2, keyframes/1]).
+
+-export([init_reader/2, reader_loop/1, read_request/5]).
+
 -include("log.hrl").
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
@@ -38,10 +42,9 @@
 -define(SEGMENT_DURATION,10000).
 
 -record(state, {
-  access,
-  format,
-  reader,
-  file,
+  readers = [],
+  jobs = [],
+  starting_workers = 0,
   requested_path,
   path,
   disk_path,
@@ -54,6 +57,14 @@
   hls_mbr_playlist,
   hls_length=?SEGMENT_DURATION
 }).
+
+
+list() ->
+  [begin
+    Pid = proplists:get_value(pid,Info),
+    {dictionary,Dict} = erlang:process_info(Pid, dictionary),
+    {Name,Pid,Dict}
+  end || {Name,Info} <- gen_tracker:list(flu_files)].
 
 
 
@@ -91,8 +102,10 @@ hds_manifest(File) ->
 
 
 hds_segment(Name, Root, Fragment, Tracks) ->
-  {ok, File} = autostart(Name, [{root,Root}]),
-  hds_segment(File, Fragment, Tracks).
+  case autostart(Name, [{root,Root}]) of
+    {ok, File} -> hds_segment(File, Fragment, Tracks);
+    {error, _} = Error -> Error
+  end.
 
 hds_segment(File, Fragment) ->
   hds_segment(File, Fragment, undefined).
@@ -100,49 +113,36 @@ hds_segment(File, Fragment) ->
 hds_segment(File, Fragment, Tracks) when is_pid(File) ->
   T1 = os:timestamp(),
   case make_call(File, {hds_segment, Fragment, Tracks}) of
-    {ok, Segment, Duration, ReadTime, Path} ->
+    {ok, Segment, Duration, ReadTime} ->
       T2 = os:timestamp(),
       Size = iolist_size(Segment),
       SegmentTime = timer:now_diff(T2,T1),
-      pulse:read_segment(Path, Size, Duration, ReadTime, SegmentTime),
+      pulse:read_segment(Size, Duration, ReadTime, SegmentTime),
       {ok, Segment};
     {error, _} = Error ->
       Error
   end;
 
 hds_segment(Name, Fragment, Tracks) ->
-  {ok, File} = autostart(Name, []),
-  hds_segment(File, Fragment, Tracks).
+  case autostart(Name, []) of
+    {ok, File} -> hds_segment(File, Fragment, Tracks);
+    {error, _} = Error -> Error
+  end.
 
-
--define(MAX_POOL_SIZE, 50).
--define(RETRY_LIMIT, 5).
 
 make_call(Pid, Call) ->
-  make_call(Pid, Call, ?RETRY_LIMIT, 1).
+  make_call(Pid, Call, 5).
 
-
-make_call(_Pid, _Call, 0, _PoolSize) ->
+make_call(_Pid, _Call, 0) ->
   {error, busy};
 
-make_call(Pid, Call, RetryCount, ?MAX_POOL_SIZE) ->
-  timer:sleep(50),
-  make_call(Pid, Call, RetryCount - 1, 0);
-
-make_call(Pid, Call, RetryCount, Count) ->
-  case erlang:process_info(Pid, [message_queue_len,dictionary]) of
-    [{message_queue_len, Len},_] when Len < 5 ->
-      gen_server:call(Pid, Call, 20000);
-    [_,{dictionary,Dict}] ->
-      {start_args, {Name,Options}} = lists:keyfind(start_args, 1, Dict),
-      BinCount = $0 + Count,
-      {ok, Pid1} = gen_tracker:find_or_open(flu_files, <<BinCount, ":", Name/binary>>, fun() ->
-        lager:info("Started duplicating file ~s number ~B because of overload", [Name, Count]),
-        flussonic_sup:start_flu_file(Name, Options) 
-      end),
-      make_call(Pid1, Call, RetryCount, Count + 1);
-    undefined ->
-      {error, busy}
+make_call(Pid, Call, Retry) ->
+  case gen_server:call(Pid, Call, 10000) of
+    {error, retry} ->
+      timer:sleep(50),
+      make_call(Pid, Call, Retry - 1);
+    Else ->
+      Else
   end.
 
 
@@ -161,8 +161,10 @@ hls_mbr_playlist(File) ->
 
 
 hls_segment(Name, Root, Segment, Tracks) ->
-  {ok, File} = autostart(Name, [{root,Root}]),
-  hls_segment(File, Segment, Tracks).
+  case autostart(Name, [{root,Root}]) of
+    {ok, File} -> hls_segment(File, Segment, Tracks);
+    {error, _} = Error -> Error
+  end.
 
 
 hls_segment(File, Segment) ->
@@ -171,19 +173,21 @@ hls_segment(File, Segment) ->
 hls_segment(File, Segment, Tracks) when is_pid(File) ->
   T1 = os:timestamp(),
   case make_call(File, {hls_segment, Segment, Tracks}) of
-    {ok, Bin, Duration, ReadTime, Path} ->
+    {ok, Bin, Duration, ReadTime} ->
       T2 = os:timestamp(),
       Size = iolist_size(Bin),
       SegmentTime = timer:now_diff(T2,T1),
-      pulse:read_segment(Path, Size, Duration, ReadTime, SegmentTime),
+      pulse:read_segment(Size, Duration, ReadTime, SegmentTime),
       {ok, Bin};
     {error, _} = Error ->
       Error
   end;
 
 hls_segment(Name, Root, Fragment) when is_binary(Name), is_integer(Fragment) ->
-  {ok, File} = autostart(Name, [{root,Root}]),
-  hls_segment(File, Fragment).
+  case autostart(Name, [{root,Root}]) of
+    {ok, File} -> hls_segment(File, Fragment);
+    {error, _} = Error -> Error
+  end.
 
 
 
@@ -191,9 +195,18 @@ read_gop(File, Id) ->
   read_gop(File, Id, undefined).
 
 read_gop(File, Id, Tracks) ->
-  R = gen_server:call(File, {read_gop, Id, Tracks}),
-  R.
-  
+  T1 = os:timestamp(),
+  case make_call(File, {read_gop, Id, Tracks}) of
+    {ok, Gop, Duration, ReadTime} ->
+      T2 = os:timestamp(),
+      Size = erlang:external_size(Gop),
+      SegmentTime = timer:now_diff(T2,T1),
+      pulse:read_segment(Size, Duration, ReadTime, SegmentTime),
+      {ok, Gop};
+    {error, _} = Error ->
+      Error
+  end.
+
 
 init([Path, Options]) ->
   Root = proplists:get_value(root, Options),
@@ -206,54 +219,44 @@ init([Path, Options]) ->
   put(name, {flu_file,URL}),
   put(start_args, {Path, Options}),
 
-  Access = case re:run(URL, "http://") of
-    nomatch -> file;
-    _ -> http_file
-  end,
-  Format = case re:run(URL, "\\.flv$") of
-    nomatch -> mp4_reader;
-    _ -> flv_reader
-  end,
   
   Timeout = proplists:get_value(timeout, Options, 60000),
-  
-  State = #state{
-    access = Access,
-    format = Format,
-    disk_path = URL,
-    path = proplists:get_value(path, Options, URL),
-    timeout = Timeout,
-    options = Options,
-    requested_path = Path
-  },
-  open(State).
 
+  case proc_lib:start(?MODULE, init_reader, [self(), URL]) of
+    {ok, Pid, MediaInfo, Keyframes} ->
+      erlang:monitor(process, Pid),
 
-open(#state{disk_path = Path, requested_path = Path1, access = Access, format = Format, file = undefined, timeout = Timeout} = State) ->
-  Options = case Access of
-    file -> [read,binary,raw,{read_ahead,5*1024*1024}];
-    http_file -> []
-  end,
-  case Access:open(Path, Options) of
-    {ok, File} ->
-      {ok, Reader} = Format:init({Access, File}, []),
-      MediaInfo = Format:media_info(Reader),
-      case MediaInfo of
-        #media_info{streams = Streams} when length(Streams) > 0 -> ok;
-        _ -> throw({stop, {invalid_media_info, MediaInfo}, {return, 500, "Invalid media_info in file"}, State})
+      {ok, HDS} = reader_manifest(Pid, hds_manifest),
+      {ok, HLS} = case erlang:module_loaded(hls) of
+        true -> reader_manifest(Pid, hls_playlist);
+        false -> {ok, undefined}
       end,
-      Keyframes = video_frame:reduce_keyframes(Format:keyframes(Reader)),
-      
+
+      State = #state{
+        disk_path = URL,
+        path = proplists:get_value(path, Options, URL),
+        timeout = Timeout,
+        options = Options,
+        requested_path = Path,
+        media_info = MediaInfo,
+        keyframes = Keyframes, 
+        hds_manifest = HDS,
+        hls_playlist = HLS,
+        readers = [Pid]
+      },
+
+      put(worker_count, 1),
+
       proc_lib:init_ack({ok, self()}),
-      lager:info("open ~s file \"~s\"",[Access, Path]),
-      gen_server:enter_loop(?MODULE, [], State#state{file = File, media_info = MediaInfo, keyframes = Keyframes, reader = Reader}, Timeout);
+      lager:info("open file \"~s\"",[URL]),
+      gen_server:enter_loop(?MODULE, [], State, Timeout);
     {error, Error} ->
       Message = case Error of
-        enoent -> {return, 404, lists:flatten(io_lib:format("No such file ~s", [Path1]))};
-        eaccess -> {return, 403, lists:flatten(io_lib:format("Forbidden to open file ~s", [Path1]))};
-        _ -> {return, 500, lists:flatten(io_lib:format("Error ~p opening file ~s", [Error, Path1]))}
+        enoent -> {return, 404, lists:flatten(io_lib:format("No such file ~s", [Path]))};
+        eaccess -> {return, 403, lists:flatten(io_lib:format("Forbidden to open file ~s", [Path]))};
+        _ -> {return, 500, lists:flatten(io_lib:format("Error ~p opening file ~s", [Error, Path]))}
       end,
-      lager:info("error opening ~s file \"~s\": ~p",[Access, Path, Error]),
+      lager:info("error opening file \"~s\": ~p",[URL, Error]),
       proc_lib:init_ack({error, Message}),
       ok
   end.
@@ -261,102 +264,243 @@ open(#state{disk_path = Path, requested_path = Path1, access = Access, format = 
 
 
 
+-record(reader, {
+  parent,
+  format,
+  access,
+  file,
+  media_info,
+  path,
+  reader
+}).
 
+init_reader(Parent, Path) ->
+  Access = case re:run(Path, "http://") of
+    nomatch -> file;
+    _ -> http_file
+  end,
+  Format = case re:run(Path, "\\.flv$") of
+    nomatch -> mp4_reader;
+    _ -> flv_reader
+  end,
+  Options = case Access of
+    file -> [read,binary,raw,{read_ahead,5*1024*1024}];
+    http_file -> []
+  end,
+  erlang:monitor(process, Parent),
+  case Access:open(Path, Options) of
+    {ok, File} ->
+      {ok, Reader} = Format:init({Access, File}, []),
+      MediaInfo = Format:media_info(Reader),
+      case MediaInfo of
+        #media_info{streams = Streams} when length(Streams) > 0 -> ok;
+        _ -> throw({stop, {invalid_media_info, MediaInfo}, {return, 500, "Invalid media_info in file"}})
+      end,
+      Keyframes = video_frame:reduce_keyframes(Format:keyframes(Reader)),
+      proc_lib:init_ack({ok, self(), MediaInfo, Keyframes}),
+      ?MODULE:reader_loop(#reader{parent = Parent, format = Format, access = Access, path = Path, file = File, reader = Reader, media_info = MediaInfo});
+    {error, _} = Error ->
+      proc_lib:init_ack(Error)
+  end.
+
+reader_loop(#reader{} = State) ->
+  receive
+    Message ->
+      try handle_reader_message(Message, State) of
+        {ok, State1} -> ?MODULE:reader_loop(State1);
+        stop -> ok
+      catch
+        Class:Error ->
+          lager:error("File worker error after message ~p with details: ~p:~p\n~p", [Message, Class, Error, erlang:get_stacktrace()]),
+          error({Class,Error,erlang:get_stacktrace()})
+      end
+    after
+      10000 ->
+        ok
+  end.
+
+
+
+handle_reader_message(Message, #reader{format = Format, reader = Reader, parent = Parent, path = URL, media_info = #media_info{duration = D} = MI} = State) ->
+  case Message of
+    {'DOWN', _,_,_,_} -> 
+      stop;
+    {manifest, hds_manifest} ->
+      {ok, HdsManifest} = hds:file_manifest(Format, Reader),
+      Parent ! {hds_manifest, HdsManifest},
+      {ok, State};
+    {manifest, {hls_playlist,Tracks}} ->
+      {ok, Playlist} = hls:playlist(Format, Reader, [{name,URL},{tracks,Tracks},{duration,D}]),
+      Parent ! {{hls_playlist,Tracks}, Playlist},
+      {ok, State};
+    {manifest, hls_playlist} ->
+      {ok, Playlist} = hls:playlist(Format, Reader, [{name,URL},{duration,D}]),
+      Parent ! {hls_playlist, Playlist},
+      {ok, State};
+    {read_gop, From, SegmentFormat, Fragment, Tracks} ->
+      T1 = os:timestamp(),
+      Reply = case Format:read_gop(Reader, Fragment, Tracks) of
+        {ok, Gop_} -> 
+          Gop = limited_gop(Fragment, Gop_),
+          T2 = os:timestamp(),
+          ReadTime = timer:now_diff(T2,T1),
+          Duration = gop_duration(Gop),
+
+          Segment = case SegmentFormat of
+            hds_segment ->
+              HasVideo = case Gop of
+                [#video_frame{content = video}|_] -> true;
+                _ -> false
+              end,
+              {ok, F4V} = hds:segment(Gop, MI, [{tracks,Tracks},{no_metadata,not HasVideo}]),
+              F4V;
+            hls_segment ->
+              hls:segment(Gop, MI, [{tracks,Tracks}]);
+            raw ->
+              Gop
+          end,
+          {ok, Segment, Duration, ReadTime};
+        {error, _} = Error ->
+          Error
+      end,
+      gen_server:reply(From, Reply),
+      Parent ! {reader_ready, self()},
+      {ok, State};
+    Else ->
+      error({unknown,Else})
+  end.
+
+read_request(Reader, {Caller,CallRef} = Ref, SegmentFormat, Fragment, Tracks) when
+  is_pid(Reader), is_pid(Caller),is_reference(CallRef),is_atom(SegmentFormat),is_number(Fragment)  ->
+  Reader ! {read_gop, Ref, SegmentFormat, Fragment, Tracks},
+  Ref.
+
+reader_manifest(Reader, Manifest) ->
+  Reader ! {manifest, Manifest},
+  receive
+    {Manifest, Bin} -> {ok, Bin}
+  after
+    1000 -> error({timeout,Manifest})
+  end.
 
 
 handle_info(timeout, State) ->
   {stop, normal, State};
+
+handle_info({reader_ready, Reader}, #state{timeout = Timeout, jobs = Jobs, readers = Readers} = State) ->
+  Jobs1 = lists:keydelete(Reader, 1, Jobs),
+  {noreply, State#state{jobs = Jobs1, readers = [Reader|Readers]}, Timeout};
+
+% Add here notifying of waiting clients
+handle_info({'DOWN', _, _, Reader, Reason}, #state{timeout = Timeout, jobs = Jobs, readers = Readers} = State) ->
+  case Reason of
+    normal ->
+      NewJobs = lists:keydelete(Reader, 1, Jobs),
+      NewReaders = lists:delete(Reader, Readers),
+      put(worker_count, length(NewJobs) + length(NewReaders)),
+      % ?D({spare_worker,Reader,gracefully_down, left, get(worker_count)}),
+      {noreply, State#state{jobs = NewJobs, readers = NewReaders}, Timeout};
+    _ -> {stop, Reason, State}
+  end;
+
+
+handle_info({ack, Pid, {ok, Pid, _, _}}, #state{timeout = Timeout, readers = Readers, jobs = Jobs, starting_workers = Starting} = State) ->
+  erlang:monitor(process, Pid),
+  put(worker_count, length(Jobs) + length(Readers) + 1),
+  % ?D({start_new_worker,State#state.disk_path,get(worker_count)}),
+  {noreply, State#state{readers = Readers ++ [Pid], starting_workers = Starting - 1}, Timeout};
+
+handle_info({ack, _Pid, {error, _}}, #state{timeout = Timeout, starting_workers = Starting} = State) ->
+  {noreply, State#state{starting_workers = Starting - 1}, Timeout};
 
 handle_info(Info, State) ->
   {stop, {unknown_info,Info}, State}.
 
 
 
-handle_call(media_info, _From, #state{format = Format, reader = Reader, timeout = Timeout} = State) ->
-  {reply, Format:media_info(Reader), State, Timeout};
+
+schedule_read_request({From, Format, Fragment, Tracks}, #state{timeout = Timeout, readers = [Pid|Readers], jobs = Jobs} = State) ->
+  read_request(Pid, From, Format, Fragment, Tracks),
+  {noreply, State#state{readers = Readers, jobs = [{Pid,From}|Jobs]}, Timeout};
+
+schedule_read_request(_Request, #state{jobs = Jobs, readers = [], disk_path = URL, timeout = Timeout, 
+    starting_workers = Starting} = State) when length(Jobs) + Starting < 70 -> 
+  % ?D(ask_to_retry),
+  proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
+  proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
+  proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
+  {reply, {error, retry}, State#state{starting_workers = Starting + 3}, Timeout};
+
+schedule_read_request(_Request, #state{timeout = Timeout} = State) ->
+  {reply, {error, busy}, State, Timeout}.
+
+
+
+handle_call({read_gop, Fragment, Tracks}, From, #state{} = State) ->
+  schedule_read_request({From, raw, Fragment, Tracks}, State);
+
+
+handle_call({Format, Fragment, Tracks}, From, #state{} = State) 
+  when Format == hds_segment orelse Format == hls_segment ->
+  schedule_read_request({From, Format, Fragment, Tracks}, State);
+
+
+
+
+
+handle_call(media_info, _From, #state{media_info = MI, timeout = Timeout} = State) ->
+  {reply, MI, State, Timeout};
 
 handle_call(keyframes, _From, #state{keyframes = Keyframes, timeout = Timeout} = State) ->
   {reply, Keyframes, State, Timeout};
 
-handle_call(hds_manifest, _From, #state{hds_manifest = undefined, format = Format, reader = Reader} = State) ->
-  {ok, HdsManifest} = hds:file_manifest(Format, Reader),
+
+
+
+
+
+handle_call(hds_manifest, _From, #state{hds_manifest = undefined, readers = Readers} = State) ->
+  [Pid|_] = Readers,
+  {ok, HdsManifest} = reader_manifest(Pid, hds_manifest),
   gen_tracker:setattr(flu_files, State#state.path, [{hds_manifest, HdsManifest}]),
   handle_call(hds_manifest, _From, State#state{hds_manifest = HdsManifest});
 
 handle_call(hds_manifest, _From, #state{hds_manifest = HdsManifest, timeout = Timeout} = State) ->
   {reply, {ok, HdsManifest}, State, Timeout};
 
-handle_call({read_gop, Id, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
-  Gop = Format:read_gop(Reader, Id, Tracks),
-  {reply, Gop, State, Timeout};
-
-handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Timeout} = State) when
-  (Fragment =< 0 orelse Fragment > length(Keyframes)) andalso (Type == hls_segment orelse Type == hds_segment) ->
-  {reply, {error, no_segment}, State, Timeout};  
-
-handle_call({hds_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI, path = Path} = State) ->
-  T1 = os:timestamp(),
-  Gop = case Format:read_gop(Reader, Fragment, Tracks) of
-    {ok, Gop_} -> limited_gop(Fragment, Gop_);
-    {error, _} = Error -> throw({reply, Error, State, Timeout})
-  end,
-  T2 = os:timestamp(),
-  HasVideo = case Gop of
-    [#video_frame{content = video}|_] -> true;
-    _ -> false
-  end,
-  ReadTime = timer:now_diff(T2,T1),
-  Duration = gop_duration(Gop),
-  {ok, Segment} = hds:segment(Gop, MI, [{tracks,Tracks},{no_metadata,not HasVideo}]),
-  {reply, {ok, Segment, Duration, ReadTime, Path}, State, Timeout};
 
 
-handle_call({hls_segment, Fragment, Tracks}, _From, #state{timeout = Timeout, format = Format, reader = Reader, media_info = MI, path = Path} = State) ->
-  T1 = os:timestamp(),
-  Gop = case Format:read_gop(Reader, Fragment, Tracks) of
-    {ok, Gop_} -> limited_gop(Fragment, Gop_);
-    {error, _} = Error -> throw({reply, Error, State, Timeout})
-  end,
-  T2 = os:timestamp(),
-
-  ReadTime = timer:now_diff(T2,T1),
-  Duration = gop_duration(Gop),
-
-  Segment = hls:segment(Gop, MI, [{tracks,Tracks}]),
-  {reply, {ok, iolist_to_binary(Segment), Duration, ReadTime, Path}, State, Timeout};
-
-
-handle_call({Type, Fragment}, _From, #state{keyframes = Keyframes, timeout = Timeout, format = Format, reader = Reader} = State) 
-  when Type == hls_segment orelse Type == hds_segment ->
-  {_DTS,Id}=lists:nth(Fragment,Keyframes),
-  StopDTS = if length(Keyframes) >= Fragment + 1 ->
-    {S, _} = lists:nth(Fragment+1, Keyframes), S;
-  true -> 0
-  end,  
-  {reply, {ok, {Format, Reader, Id, StopDTS}}, State, Timeout};
-
-handle_call(reader, _From, #state{timeout = Timeout, format = Format, reader = Reader} = State) ->
-  {reply, {ok, {Format, Reader}}, State, Timeout};
 
 handle_call(hls_mbr_playlist, _From, #state{hls_mbr_playlist = undefined, 
   media_info = #media_info{} = MediaInfo} = State) ->
   {ok, Playlist} = hls:variant_playlist(MediaInfo),
   handle_call(hls_mbr_playlist, _From, State#state{hls_mbr_playlist = Playlist});
 
-handle_call({hls_playlist, Tracks}, _From, #state{format = Format, reader = Reader,path = Path} = State) ->
-  {ok, Playlist} = hls:playlist(Format, Reader, [{name,Path},{tracks,Tracks}]),
-  handle_call(hls_playlist, _From, State#state{hls_playlist = Playlist});
+handle_call(hls_mbr_playlist, _From, #state{hls_mbr_playlist = Playlist, timeout = Timeout} = State) ->
+  {reply, {ok, Playlist}, State, Timeout};
 
-handle_call(hls_playlist, _From, #state{path = Path, hls_playlist = undefined, keyframes = Keyframes,
-  media_info = #media_info{duration = Duration}} = State) ->
-  {ok, Playlist} = hls:playlist(Keyframes, [{name,Path},{duration,Duration}]),
-  handle_call(hls_playlist, _From, State#state{hls_playlist = Playlist});
+
+
+
+handle_call({hls_playlist, Tracks}, _From, #state{readers = [Pid|_], timeout = Timeout} = State) ->
+  {ok, Playlist} = reader_manifest(Pid, {hls_playlist,Tracks}),
+  {reply, {ok, Playlist}, State, Timeout};
+
+
+
+
+
+handle_call(hls_playlist, _From, #state{hls_playlist = undefined, readers = Readers} = State) ->
+  [Pid|_] = Readers,
+  {ok, HlsPlaylist} = reader_manifest(Pid, hls_playlist),
+  gen_tracker:setattr(flu_files, State#state.path, [{hls_playlist, HlsPlaylist}]),
+  handle_call(hls_playlist, _From, State#state{hls_playlist = HlsPlaylist});
 
 handle_call(hls_playlist, _From, #state{hls_playlist = Playlist, timeout = Timeout} = State) ->
   {reply, {ok, Playlist}, State, Timeout};
 
-handle_call(hls_mbr_playlist, _From, #state{hls_mbr_playlist = Playlist, timeout = Timeout} = State) ->
-  {reply, {ok, Playlist}, State, Timeout};
+
+
 
 handle_call(Call, _From, State) ->
   {stop, {unknown_call,Call}, State}.

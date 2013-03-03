@@ -1,3 +1,7 @@
+flussonic (3.69.3)
+
+  * flu_file now has job queue inside it with autostarting workers
+
 flussonic (3.69.2)
 
   * fixed HDS live broken in 3.69.1, #128, #126, #119

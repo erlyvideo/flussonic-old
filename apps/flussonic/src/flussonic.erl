@@ -115,6 +115,18 @@ start0(_Options) ->
   lager:start(),
   lager:warning("Flussonic version ~s is booting", [flu:version()]),
 
+  case os:getenv("LOGDIR") of
+    false ->
+      ok;
+    LogDir_ ->
+      {ok,Trace} = lager_util:validate_trace({[{request,web}], debug, {lager_file_backend,LogDir_ ++ "/access.log"}}),
+      gen_event:add_handler(lager_event, {lager_file_backend,LogDir_ ++ "/access.log"}, [{LogDir_ ++ "/access.log",debug,10485760,"$D04", 40},{lager_default_formatter,[date," ",time," ",message,"\n"]}]),
+      {MinLogLevel, Traces} = lager_config:get(loglevel),
+      lager_config:set(loglevel, {MinLogLevel, [Trace|Traces]})
+  end,
+
+
+
   application:start(crypto),
   application:start(public_key),
   application:start(ssl),
