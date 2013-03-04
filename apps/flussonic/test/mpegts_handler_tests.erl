@@ -143,7 +143,7 @@ test_change_media_info() ->
   {Frames1, Frames2} = lists:split(length(AllFrames) div 2, AllFrames),
   NoAudio = [F || #video_frame{content = video} = F <- Frames1],
   MI1 = video_frame:define_media_info(undefined, NoAudio),
-  Stream ! MI1,
+  gen_server:call(Stream, {set, MI1}),
   MI2 = video_frame:define_media_info(MI1, Frames1),
 
   {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),

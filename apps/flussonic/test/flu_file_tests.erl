@@ -448,6 +448,15 @@ flu_file_http_test_() ->
   T = fun(Path, Atom) ->
     fun() -> ?MODULE:Atom(Path) end
   end,
+
+  HLS = case file:read_file_info("../../hls") of
+    {ok, _} -> [
+      {"test_flu_hls_good_segment_mp4", T("bunny.mp4", test_flu_hls_good_segment)}
+      ,{"test_flu_hls_good_segment_flv", T("bunny.flv", test_flu_hls_good_segment)}
+      ,{"test_flu_hls_no_segment", T("bunny.mp4", test_flu_hls_no_segment)}
+      ];
+    {error, _} -> []
+  end,
   {foreach,
   fun() ->
     start_flu(),
@@ -470,19 +479,16 @@ flu_file_http_test_() ->
     ok = application:stop(gen_tracker),
     error_logger:add_report_handler(error_logger_tty_h),
     ok
-  end, [
+  end, HLS ++ [
     {"test_flu_hds_good_manifest_mp4", T("bunny.mp4", test_flu_hds_good_manifest)}
     ,{"test_flu_hds_good_segment_mp4", T("bunny.mp4", test_flu_hds_good_segment)}
-    ,{"test_flu_hls_good_segment_mp4", T("bunny.mp4", test_flu_hls_good_segment)}
 
 
     ,{"test_flu_hds_good_manifest_flv", T("bunny.flv", test_flu_hds_good_manifest)}
     ,{"test_flu_hds_good_segment_flv", T("bunny.flv", test_flu_hds_good_segment)}
-    ,{"test_flu_hls_good_segment_flv", T("bunny.flv", test_flu_hls_good_segment)}
 
 
     ,{"test_flu_hds_no_segment", T("bunny.mp4", test_flu_hds_no_segment)}
-    ,{"test_flu_hls_no_segment", T("bunny.mp4", test_flu_hls_no_segment)}
     ,{"test_answer_404_on_no_file", T("bunny10.mp4", test_answer_404_on_no_file)}
     ,{"test_answer_404_on_no_file_with_auth", T("bunny10.mp4", test_answer_404_on_no_file_with_auth)}
   ]}.
