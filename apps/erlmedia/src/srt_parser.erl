@@ -57,7 +57,7 @@ srt_to_record(Srt) ->
     {IdBin, TimeBin, Text} = get_fields(Srt),
     {FromBin, ToBin} = get_times(TimeBin),
     #srt_subtitle{
-      id = binary_to_integer(IdBin), 
+      id = to_i(IdBin), 
       from = parse_time(FromBin), 
       to = parse_time(ToBin), 
       text = Text
@@ -76,13 +76,13 @@ get_times(TimeBin) ->
 
 parse_time(Time) ->
   [HBin|[MBin|[SBin|[MSBin|_]]]] = re:split(Time, ":|,"),
-  H = binary_to_integer(HBin),
-  M = binary_to_integer(MBin),
-  S = binary_to_integer(SBin),
-  MS = binary_to_integer(MSBin),
+  H = to_i(HBin),
+  M = to_i(MBin),
+  S = to_i(SBin),
+  MS = to_i(MSBin),
   H * 3600000 + M * 60000 + S * 1000 + MS.
 
-binary_to_integer(Bin) ->
+to_i(Bin) ->
   list_to_integer(binary_to_list(Bin)).
 
 

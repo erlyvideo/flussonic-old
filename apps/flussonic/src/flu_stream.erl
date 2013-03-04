@@ -63,7 +63,7 @@ json_list() ->
     RTMP_ -> [{rtmp,RTMP_}]
   end,
   Streams = [ RTMP ++ [{name,Name}|parse_attr(Attr)] || {Name,Attr} <- list()],
-  [{streams,Streams},{event,stream.list}].
+  [{streams,Streams},{event,'stream.list'}].
 
 white_keys() ->
   [dvr, hls, hds, last_dts, lifetime, name, type, ts_delay, client_count, play_prefix, retry_count].

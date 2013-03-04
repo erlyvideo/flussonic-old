@@ -28,7 +28,18 @@ start_http() ->
   application:start(ssl),
   application:start(lhttpc),
   Dispatch = [{'_', [{"/auth", fake_auth, []}]}],
-  {ok, Pid} = cowboy:start_http(fake_http, 1, [{port, 6070}],
+  {ok, Pid} = cowboy:start_http(fake_auth, 1, [{port, 6070}],
     [{env,[{dispatch, cowboy_router:compile(Dispatch)}]}]),
   {ok, Pid}.
 
+
+stop_http() ->
+  error_logger:delete_report_handler(error_logger_tty_h),  
+  application:stop(lhttpc),
+  application:stop(ssl),
+  application:stop(public_key),
+  application:stop(cowboy),
+  application:stop(ranch),
+  application:stop(crypto),
+  error_logger:add_report_handler(error_logger_tty_h),
+  ok.

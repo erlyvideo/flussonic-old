@@ -193,7 +193,7 @@ fetch_frames(MI1) ->
     {'$gen_call', From, #video_frame{}} -> gen_server:reply(From, ok), fetch_frames(MI1);
     Else -> Else
   after
-    10 -> MI1
+    100 -> MI1
   end.
 
 

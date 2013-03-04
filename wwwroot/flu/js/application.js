@@ -29,8 +29,8 @@ Erlyvideo = {
   		autoPlay: true
   	};
   	var paramObj = {allowScriptAccess : "always", allowFullScreen : "true", allowNetworking : "all"};
-    swfobject.embedSWF("/flu/" + Erlyvideo.hds_player + ".swf", element, width, height, "10.3", "/flu/expressInstall.swf",
-      flashvars, paramObj, {name: Erlyvideo.hds_player});
+    swfobject.embedSWF("/flu/StrobeMediaPlayback.swf", element, width, height, "10.3", "/flu/expressInstall.swf",
+      flashvars, paramObj, {name: "StrobeMediaPlayback"});
   },
   
   // RTMP JWplayer
@@ -729,8 +729,6 @@ $(function() {
   Erlyvideo.enable_play_tab();
   Erlyvideo.request("server");
 
-  Erlyvideo.hds_player = "StrobeMediaPlayback";
-  if(params["player"] == "grind") Erlyvideo.hds_player = "GrindPlayer";
 
   // $('#traffic-stats').visualize({type: 'line', width: '800px'});
 	

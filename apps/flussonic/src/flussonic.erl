@@ -55,17 +55,15 @@ main(Options) ->
   io:format("Licensed code loaded~n"),
   ok = start(Options),
   io:format("Flussonic streaming server started. ~nInformation: http://flussonic.com/ (http://erlyvideo.org/)~nContacts: Max Lapshin <info@erlyvideo.org>~n"),
-  loop_readline().
+  loop_shell().
 
-loop_readline() ->
-  case io:get_line("cmd> ") of
-    "r\n" -> 
-      flu:reconf(),
-      loop_readline();
-    _ ->
-      ok
+loop_shell() ->
+  Pid = shell:start(),
+  erlang:monitor(process,Pid),
+  receive
+    {'DOWN',_,_,Pid,_} -> ok
   end,
-  io:format("Flussonic is exiting due to user keypress~n").
+  loop_shell().
   
 
 start() ->

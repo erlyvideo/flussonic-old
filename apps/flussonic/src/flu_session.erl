@@ -296,10 +296,10 @@ list() ->
   clients().
 
 json_list() ->
-  [{event,user.list},{sessions,list()}].
+  [{event,'user.list'},{sessions,list()}].
 
 json_list(Name) ->
-  [{event,user.list},{name,Name},{sessions,[Session || Session <- list(), proplists:get_value(name,Session) == Name]}].  
+  [{event,'user.list'},{name,Name},{sessions,[Session || Session <- list(), proplists:get_value(name,Session) == Name]}].  
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

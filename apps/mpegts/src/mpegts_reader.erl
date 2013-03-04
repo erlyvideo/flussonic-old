@@ -164,7 +164,7 @@ handle_info({input_data, _Socket, Bin}, #reader{consumer = Consumer, decoder = D
       end,
       case MI3 of
         undefined -> ok;
-        _ -> [flu_stream:send_frame(Consumer, Frame) || Frame <- Frames]
+        _ -> [gen_server:call(Consumer, Frame) || Frame <- Frames]
       end,
       {noreply, Reader#reader{decoder = Decoder2, media_info = MI3}}
   catch

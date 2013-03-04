@@ -30,7 +30,6 @@
 %  
 -module(uuid).
 -export([v4/0, gen/0, to_string/1, get_parts/1]).
--import(random).
 
 gen() ->
     iolist_to_binary(io_lib:format("~8.16.0b-~4.16.0b-~4.16.0b-~2.16.0b~2.16.0b-~12.16.0b", get_parts(v4()))).

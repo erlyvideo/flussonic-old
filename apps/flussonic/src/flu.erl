@@ -30,7 +30,7 @@ status() ->
 json_info() ->
   Vsn = list_to_binary(flu:version()),
   License = erlang:module_loaded(hls),
-  Info = [{event,server.info},{version,Vsn},{license,License}],
+  Info = [{event,'server.info'},{version,Vsn},{license,License}],
   Info.
 
 
