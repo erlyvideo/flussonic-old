@@ -1,3 +1,10 @@
+flussonic (3.69.4)
+
+  * R16 compatibility
+  * broken avcC support
+  * new routing mechanism
+  * refactored flu_file for unified API
+
 flussonic (3.69.3)
 
   * flu_file now has job queue inside it with autostarting workers

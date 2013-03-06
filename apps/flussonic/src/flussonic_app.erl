@@ -91,22 +91,10 @@ read_config() ->
   end.
 
 load_config() ->
-  Env = read_config(),  
+  Env = read_config(),
 
-  Dispatch = [{'_', flu_config:parse_routes(Env)}],
-  {http, HTTPPort} = lists:keyfind(http, 1, Env),
+  flu:start_webserver(Env),
 
-  RateLimit = proplists:get_value(rate_limit, Env),
-  Middlewares = case RateLimit of
-    undefined -> [];
-    _ -> [rate_limiter]
-  end ++ [cowboy_router, cowboy_handler],
-  ProtoOpts = [{env,[{dispatch, cowboy_router:compile(Dispatch)},{rate_limit,RateLimit}]},{max_keepalive,4096},{middlewares, Middlewares}],
-  
-  start_http(flu_http, 100, 
-    [{port,HTTPPort},{backlog,4096},{max_connections,32768}],
-    ProtoOpts
-  ),
 
   % (catch cowboy:stop_listener(http)),
   % TODO move from cowboy supervisor tree to flussonic supervisor tree
@@ -154,13 +142,4 @@ load_config() ->
 
   ok.
 
-
-start_http(Ref, NbAcceptors, TransOpts, ProtoOpts) when is_integer(NbAcceptors) ->
-  {port, Port} = lists:keyfind(port, 1, TransOpts),
-  case (catch ranch:get_port(Ref)) of
-    Port -> ranch:set_protocol_options(Ref, ProtoOpts);
-    _ -> 
-      cowboy:stop_listener(Ref),
-      cowboy:start_http(Ref, NbAcceptors, TransOpts, ProtoOpts)
-  end.
 

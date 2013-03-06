@@ -80,7 +80,7 @@ handle_info(_Else, State) ->
 
 terminate(_,#hds{name = Name, segment = Segment, fragments = Fragments}) ->
   Nums = [N || #fragment{number = N} <- queue:to_list(Fragments)],
-  [flu_stream_data:erase(Name, {hds_segment, Segment, N}) || N <- Nums],
+  [flu_stream_data:erase(Name, {hds_fragment, Segment, N}) || N <- Nums],
   flu_stream_data:erase(Name, hds_manifest),
   flu_stream_data:erase(Name, bootstrap),
   gen_tracker:setattr(flu_streams, Name, [{hds,false}]),
@@ -113,15 +113,15 @@ create_new_fragment(#hds{gop = GOP, start_dts = DTS, fragment = Fragment, segmen
   Bin1 = [[flv_video_frame:to_tag(F) || F <- Configs], lists:reverse(GOP)],
 
   Bin = iolist_to_binary([<<(iolist_size(Bin1) + 8):32, "mdat">>, Bin1]),
-  flu_stream_data:set(Name, {hds_segment, Segment,Fragment}, Bin),
-  % erlang:put({hds_segment, Segment,Fragment}, Bin),
+  flu_stream_data:set(Name, {hds_fragment, Segment,Fragment}, Bin),
+  % erlang:put({hds_fragment, Segment,Fragment}, Bin),
   HDS#hds{fragment = Fragment + 1, fragments = queue:in(#fragment{number = Fragment, dts = DTS}, Fragments), gop = []}.
 
 delete_old_fragment(#hds{segment = Segment, fragments_count = FragmentsCount, fragments = Fragments, name = Name} = HDS) ->
   NewFragments = case queue:len(Fragments) of
     Count when Count > FragmentsCount ->
       {{value, #fragment{number = Fragment}}, Leaving} = queue:out(Fragments),
-      flu_stream_data:erase(Name, {hds_segment, Segment, Fragment}),
+      flu_stream_data:erase(Name, {hds_fragment, Segment, Fragment}),
       Leaving;
     _ -> Fragments
   end,

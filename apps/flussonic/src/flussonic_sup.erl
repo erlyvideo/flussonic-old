@@ -143,6 +143,7 @@ init([flu_http]) ->
 
 init([]) ->
   Supervisors = [ 
+  {flu_router_sup, {flu_router, start_link, []}, permanent, 100, worker, []},
   {   flu_file_sup,
       {supervisor,start_link,[{local, flu_file_sup}, ?MODULE, [flu_file]]},
       permanent,                               % Restart  = permanent | transient | temporary

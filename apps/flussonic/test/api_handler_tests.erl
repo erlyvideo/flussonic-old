@@ -11,6 +11,11 @@ api_handler_test_() ->
       [application:start(App) || App <- Apps],
       meck:new([flu], [{passthrough,true}]),
       inets:start(),
+      % application:load(lager),
+      % application:set_env(lager,error_logger_redirect,false),
+      % application:set_env(lager,handlers,[{lager_console_backend,error}]),
+      % lager:start(),
+      
       ok
   end,
   fun(_) ->
@@ -32,11 +37,7 @@ api_handler_test_() ->
 set_config(Conf) ->
   {ok, Config} = flu_config:parse_config(Conf, []),
   application:set_env(flussonic, config, Config),
-  cowboy:start_http(fake_http, 3, 
-    [{port,5555}],
-    [{env,[{dispatch, cowboy_router:compile([{'_',flu_config:parse_routes(Config)}])}]}]
-  ),
-  ok.
+  flu:start_webserver([{http,5555}|Config]).
 
 
 test_protected_reconf_rejected() ->

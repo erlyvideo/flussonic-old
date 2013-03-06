@@ -26,11 +26,14 @@
 
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([start_link/2, autostart/2, media_info/1]).
--export([hds_manifest/1, hds_segment/2, hds_segment/4, hds_segment/3]).
--export([hls_segment/2, hls_segment/3, hls_segment/4, hls_mbr_playlist/1, hls_playlist/1, hls_playlist/2]).
+
+-export([hds_manifest/2, hds_fragment/3, hds_fragment/4]).
+-export([hls_playlist/2, hls_playlist/3, hls_mbr_playlist/2, hls_segment/3, hls_segment/4]).
+
+
 -export([get/2]).
 -export([list/0]).
--export([read_gop/3, read_gop/2, keyframes/1]).
+-export([read_gop/4, read_gop/3, read_gop/2, keyframes/1]).
 
 -export([init_reader/2, reader_loop/1, read_request/5]).
 
@@ -45,8 +48,7 @@
   readers = [],
   jobs = [],
   starting_workers = 0,
-  requested_path,
-  path,
+  name,
   disk_path,
   options,
   keyframes,
@@ -71,48 +73,52 @@ list() ->
 autostart(File, _) when is_pid(File) ->
   {ok, File};
 
-autostart(Name, Options) ->
-  gen_tracker:find_or_open(flu_files, Name, fun() -> flussonic_sup:start_flu_file(Name, Options) end).
+autostart(Path, Name) ->
+  gen_tracker:find_or_open(flu_files, Name, fun() -> flussonic_sup:start_flu_file(Name, [{path,Path}]) end).
 
 start_link(Name, Options) ->
   proc_lib:start_link(?MODULE, init, [[Name, Options]]).
 
 media_info(File) -> get(File, media_info).
 
-get(File, Key) when is_list(File) ->
-  get(list_to_binary(File), Key);
-
-get(File, Key) when is_binary(File) ->
-  case gen_tracker:find(flu_files, File) of
+get(Path, File, Key) when is_binary(File) ->
+  case autostart(Path, File) of
     {ok, Pid} -> get(Pid, Key);
+    {error, _} = Error -> Error;
     undefined -> undefined
-  end;
+  end.
 
-get(File, Key) ->
-  R = make_call(File, Key),
-  R.
+get(Pid, Key) ->
+  make_call(Pid, Key).
 
-keyframes(File) -> 
-  R = get(File, keyframes),
-  R.
+keyframes(Pid) when is_pid(Pid) -> 
+  get(Pid, keyframes);
 
-hds_manifest(File) -> 
-  R = get(File, hds_manifest),
-  R.
+keyframes(Name) when is_binary(Name) ->
+  {ok, Pid} = gen_tracker:find(flu_files, Name),
+  keyframes(Pid).
 
 
-hds_segment(Name, Root, Fragment, Tracks) ->
-  case autostart(Name, [{root,Root}]) of
-    {ok, File} -> hds_segment(File, Fragment, Tracks);
+hds_manifest(Path, Name) when is_binary(Path),is_binary(Name) ->
+  get(Path, Name, hds_manifest).
+
+
+hds_fragment(Path, Name, Tracks, Fragment) when is_binary(Path),is_binary(Name),is_list(Tracks),is_integer(Fragment) ->
+  case autostart(Path, Name) of
+    {ok, Pid} -> hds_fragment0(Pid, Fragment, Tracks);
     {error, _} = Error -> Error
   end.
 
-hds_segment(File, Fragment) ->
-  hds_segment(File, Fragment, undefined).
+hds_fragment(Path, Name, Fragment) when is_binary(Path),is_binary(Name),is_integer(Fragment) ->
+  case autostart(Path, Name) of
+    {ok, Pid} -> hds_fragment0(Pid, Fragment, undefined);
+    {error, _} = Error -> Error
+  end.
 
-hds_segment(File, Fragment, Tracks) when is_pid(File) ->
+
+hds_fragment0(Pid, Fragment, Tracks) when is_pid(Pid) ->
   T1 = os:timestamp(),
-  case make_call(File, {hds_segment, Fragment, Tracks}) of
+  case make_call(Pid, {hds_fragment, Fragment, Tracks}) of
     {ok, Segment, Duration, ReadTime} ->
       T2 = os:timestamp(),
       Size = iolist_size(Segment),
@@ -121,13 +127,8 @@ hds_segment(File, Fragment, Tracks) when is_pid(File) ->
       {ok, Segment};
     {error, _} = Error ->
       Error
-  end;
-
-hds_segment(Name, Fragment, Tracks) ->
-  case autostart(Name, []) of
-    {ok, File} -> hds_segment(File, Fragment, Tracks);
-    {error, _} = Error -> Error
   end.
+
 
 
 make_call(Pid, Call) ->
@@ -146,33 +147,32 @@ make_call(Pid, Call, Retry) ->
   end.
 
 
-hls_playlist(File) -> 
-  R = get(File, hls_playlist),
-  R.
+hls_playlist(Path, Name) when is_binary(Path),is_binary(Name) -> 
+  get(Path, Name, hls_playlist).
 
-hls_playlist(File, Tracks) -> 
-  R = get(File, {hls_playlist, Tracks}),
-  R.
+hls_playlist(Path, Name, Tracks) when is_binary(Path),is_binary(Name),is_list(Tracks) -> 
+  get(Path, Name, {hls_playlist, Tracks}).
 
-hls_mbr_playlist(File) -> 
-  R = get(File, hls_mbr_playlist),
-  R.
+hls_mbr_playlist(Path, Name) when is_binary(Path),is_binary(Name) -> 
+  get(Path, Name, hls_mbr_playlist).
 
+hls_segment(Path, Name, Tracks, Segment) when is_binary(Path),is_binary(Name),is_list(Tracks),is_integer(Segment) ->
+  case autostart(Path, Name) of
+    {ok, Pid} -> hls_segment0(Pid, Tracks, Segment);
+    {error, _} = Error -> Error
+  end.
 
-
-hls_segment(Name, Root, Segment, Tracks) ->
-  case autostart(Name, [{root,Root}]) of
-    {ok, File} -> hls_segment(File, Segment, Tracks);
+hls_segment(Path, Name, Segment) when is_binary(Path),is_binary(Name),is_integer(Segment) ->
+  case autostart(Path, Name) of
+    {ok, Pid} -> hls_segment0(Pid, undefined, Segment);
     {error, _} = Error -> Error
   end.
 
 
-hls_segment(File, Segment) ->
-  hls_segment(File, Segment, undefined).
 
-hls_segment(File, Segment, Tracks) when is_pid(File) ->
+hls_segment0(Pid, Tracks, Segment) when is_pid(Pid) ->
   T1 = os:timestamp(),
-  case make_call(File, {hls_segment, Segment, Tracks}) of
+  case make_call(Pid, {hls_segment, Segment, Tracks}) of
     {ok, Bin, Duration, ReadTime} ->
       T2 = os:timestamp(),
       Size = iolist_size(Bin),
@@ -181,22 +181,35 @@ hls_segment(File, Segment, Tracks) when is_pid(File) ->
       {ok, Bin};
     {error, _} = Error ->
       Error
-  end;
-
-hls_segment(Name, Root, Fragment) when is_binary(Name), is_integer(Fragment) ->
-  case autostart(Name, [{root,Root}]) of
-    {ok, File} -> hls_segment(File, Fragment);
-    {error, _} = Error -> Error
   end.
 
 
 
-read_gop(File, Id) ->
-  read_gop(File, Id, undefined).
 
-read_gop(File, Id, Tracks) ->
+read_gop(Root, File, Id) ->
+  read_gop(Root, File, undefined, Id).
+
+read_gop(Path, Name, Tracks, Id) when is_binary(Path),is_binary(Name),is_integer(Id)->
+  case autostart(Path, Name) of
+    {ok, Pid} ->
+      T1 = os:timestamp(),
+      case make_call(Pid, {read_gop, Id, Tracks}) of
+        {ok, Gop, Duration, ReadTime} ->
+          T2 = os:timestamp(),
+          Size = erlang:external_size(Gop),
+          SegmentTime = timer:now_diff(T2,T1),
+          pulse:read_segment(Size, Duration, ReadTime, SegmentTime),
+          {ok, Gop};
+        {error, _} = Error ->
+          Error
+      end;
+    Else ->
+      Else
+  end.
+
+read_gop(Pid, Id) ->
   T1 = os:timestamp(),
-  case make_call(File, {read_gop, Id, Tracks}) of
+  case make_call(Pid, {read_gop, Id, undefined}) of
     {ok, Gop, Duration, ReadTime} ->
       T2 = os:timestamp(),
       Size = erlang:external_size(Gop),
@@ -208,16 +221,16 @@ read_gop(File, Id, Tracks) ->
   end.
 
 
-init([Path, Options]) ->
-  Root = proplists:get_value(root, Options),
-  URL = case re:run(Path, "http:/([^/].+)", [{capture,all_but_first,binary}]) of
+
+
+init([Name, Options]) ->
+  DiskPath = proplists:get_value(path,Options),
+  URL = case re:run(Name, "http:/([^/].+)", [{capture,all_but_first,binary}]) of
     {match, [URL2]} -> <<"http://", URL2/binary>>;
-    _ when Root =/= undefined -> binary_to_list(iolist_to_binary([Root, "/", Path]));
-    _ -> Path
+    _ when DiskPath =/= undefined -> DiskPath
   end,
 
   put(name, {flu_file,URL}),
-  put(start_args, {Path, Options}),
 
   
   Timeout = proplists:get_value(timeout, Options, 60000),
@@ -233,11 +246,10 @@ init([Path, Options]) ->
       end,
 
       State = #state{
+        name = Name,
         disk_path = URL,
-        path = proplists:get_value(path, Options, URL),
         timeout = Timeout,
         options = Options,
-        requested_path = Path,
         media_info = MediaInfo,
         keyframes = Keyframes, 
         hds_manifest = HDS,
@@ -252,9 +264,9 @@ init([Path, Options]) ->
       gen_server:enter_loop(?MODULE, [], State, Timeout);
     {error, Error} ->
       Message = case Error of
-        enoent -> {return, 404, lists:flatten(io_lib:format("No such file ~s", [Path]))};
-        eaccess -> {return, 403, lists:flatten(io_lib:format("Forbidden to open file ~s", [Path]))};
-        _ -> {return, 500, lists:flatten(io_lib:format("Error ~p opening file ~s", [Error, Path]))}
+        enoent -> {return, 404, lists:flatten(io_lib:format("No such file ~s", [Name]))};
+        eaccess -> {return, 403, lists:flatten(io_lib:format("Forbidden to open file ~s", [Name]))};
+        _ -> {return, 500, lists:flatten(io_lib:format("Error ~p opening file ~s", [Error, Name]))}
       end,
       lager:info("error opening file \"~s\": ~p",[URL, Error]),
       proc_lib:init_ack({error, Message}),
@@ -347,7 +359,7 @@ handle_reader_message(Message, #reader{format = Format, reader = Reader, parent 
           Duration = gop_duration(Gop),
 
           Segment = case SegmentFormat of
-            hds_segment ->
+            hds_fragment ->
               HasVideo = case Gop of
                 [#video_frame{content = video}|_] -> true;
                 _ -> false
@@ -441,7 +453,7 @@ handle_call({read_gop, Fragment, Tracks}, From, #state{} = State) ->
 
 
 handle_call({Format, Fragment, Tracks}, From, #state{} = State) 
-  when Format == hds_segment orelse Format == hls_segment ->
+  when Format == hds_fragment orelse Format == hls_segment ->
   schedule_read_request({From, Format, Fragment, Tracks}, State);
 
 
@@ -462,7 +474,7 @@ handle_call(keyframes, _From, #state{keyframes = Keyframes, timeout = Timeout} =
 handle_call(hds_manifest, _From, #state{hds_manifest = undefined, readers = Readers} = State) ->
   [Pid|_] = Readers,
   {ok, HdsManifest} = reader_manifest(Pid, hds_manifest),
-  gen_tracker:setattr(flu_files, State#state.path, [{hds_manifest, HdsManifest}]),
+  gen_tracker:setattr(flu_files, State#state.name, [{hds_manifest, HdsManifest}]),
   handle_call(hds_manifest, _From, State#state{hds_manifest = HdsManifest});
 
 handle_call(hds_manifest, _From, #state{hds_manifest = HdsManifest, timeout = Timeout} = State) ->
@@ -493,7 +505,7 @@ handle_call({hls_playlist, Tracks}, _From, #state{readers = [Pid|_], timeout = T
 handle_call(hls_playlist, _From, #state{hls_playlist = undefined, readers = Readers} = State) ->
   [Pid|_] = Readers,
   {ok, HlsPlaylist} = reader_manifest(Pid, hls_playlist),
-  gen_tracker:setattr(flu_files, State#state.path, [{hls_playlist, HlsPlaylist}]),
+  gen_tracker:setattr(flu_files, State#state.name, [{hls_playlist, HlsPlaylist}]),
   handle_call(hls_playlist, _From, State#state{hls_playlist = HlsPlaylist});
 
 handle_call(hls_playlist, _From, #state{hls_playlist = Playlist, timeout = Timeout} = State) ->

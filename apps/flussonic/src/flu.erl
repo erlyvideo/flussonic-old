@@ -12,6 +12,7 @@
 -export([version/0]).
 -export([status/0]).
 -export([json_info/0]).
+-export([start_webserver/1]).
 
 version() ->
   application:load(flussonic),
@@ -127,7 +128,31 @@ hex(N) when N >= 10, N < 16 ->
 
 
 
+start_webserver(Config) ->
+  Dispatch = [{'_', proplists:get_value(prepend_routes, Config, []) ++ flu_config:parse_routes(Config)}],
+  {http, HTTPPort} = lists:keyfind(http, 1, Config),
 
+
+  RateLimit = proplists:get_value(rate_limit, Config),
+  Middlewares = case RateLimit of
+    undefined -> [];
+    _ -> [rate_limiter]
+  end ++ [flu_router, flu_www, cowboy_router, cowboy_handler],
+  ProtoOpts = [{env,[{dispatch, cowboy_router:compile(Dispatch)},{router,flu_router:compile(Config)},{rate_limit,RateLimit}]},{max_keepalive,4096},{middlewares, Middlewares}],
+  
+  start_http(flu_http, 100, 
+    [{port,HTTPPort},{backlog,4096},{max_connections,32768}],
+    ProtoOpts
+  ).
+
+start_http(Ref, NbAcceptors, TransOpts, ProtoOpts) when is_integer(NbAcceptors) ->
+  {port, Port} = lists:keyfind(port, 1, TransOpts),
+  case (catch ranch:get_port(Ref)) of
+    Port -> ranch:set_protocol_options(Ref, ProtoOpts);
+    _ -> 
+      cowboy:stop_listener(Ref),
+      cowboy:start_http(Ref, NbAcceptors, TransOpts, ProtoOpts)
+  end.
 
 
 

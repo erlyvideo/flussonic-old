@@ -172,11 +172,7 @@ test_stream_level_password_publish_and_sessions() ->
 
   Conf = [{live,"live"},{live, "secure", [{password, "passw0rt"},{sessions,"http://localhost:6070/auth"}]}],
   {ok, Cnf} = flu_config:parse_config(Conf, undefined),
-  (catch cowboy:stop_listener(fake_http)),
-  cowboy:start_http(fake_http, 3, 
-    [{port,9090}],
-    [{env,[{dispatch, cowboy_router:compile([{'_',flu_config:parse_routes(Cnf)}])}]}]
-  ), 
+  flu:start_webserver([{http,9090}|Cnf]),
 
 
   set_config(Conf),

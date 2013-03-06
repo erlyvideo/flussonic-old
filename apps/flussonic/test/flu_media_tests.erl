@@ -68,13 +68,13 @@ lookup_test_() ->
 
 lookup_vod() ->
   set_config([{file, "vod", "priv"}]),
-  ?assertEqual({ok, {file, <<"bunny.mp4">>, [{root, <<"priv">>}]}}, flu_media:lookup("vod/bunny.mp4")),
+  ?assertEqual({ok, {file, <<"vod/bunny.mp4">>, [{path,<<"priv/bunny.mp4">>}]}}, flu_media:lookup("vod/bunny.mp4")),
   ?assertEqual({error, enoent}, flu_media:lookup("securevod/bunny.mp4")),
   ok.
 
 lookup_securevod() ->
   set_config([{file, "securevod", "priv", [{sessions, "url"}]}]),
-  ?assertEqual({ok, {file, <<"bunny.mp4">>, [{root, <<"priv">>},{sessions, "url"}]}}, flu_media:lookup("securevod/bunny.mp4")),
+  ?assertEqual({ok, {file, <<"securevod/bunny.mp4">>, [{path, <<"priv/bunny.mp4">>},{sessions, "url"}]}}, flu_media:lookup("securevod/bunny.mp4")),
   ?assertEqual({error, enoent}, flu_media:lookup("vod/bunny.mp4")),
   ok.
 

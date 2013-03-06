@@ -306,8 +306,8 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
       throw({fail, [500, fmt("failed to play rtmp ~s//~s: ~p", [App, StreamName, _Error])]})
   end.
 
-lookup_config([{file,App,Root,Options}|_], App, _Path) ->
-  {ok, {file, Root, Options}};
+lookup_config([{file,App,Root,Options}|_], App, Path) ->
+  {ok, {file, iolist_to_binary([Root, "/", Path]), Options}};
 
 lookup_config([{live,App,Options}|_], App, Path) ->
   {ok, {live, iolist_to_binary([App,"/",Path]), Options}};
@@ -322,8 +322,8 @@ lookup_config([], _, _) ->
   {error, not_found}.
 
 
-find_or_open_media(file, Path, Root, Options) ->
-  flu_file:autostart(Path, [{root,Root}|Options]);
+find_or_open_media(file, Name, Path, _Options) ->
+  flu_file:autostart(Path, Name);
 
 find_or_open_media(stream, Path, URL, Options) ->
   % ?debugFmt("autostart ~p ~p ~p", [Path, URL, Options]),

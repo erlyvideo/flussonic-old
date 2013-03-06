@@ -24,8 +24,7 @@
 -module(mpegts_handler).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--behaviour(cowboy_http_handler).
--export([init/3, handle/2, terminate/3]).
+-export([request/3]).
 -export([read_loop/3]).
 -export([write_loop/3]).
 -export([null_packet/1]).
@@ -44,55 +43,36 @@
   method
 }).
 
-init({_Any,http}, Req, Opts) ->
-  {PathInfo, Req1_} = cowboy_req:path_info(Req),
-  Name = case proplists:get_value(name, Opts) of
-    undefined when PathInfo =/= undefined -> flu:join(PathInfo, "/");
-    Name_ -> Name_
-  end,
-  {Peer, Req1} = cowboy_req:peer_addr(Req1_),
-  put(name, {mpegts_play,Name,Peer}),
-  flu_stream:autostart(Name, Opts),
+
+
+request(Req, Name, Options) ->
+  {Method, Req1} = cowboy_req:method(Req),
+  {Peer, Req2} = cowboy_req:peer_addr(Req1),
+
   case flu_stream:find(Name) of
-    {ok, _Pid} ->
-      {Method, Req2} = cowboy_req:method(Req1),
-      {ok, Req2, #mpegts{name = Name, method = Method, options = Opts}};
+    {ok, _Pid} -> 
+      ok;
     _ ->
-      {ok, Req1, #mpegts{name = undefined}}
-  end.
+      flu_stream:autostart(Name, Options)
+  end,
 
-handle(Req, #mpegts{name = undefined} = State) ->
-  {ok, R1} = cowboy_req:reply(404, [], <<"not found">>, Req),
-  {ok, R1, State};
+  put(name, {mpegts_play,Name,Peer}),
 
-handle(Req, State) ->
-  try handle0(Req, State) of
-    {ok, Req1, _} ->
-      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req1), undefined};      
-    ok ->
-      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined}
+  try handle0(Req2, #mpegts{name = Name, method = Method, options = Options}) of
+    {ok, Req3, _} -> {done, Req3};
+    ok -> done
   catch
-    throw:stop ->
-      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined};
-    throw:{return,Code,Text} ->
-      {ok, R1} = cowboy_req:reply(Code, [], Text, Req),
-      {ok, R1, undefined};
-    exit:normal -> 
-      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined};
-    exit:timeout ->
-      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined};
-    exit:enotconn ->
-      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined};
-    Class:Error ->
-      lager:error("~p:~p~n~p~n", [Class, Error, erlang:get_stacktrace()]),
-      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req), undefined}      
+    throw:stop -> done;
+    exit:normal -> done;
+    exit:timeout -> done;
+    exit:enotconn -> done
   end.
+
+
 
 
 handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _State) ->
   [Transport, Socket] = cowboy_req:get([transport, socket], Req),
-
-  {ok, _} = media_handler:check_sessions(Req, Name, [{pid,self()}|Options]),
 
   OurName = iolist_to_binary(io_lib:format("mpegts_client(~s)", [Name])),
   erlang:put(name, OurName),
@@ -154,27 +134,8 @@ await_media_info(Name, Req) ->
   end.
 
 
-terminate(_,_,_) -> ok.
-
 
 read_chunk(Req) ->
-  % Socket = cowboy_req:get(socket,Req),
-  % inet:setopts(Socket, [{active,false},{packet,line}]),
-  % {ok, BinLen} = gen_tcp:recv(Socket, 0, 5000),
-  % Size = size(BinLen) - 2,
-  % <<BinLen1:Size/binary, "\r\n">> = BinLen,
-  % Len = list_to_integer(binary_to_list(BinLen1), 16),
-  % inet:setopts(Socket, [{packet,raw}]),
-  % case gen_tcp:recv(Socket, Len) of
-  %   {ok, Chunk} ->
-  %     {ok, Chunk, Req};
-  %   eof ->
-  %     {done, Req};
-  %   {error, tcp_closed} ->
-  %     {done, Req};
-  %   {error, Error} ->
-  %     {error, Error}
-  % end.
   cowboy_req:stream_body(Req).
 
   

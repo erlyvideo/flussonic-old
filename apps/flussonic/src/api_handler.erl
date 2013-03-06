@@ -34,25 +34,13 @@
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
 
+-export([reload/2, sendlogs/2, mainpage/2, streams/2, sessions/2, server/2, pulse/2]).
+-export([stream_restart/3, health/3, media_info/3, dvr_status/6]).
+
 -export([routes/1]).
 
 routes(Options) ->
-  [
-    {"/", api_handler, [{mode,mainpage}|Options]},
-    {"/admin", api_handler, [{mode,mainpage}|Options]},
-    {"/erlyvideo/api/sendlogs", api_handler, [{mode,sendlogs}|Options]},
-    {"/erlyvideo/api/reload", api_handler, [{mode,reload}|Options]},
-    {"/erlyvideo/api/events", api_handler, [{mode,events}|Options]},
-    {"/erlyvideo/api/streams", api_handler, [{mode,streams}|Options]},
-    {"/erlyvideo/api/server", api_handler, [{mode,server}|Options]},
-    {"/erlyvideo/api/sessions", api_handler, [{mode,sessions}|Options]},
-    {"/erlyvideo/api/pulse", api_handler, [{mode,pulse}|Options]},
-    {"/erlyvideo/api/stream_health/[...]", api_handler, [{mode,health}|Options]},
-    {"/erlyvideo/api/stream_restart/[...]", api_handler, [{mode,stream_restart}|Options]},
-    {"/erlyvideo/api/media_info/[...]", api_handler, [{mode,media_info}|Options]},
-    {"/erlyvideo/api/dvr_status/:year/:month/:day/[...]", dvr_handler, [{mode,status}|Options]},
-    {"/erlyvideo/api/dvr_previews/:year/:month/:day/:hour/:minute/[...]", dvr_handler, [{mode,previews}|Options]}
-  ].
+  [{"/erlyvideo/api/events", api_handler, [{mode,events}|Options]}].
 
 
 
@@ -75,13 +63,6 @@ init({_Any,http}, Req, Opts) ->
       {ok, Req1, {Mode,Opts}}
   end.
 
-handle(Req, {reload, Opts}) ->
-  check_auth(Req, Opts, admin, fun() -> 
-    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], "true\n", Req),
-    spawn(fun() -> flu:reconf() end),
-    {ok, R1, undefined}
-  end);
-
 handle(Req, {events, _Opts}) ->
   {Accept, _Req1} = cowboy_req:header(<<"accept">>, Req),
   case Accept of
@@ -96,88 +77,78 @@ handle(Req, {events, _Opts}) ->
     _ ->
     {ok, R1} = cowboy_req:reply(400, [], "Should use SSE or WebSockets\n", Req),
     {ok, R1, undefined}
-  end;
+  end.
 
 
-handle(Req, {mainpage, Opts}) ->
+
+reload(Req, Opts) ->
+  check_auth(Req, Opts, admin, fun() -> 
+    spawn(fun() -> flu:reconf() end),
+    {json, true}
+  end).
+
+
+
+mainpage(Req, Opts) ->
   check_auth(Req, Opts, http_auth, fun() ->
-    case file:read_file("priv/index.html") of
-      {ok, HTML} ->
-        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"text/html">>}], HTML, Req),
-        {ok, R1, undefined};
-      {error, enoent} ->
-        {ok, R1} = cowboy_req:reply(404, [{<<"Content-Type">>, <<"text/plain">>}], "not found\n", Req),
-        {ok, R1, undefined}
-    end
-  end);
+    file:read_file("priv/index.html")
+  end).
 
-handle(Req, {server, Opts}) ->
-  check_auth(Req, Opts, http_auth, fun() ->
-    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(flu:json_info()), "\n"], Req),
-    {ok, R1, undefined}
-  end);
 
-handle(Req, {sessions, Opts}) ->
+server(Req, Opts) ->
   check_auth(Req, Opts, http_auth, fun() ->
-    {Name, Req1} = cowboy_req:qs_val(<<"name">>,Req),
+    {json, flu:json_info()}
+  end).
+
+sessions(Req, Opts) ->
+  check_auth(Req, Opts, http_auth, fun() ->
+    {Name, _} = cowboy_req:qs_val(<<"name">>,Req),
     List = case Name of
       undefined -> flu_session:json_list();
       _ -> flu_session:json_list(Name)
     end,
-    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(List), "\n"], Req1),
-    {ok, R1, undefined}
-  end);
+    {json, List}
+  end).
 
 
-handle(Req, {sendlogs, Opts}) ->
+sendlogs(Req, Opts) ->
   check_auth(Req, Opts, http_auth, fun() ->
     case log_uploader:upload() of
       {ok, Ticket} ->
         lager:warning("Logs were uploaded to erlyvideo.org with ticket ~s", [Ticket]),
-        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode([{ticket,Ticket}]), "\n"], Req),
-        {ok, R1, undefined};
+        {json, [{ticket,Ticket}]};
       {error, Error} ->
         lager:warning("Problem with uploading logs to erlyvideo.org: ~p", [Error]),
-        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode([{error,Error}]), "\n"], Req),
-        {ok, R1, undefined}
+        {json, [{error, Error}]}
     end
-  end);
+  end).
 
 
-handle(Req, {pulse, Opts}) ->
+pulse(Req, Opts) ->
   check_auth(Req, Opts, http_auth, fun() ->
-    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(pulse:json_list()), "\n"], Req),
-    {ok, R1, undefined}
-  end);
+    {json, pulse:json_list()}
+  end).
 
 
-handle(Req, {streams, Opts}) ->
+streams(Req, Opts) ->
   check_auth(Req, Opts, http_auth, fun() ->
-    {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(flu_stream:json_list()), "\n"], Req),
-    {ok, R1, undefined}
-  end);
+    {json, flu_stream:json_list()}
+  end).
 
 
-handle(Req, {stream_restart, Opts}) ->
+stream_restart(Req, Name, Opts) ->
   check_auth(Req, Opts, admin, fun() -> 
-    {PathInfo, _} = cowboy_req:path_info(Req),
-    Name = flu:join(PathInfo, "/"),
     case flu_stream:find(Name) of
       {ok, Pid} ->
         erlang:exit(Pid, shutdown),
-        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], "true\n", Req),
-        {ok, R1, undefined};
+        {json, true};
       _ ->
-        {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], "false\n", Req),
-        {ok, R1, undefined}
+        {json, false}
     end
-  end);
+  end).
 
-handle(Req, {media_info, Opts}) ->
+media_info(Req, Name, Opts) ->
   check_auth(Req, Opts, http_auth, fun() ->
-    {PathInfo, _} = cowboy_req:path_info(Req),
-    Name = flu:join(PathInfo, "/"),
-
     case flu_media:find_or_open(Name) of
       {ok, {Type, Pid}} ->
         MediaInfo = case Type of
@@ -186,36 +157,40 @@ handle(Req, {media_info, Opts}) ->
         end,
         case MediaInfo of
           #media_info{} ->
-            JSON = video_frame:media_info_to_json(MediaInfo),
-            {ok, R1} = cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], [mochijson2:encode(JSON), "\n"], Req),
-            {ok, R1, undefined};
+            {json, video_frame:media_info_to_json(MediaInfo)};
           _ ->
-            {ok, R1} = cowboy_req:reply(404, [], <<"undefined\n">>, Req),
-            {ok, R1, undefined}
+            undefined
         end;
       {error, _} ->
-        {ok, R1} = cowboy_req:reply(404, [], <<"undefined\n">>, Req),
-        {ok, R1, undefined}
+        undefined
     end
-  end);
+  end).
 
 
 
-handle(Req, {health, Opts}) ->
+health(Req, Name, Opts) ->
   check_auth(Req, Opts, http_auth, fun() ->
-    {PathInfo, _} = cowboy_req:path_info(Req),
-    Name = flu:join(PathInfo, "/"),
     StreamInfo = proplists:get_value(Name, flu_stream:list(), []),
     Delay = proplists:get_value(ts_delay, StreamInfo),
     Limit = 5000,
-    {ok, R1} = if
+    if
       is_number(Delay) andalso Delay < Limit ->
-        cowboy_req:reply(200, [{<<"Content-Type">>, <<"application/json">>}], <<"true\n">>, Req);
+        {json, true};
       true ->
-        cowboy_req:reply(412, [{<<"Content-Type">>, <<"application/json">>}], <<"false\n">>, Req)
-    end,
-    {ok, R1, undefined}
+        {json, false}
+    end
   end).
+
+dvr_status(_Req, Year, Month, Day, Path, _Opts) ->
+  case dvr_handler:list_minutes(Path, Year, Month, Day) of
+    undefined ->
+      throw({424, "No stream description or dvr found\n"});
+    {ok, Minutes} ->
+      % ?DBG("list_minutes(~p,~p,~p,~p) -> ~p results", [Path, Year, Month, Day, length(Minutes)]),
+      {json, Minutes}
+  end.
+
+
 
 terminate(_,_,_) -> ok.
 
@@ -281,28 +256,22 @@ check_auth(Req, Opts, Class, Fun) ->
   check_auth(Req, Opts, Class, handle, Fun).
   
 
-check_auth(Req, Opts, Class, Caller, Fun) ->
+check_auth(Req, Opts, Class, _Caller, Fun) ->
   case lists:keyfind(Class, 1, Opts) of
     {Class, Login, Password} ->
-      check_password(Req, Login, Password, Caller, Fun);
+      check_password(Req, Login, Password, Fun);
     false ->
       case lists:keyfind(auth, 1, Opts) of
-        {auth, Login, Password} -> check_password(Req, Login, Password, Caller, Fun);
+        {auth, Login, Password} -> check_password(Req, Login, Password, Fun);
         false -> Fun()
       end
   end.
       
-check_password(Req, Login, Password, Caller, Fun) ->
-  {Auth, Req1} = cowboy_req:header(<<"authorization">>, Req),
+check_password(Req, Login, Password, Fun) ->
+  {Auth, _Req1} = cowboy_req:header(<<"authorization">>, Req),
   GoodAuth = iolist_to_binary(["Basic ", base64:encode_to_string(Login++":"++Password)]),
   if Auth == GoodAuth -> Fun();
-  true -> 
-    {ok, Req2} = cowboy_req:reply(401, [{<<"Www-Authenticate">>, <<"Basic realm=Flussonic">>}], "401 Forbidden\n", Req1),
-    case Caller of
-      handle -> {ok, Req2, undefined};
-      init -> {shutdown, Req2, undefined}
-    end
-  end.
+  true -> {ok, {401, [{<<"Www-Authenticate">>, <<"Basic realm=Flussonic">>}], "401 Forbidden\n"}} end.
 
 
 

@@ -144,21 +144,6 @@ merge(Opts1, Opts2, Opts3) ->
 
 parse_routes([]) -> [];
 
-parse_routes([{live, Prefix, Opts}|Env]) ->
-  [{<<"/",Prefix/binary, "/[...]">>, media_handler, [{prefix, Prefix}|merge(Opts, [{autostart,false},{dynamic,true},{module,flu_stream}])]}
-  |parse_routes(Env)];
-
-parse_routes([{stream, Path, URL, Options}|Env]) ->
-  Tokens2 = tokens(Path),  
-  [
-    {<<"/",Path/binary, "/mpegts">>, mpegts_handler, merge([{name,Path},{url,URL}], Options)},
-    {<<"/",Path/binary, "/[...]">>, media_handler, merge([{name,Path},{url,URL},{module,flu_stream},{name_length,length(Tokens2)}], Options)}
-  |parse_routes(Env)];
-  
-parse_routes([{file, Prefix, Root,Options}|Env]) ->
-  [{<<"/",Prefix/binary, "/[...]">>, media_handler, merge([{file_prefix,Prefix},{module,flu_file},{root, Root}],Options)}
-  |parse_routes(Env)];
-
 parse_routes([{root, Root}|Env]) ->
   Module = case is_escriptized(Root) of
     true -> static_http_escript;
@@ -169,10 +154,6 @@ parse_routes([{root, Root}|Env]) ->
     {directory,Root},
     {mimetypes, {fun mimetypes:path_to_mimes/2, default}}
   ]}|parse_routes(Env)];
-
-parse_routes([{mpegts,Prefix,Options}|Env]) ->
-  [{<<"/",Prefix/binary, "/[...]">>, mpegts_handler, [{publish_enabled,true}|Options]}
-  |parse_routes(Env)];
 
 
 parse_routes([{webm,Prefix,Options}|Env]) ->
@@ -196,8 +177,8 @@ parse_routes([_Else|Env]) ->
   parse_routes(Env).
 
 
-tokens(String) ->
-  [cowboy_http:urldecode(Bin, crash) || Bin <- binary:split(String, <<"/">>, [global])].
+% tokens(String) ->
+%   [cowboy_http:urldecode(Bin, crash) || Bin <- binary:split(String, <<"/">>, [global])].
 
 
 

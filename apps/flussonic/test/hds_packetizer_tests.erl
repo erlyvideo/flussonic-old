@@ -46,7 +46,7 @@ test_terminate() ->
 %   {ok, HDS1} = hds_packetizer:init([{name,<<"stream1">>}]),
 %   {noreply, _HDS2} = hds_packetizer:handle_info({gop, gop(2)}, HDS1),
 %   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, hds_manifest)),
-%   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, {hds_segment, 1, 1})),
+%   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, {hds_fragment, 1, 1})),
 %   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, bootstrap)),
 %   ok.
 
@@ -77,13 +77,13 @@ test_full_cycle() ->
   [flu_stream:send_frame(S, Frame) || Frame <- gop(3)],
 
   ?assertMatch({ok, Fragment} when is_binary(Fragment),
-    flu_stream_data:get(<<"stream1">>, {hds_segment, 1, 1})),
+    flu_stream_data:get(<<"stream1">>, {hds_fragment, 1, 1})),
   ?assertMatch({ok, Manifest} when is_binary(Manifest),
     flu_stream_data:get(<<"stream1">>, hds_manifest)),
   ?assertMatch({ok, Bootstrap} when is_binary(Bootstrap),
     flu_stream_data:get(<<"stream1">>, bootstrap)),
 
-  {ok, <<_:32, "mdat", FLV/binary>>} = flu_stream_data:get(<<"stream1">>, {hds_segment, 1, 1}),
+  {ok, <<_:32, "mdat", FLV/binary>>} = flu_stream_data:get(<<"stream1">>, {hds_fragment, 1, 1}),
   [#video_frame{content = metadata}|Frames] = flv:read_all_frames(FLV),
   % ?debugFmt("gop: ",[]),
   % [?debugFmt("~4s ~8s ~B", [Codec, Flavor, round(DTS)]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS} <- Gop],

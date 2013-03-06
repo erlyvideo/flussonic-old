@@ -32,7 +32,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/2,hds_segment/2,hls_segment/2,hds_manifest/1,bootstrap/1,hls_playlist/1, hls_key/2]).
+-export([start_link/2,hds_fragment/2,hls_segment/3,hds_manifest/1,bootstrap/1,hls_playlist/1, hls_key/2]).
 -export([media_info/1]).
 -export([hds_manifest/2, rewrite_manifest/2]).
 
@@ -203,13 +203,13 @@ media_info(Stream) ->
   end.
 
 
-hds_segment(Stream,Segment) ->
+hds_fragment(Stream,Fragment) ->
   touch(Stream),
-  flu_stream_data:get(Stream, {hds_segment, 1, Segment}, 5).
+  flu_stream_data:get(Stream, {hds_fragment, 1, Fragment}, 5).
 
-hls_segment(Stream, Segment) ->
+hls_segment(Root, Stream, Segment) ->
   touch(Stream),
-  flu_stream_data:get(Stream, {hls_segment,Segment}, 5).
+  hls_dvr_packetizer:segment(Root, Stream, Segment).
 
 hls_key(Stream, Number) ->
   touch(Stream),
@@ -433,6 +433,10 @@ handle_call({set_source, Source}, _From, #stream{source = OldSource} = Stream) -
   OldSource == undefined orelse error({reusing_source,Stream#stream.name,OldSource,Source}),
   Ref = erlang:monitor(process, Source),
   {reply, ok, Stream#stream{source = Source, source_ref = Ref}};
+
+handle_call(#media_info{} = MediaInfo, _From, #stream{} = Stream) ->
+  {noreply, Stream1} = handle_info(MediaInfo, Stream),
+  {reply, ok, Stream1};
 
 handle_call({set, #media_info{} = MediaInfo}, _From, #stream{} = Stream) ->
   {noreply, Stream1} = handle_info(MediaInfo, Stream),

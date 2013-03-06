@@ -14,7 +14,7 @@
 flu_file_test_() ->
   CommonTests =   [
     {with, [fun test_hds_manifest/1]}
-    ,{with, [fun test_hds_segment/1]}
+    ,{with, [fun test_hds_fragment/1]}
     ,{with, [fun test_hds_lang_segment/1]}
     ,{with, [fun test_hds_missing_segment/1]}
     ,{with, [fun test_read_gop/1]}
@@ -35,15 +35,15 @@ setup_flu_file(Path) ->
   application:start(gen_tracker),
   application:start(pulse),
   gen_tracker_sup:start_tracker(flu_files),
-  {ok, File} = flu_file:start_link(Path, [{root, "../../../priv"}]),
-  unlink(File),
-  % lager:set_loglevel(lager_console_backend, notice),
-  % lager:start(),
-  {none,File}.
+
+  Name = iolist_to_binary(Path),
+  gen_tracker:find_or_open(flu_files, Name, fun() -> 
+    flu_file:start_link(Name, [{path, filename:join("../../../priv",Path)}])
+  end),
+  {none,Name}.
 
 
-teardown_flu_file({none, File}) ->
-  erlang:exit(File, shutdown),
+teardown_flu_file(_) ->
   error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(gen_tracker),
   application:stop(pulse),
@@ -53,11 +53,11 @@ teardown_flu_file({none, File}) ->
   ok.
 
 test_hds_missing_segment({_, File}) ->
-  ?assertEqual({error, no_segment}, flu_file:hds_segment(File, 100)).
+  ?assertEqual({error, no_segment}, flu_file:hds_fragment(<<"none">>, File, 100)).
 
-test_hds_segment({_,File}) ->
-  ?assertMatch({ok, _Seg}, flu_file:hds_segment(File, 4)),
-  {ok, Seg} = flu_file:hds_segment(File, 4),
+test_hds_fragment({_,File}) ->
+  ?assertMatch({ok, _Seg}, flu_file:hds_fragment(<<"none">>, File, 4)),
+  {ok, Seg} = flu_file:hds_fragment(<<"none">>, File, 4),
 
   <<_Size:32, "mdat", FLV/binary>> = iolist_to_binary(Seg),
   Frames = flv:read_all_frames(FLV),
@@ -83,7 +83,7 @@ test_hds_segment({_,File}) ->
 
 
 test_hds_lang_segment({_,File}) ->
-  {ok, HDS} = flu_file:hds_segment(File, 4, [2]),
+  {ok, HDS} = flu_file:hds_fragment(<<"none">>, File, [2], 4),
   <<_Size:32, "mdat", _FLV/binary>> = iolist_to_binary(HDS),
   Frames = flv:read_all_frames(iolist_to_binary(HDS)),
   ?assertMatch(_ when length(Frames) > 10, Frames),
@@ -101,7 +101,7 @@ test_hds_lang_segment({_,File}) ->
 
 
 test_read_gop({_,File}) ->
-  {ok, List} = flu_file:read_gop(File, 2),
+  {ok, List} = flu_file:read_gop(<<"none">>, File, 2),
   ?assertMatch([#video_frame{}|_], List),
   ok.
 
@@ -112,11 +112,11 @@ test_read_gop({_,File}) ->
 
 
 test_hls_playlist({_,File}) ->
-  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hls_playlist(File)).
+  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hls_playlist(<<"none">>, File)).
 
 test_hls_segment({_,File}) ->
-  ?assertMatch({ok, IOlist} when is_binary(IOlist) orelse is_list(IOlist), flu_file:hls_segment(File, 2)),
-  {ok, Bin_} = flu_file:hls_segment(File, 2),
+  ?assertMatch({ok, IOlist} when is_binary(IOlist) orelse is_list(IOlist), flu_file:hls_segment(<<"none">>, File, 2)),
+  {ok, Bin_} = flu_file:hls_segment(<<"none">>, File, 2),
   Bin = iolist_to_binary(Bin_),
   Pids = lists:usort([Pid || <<16#47, _:3, Pid:13, _:185/binary>> <= Bin]),
   ?assertEqual([0, 201, 202, 4095], Pids),
@@ -126,7 +126,7 @@ test_hls_segment({_,File}) ->
 
 
 test_hls_segment_with_video_track({_,File}) ->
-  {ok, Bin_} = flu_file:hls_segment(File, 2, [1]),
+  {ok, Bin_} = flu_file:hls_segment(<<"none">>, File, [1], 2),
   Bin = iolist_to_binary(Bin_),
   Pids = lists:usort([Pid || <<16#47, _:3, Pid:13, _:185/binary>> <= Bin]),
   ?assertEqual([0, 201, 4095], Pids),
@@ -136,8 +136,8 @@ test_hls_segment_with_video_track({_,File}) ->
   ok.
 
 test_hds_manifest({_,File}) ->
-  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hds_manifest(File)),
-  {ok, Manifest} = flu_file:hds_manifest(File),
+  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hds_manifest(<<"none">>, File)),
+  {ok, Manifest} = flu_file:hds_manifest(<<"none">>, File),
   XML = parsexml:parse(Manifest),
   {<<"manifest">>, _, Elements} = XML,
   {_, _, [Bootstrap64]} = lists:keyfind(<<"bootstrapInfo">>, 1, Elements),
@@ -171,7 +171,7 @@ flu_video_only_file_test_() ->
 
 
 test_hds_video_manifest({_,File}) ->
-  Result = flu_file:hds_manifest(File),
+  Result = flu_file:hds_manifest(<<"none">>, File),
   ?assertMatch({ok, Bin} when is_binary(Bin), Result),
   {ok, Bin} = Result,
   ?assertMatch({_,_}, binary:match(Bin, <<"media streamId=\"stream1\" url=\"hds/tracks-1/\" ">>)).
@@ -179,11 +179,11 @@ test_hds_video_manifest({_,File}) ->
 
 
 test_hls_video_segment({_,File}) ->
-  ?assertMatch({ok, IOlist} when is_binary(IOlist) orelse is_list(IOlist), flu_file:hls_segment(File, 2)),
+  ?assertMatch({ok, IOlist} when is_binary(IOlist) orelse is_list(IOlist), flu_file:hls_segment(<<"none">>, File, 2)),
   ok.
 
 test_hds_video_segment({_,File}) ->
-  {ok, Seg} = flu_file:hds_segment(File, 4),
+  {ok, Seg} = flu_file:hds_fragment(<<"none">>, File, 4),
   <<_Size:32, "mdat", FLV/binary>> = iolist_to_binary(Seg),
   Frames = flv:read_all_frames(FLV),
   ?assertMatch(_ when length(Frames) > 10, Frames),
@@ -217,7 +217,7 @@ mbr_hds_file_test_() ->
 
 
 test_mbr_hds_manifest({_,File}) ->
-  {ok, Bin} = flu_file:hds_manifest(File),
+  {ok, Bin} = flu_file:hds_manifest(<<"none">>, File),
   Result = parsexml:parse(Bin),
   ?assertMatch({<<"manifest">>, _, _Content}, Result),
   {<<"manifest">>, _, Content} = Result,
@@ -229,7 +229,7 @@ test_mbr_hds_manifest({_,File}) ->
   ?assertMatch(Len when Len == 5, length(Medias)).
 
 test_mbr_first_track_segment({_,File}) ->
-  {ok, HDS} = flu_file:hds_segment(File, 2, [1,4]),
+  {ok, HDS} = flu_file:hds_fragment(<<"none">>, File, [1,4], 2),
   Frames = flv:read_all_frames(iolist_to_binary(HDS)),
   ?assertMatch(Len when Len > 400 andalso Len < 500, length(Frames)),
   Video = [F || #video_frame{content = video} = F <- Frames],
@@ -240,7 +240,7 @@ test_mbr_first_track_segment({_,File}) ->
   ok.
 
 test_mbr_lang_segment({_,File}) ->
-  {ok, HDS} = flu_file:hds_segment(File, 2, [4]),
+  {ok, HDS} = flu_file:hds_fragment(<<"none">>, File, [4], 2),
   Frames = flv:read_all_frames(iolist_to_binary(HDS)),
   % ?assertMatch(Len when Len > 300 andalso Len < 400, length(Frames)),
   Video = [F || #video_frame{content = video} = F <- Frames],
@@ -266,7 +266,7 @@ mbr_hds_file1_test_() ->
 
 
 test_mbr_hds_manifest1({_,File}) ->
-  {ok, Bin} = flu_file:hds_manifest(File),
+  {ok, Bin} = flu_file:hds_manifest(<<"none">>, File),
   Result = parsexml:parse(Bin),
   ?assertMatch({<<"manifest">>, _, _Content}, Result),
   {<<"manifest">>, _, Content} = Result,
@@ -304,7 +304,7 @@ mbr_hls_file_test_() ->
 
 
 test_mbr_hls_root_playlist({_,File}) ->
-  {ok, Bin} = flu_file:hls_mbr_playlist(File),
+  {ok, Bin} = flu_file:hls_mbr_playlist(<<"none">>, File),
   % ?debugFmt("bin: ~p",[Bin]),
   Rows = binary:split(Bin, <<"\n">>, [global]),
   URLs = [Row || <<S,_/binary>> = Row <- Rows, S =/= $#],
@@ -314,14 +314,14 @@ test_mbr_hls_root_playlist({_,File}) ->
   ok.
 
 test_mbr_hls_playlist({_,File}) ->
-  {ok, Bin} = flu_file:hls_playlist(File, [2,4]),
+  {ok, Bin} = flu_file:hls_playlist(<<"none">>, File, [2,4]),
   Rows = binary:split(Bin, <<"\n">>, [global]),
   URLs = [Row || <<S,_/binary>> = Row <- Rows, S =/= $#],
   ?assertMatch(UrlCount when UrlCount == 10, length(URLs)).
 
 
 test_mbr_hls_segment({_,File}) ->
-  {ok, _Bin} = flu_file:hls_segment(File, root, 3, [2,4]),
+  {ok, _Bin} = flu_file:hls_segment(<<"none">>, File, [2,4], 3),
   ok.
 
 
@@ -370,16 +370,19 @@ start_flu() ->
   Apps = [gen_tracker, flussonic, crypto, ranch, cowboy, public_key, ssl, lhttpc, pulse, http_file],
   [application:start(App) || App <- Apps],
   gen_tracker_sup:start_tracker(flu_files),
+
+  application:load(lager),
+  application:set_env(lager,error_logger_redirect,false),
+  application:set_env(lager,handlers,[{lager_console_backend,error}]),
+  % application:set_env(lager,error_logger_redirect,true),
+  % lager:start(),
+
   {ok,Apps}.
 
 set_config(Env) ->
   {ok, Conf} = flu_config:parse_config(Env,undefined),
   application:set_env(flussonic, config, Conf),
-  (catch cowboy:stop_listener(fake_http)),
-  cowboy:start_http(fake_http, 3, 
-    [{port,5555}],
-    [{env,[{dispatch, cowboy_router:compile([{'_',flu_config:parse_routes(Conf)}])}]}]
-  ), 
+  flu:start_webserver([{http,5555}|Conf]),
   ok.
 
 
@@ -388,19 +391,19 @@ teardown({ok, Httpd, Apps}) ->
   ok = inets:stop(httpd, Httpd),
   ok = application:stop(inets),
   [application:stop(App) || App <- lists:reverse(Apps)],
+  application:stop(lager),
   error_logger:add_report_handler(error_logger_tty_h),
   ok.
 
 
 test_local_http_file_playlist() ->
-  {ok, File} = flussonic_sup:start_flu_file(<<"bunny.mp4">>, [{root, <<"http://localhost:9090/">>}]),
-  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hls_playlist(File)),
+  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hls_playlist(<<"http://localhost:9090/bunny.mp4">>, <<"bunny.mp4">>)),
   ok.
 
 test_local_http_file_segment() ->
-  {ok, File} = flussonic_sup:start_flu_file(<<"bunny.mp4">>, [{root, <<"http://localhost:9090/">>}]),
-  ?assertMatch({ok, Bin} when is_binary(Bin) orelse is_list(Bin), flu_file:hls_segment(File, 2)),
-  {ok, Bin_} = flu_file:hls_segment(File, 2),
+  ?assertMatch({ok, Bin} when is_binary(Bin) orelse is_list(Bin), 
+    flu_file:hls_segment(<<"http://localhost:9090/bunny.mp4">>, <<"bunny.mp4">>, 2)),
+  {ok, Bin_} = flu_file:hls_segment(<<"http://localhost:9090/bunny.mp4">>, <<"bunny.mp4">>, 2),
   Bin = iolist_to_binary(Bin_),
   {ok, Frames} = mpegts_decoder:decode_file(Bin),
   ?assert(length(Frames) > 10),

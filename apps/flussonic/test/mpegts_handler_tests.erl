@@ -22,20 +22,14 @@ mpegts_test_() ->
     ],
     {ok, Config} = flu_config:parse_config(Conf, undefined),
     application:set_env(flussonic, config, Config),
-    % application:load(lager),
-    % application:set_env(lager,handlers,[{lager_console_backend,info}]),
-    % application:set_env(lager,error_logger_redirect,true),
-    % application:set_env(lager,crash_log,undefined),
+    application:load(lager),
+    application:set_env(lager,handlers,[{lager_console_backend,error}]),
+    application:set_env(lager,error_logger_redirect,true),
+    application:set_env(lager,crash_log,undefined),
     % lager:start(),
 
-    Dispatch = [{'_',
-      [{<<"/auth">>, fake_auth, [unique_user_id]}] ++ flu_config:parse_routes(Config)
-    }],
+    flu:start_webserver([{http,5555},{prepend_routes,[{<<"/auth">>, fake_auth, [unique_user_id]}]} | Config]),
 
-    cowboy:start_http(fake_http, 3, 
-      [{port,5555}],
-      [{env,[{dispatch,cowboy_router:compile(Dispatch)}]}]
-    ),
     {ok, _Pid} = flu_stream:autostart(<<"channel0">>),
     % [Pid ! F || F <- lists:sublist(flu_rtmp_tests:h264_aac_frames(), 1, 50)],
     {ok,Apps}
@@ -49,7 +43,6 @@ mpegts_test_() ->
   [
     {"test_404_if_not_started", fun test_404_if_not_started/0}
     ,{"test_null_packets_if_no_media_info", fun test_null_packets_if_no_media_info/0}
-    ,{"test_mpegts", fun test_mpegts/0}
     ,{"test_mpegts2", fun test_mpegts2/0}
     ,{"test_null_packets_when_frames_delay", fun test_null_packets_when_frames_delay/0}
     ,{"test_change_media_info", fun test_change_media_info/0}
@@ -60,9 +53,6 @@ mpegts_test_() ->
   ]
   }.
 
-test_mpegts() ->
-  capture_mpegts_url("/mpegts/testlivestream"),
-  ok.
 
 test_mpegts2() ->
   capture_mpegts_url("/testlivestream/mpegts"),

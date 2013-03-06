@@ -115,7 +115,7 @@ find_or_open(Path) ->
       {ok,{stream,Path}}
   end.
   
-autostart(file, File, Opts) -> open_file(proplists:get_value(root,Opts), File, []);
+autostart(file, File, Opts) -> open_file(File, Opts);
 autostart(Type, Stream, Opts) when Type == stream orelse Type == live -> 
   {ok, Media} = flu_stream:autostart(Stream, Opts),
   {ok, {stream, Media}}.
@@ -147,7 +147,7 @@ lookup(Path, [{file, Prefix, Root, Opts}|Config]) ->
   PrefixLen = size(Prefix),
   case Path of
     <<Prefix:PrefixLen/binary, "/", File/binary>> -> 
-      {ok, {file, File, [{root, Root}|Opts]}};
+      {ok, {file, Path, [{path,filename:join(Root, File)}|Opts]}};
     _ -> lookup(Path, Config)
   end;
   
@@ -161,8 +161,9 @@ lookup(_Path, []) ->
   {error, enoent}.
 
 
-open_file(Root, Path, _Env) ->
-  case gen_tracker:find_or_open(flu_files, Path, fun() -> flussonic_sup:start_flu_file(Path, [{root,Root}]) end) of
+open_file(Name, Opts) ->
+  {path,Path} = lists:keyfind(path,1,Opts),
+  case flu_file:autostart(Path, Name) of
   	{ok, File} ->
   	  {ok, {file,File}};
   	Error ->

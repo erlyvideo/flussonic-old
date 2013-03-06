@@ -74,11 +74,11 @@ metadata_frame(Config) ->
 	}.
 
 
-%% Look at vlc/modules/demux/mp4/libmp4.c:1022
+%% Look at vlc/modules/demux/mp4/libmp4.c#MP4_ReadBox_avcC
 %%
-unpack_config(<<_Version, _Profile, _ProfileCompat, _Level, _Skip1:6, LengthSize:2, _Skip2:3, SPSCount:5, Rest/binary>>) ->
+unpack_config(<<_Version, _Profile, _ProfileCompat, _Level, _Skip1:6, LengthSize:2, _Skip2:3, SPSCount:5, Rest/binary>> = _Config) ->
   {SPS, <<PPSCount, Rest1/binary>>} = parse_h264_config(Rest, SPSCount, []),
-  {PPS, <<>>} = parse_h264_config(Rest1, PPSCount, SPS),
+  {PPS, _} = parse_h264_config(Rest1, PPSCount, SPS),
   {LengthSize + 1, lists:reverse(PPS)}.
 
 init() -> #h264{}.

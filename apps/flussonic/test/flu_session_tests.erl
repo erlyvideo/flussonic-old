@@ -27,10 +27,7 @@ setup_flu_session() ->
     {live, "live", [{sessions, "http://127.0.0.1:6070/liveauth"}]}
   ],
   {ok, ServerConfig} = flu_config:parse_config(ServerConf, undefined),
-  Dispatch = [{'_', flu_config:parse_routes(ServerConfig)}],
-  {ok, _} = cowboy:start_http(our_http, 1, [{port, 5555}],
-    [{env, [{dispatch, cowboy_router:compile(Dispatch)}]}]
-  ),
+  flu:start_webserver([{http,5555}|ServerConfig]),
   {Modules, Apps}.
 
 teardown_flu_session({Modules, Apps}) ->

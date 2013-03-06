@@ -37,7 +37,7 @@
       case (Expr) of
     __X -> ok;
     __V -> {__X1,__V1} = skip_common_prefix(__X, __V),
-            .erlang:error({assertEqual_failed,
+            erlang:error({assertEqual_failed,
               [{module, ?MODULE},
                {line, ?LINE},
                {expression, (??Expr)},

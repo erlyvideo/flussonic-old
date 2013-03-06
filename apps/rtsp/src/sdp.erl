@@ -233,11 +233,37 @@ parse_media_sdp([{a, {fmtp, PayloadNum, Opts}} | SDP], Streams) ->
 parse_media_sdp([_|SDP], Streams) ->
   parse_media_sdp(SDP, Streams).
 
+%%
+%% Unhex functions adapted from ssl_debug and covered by the Erlang public license
+%%
+is_hex_digit(C) when C >= $0, C =< $9 -> true;
+is_hex_digit(C) when C >= $A, C =< $F -> true;
+is_hex_digit(C) when C >= $a, C =< $f -> true;
+is_hex_digit(_) -> false.
+
+-spec unhex(string()) -> string().
+unhex(S) -> unhex(S, []).
+
+unhex([], Acc) ->
+    list_to_binary(lists:reverse(Acc));
+unhex([_], Acc) ->
+    unhex([], Acc);
+unhex([$  | Tl], Acc) ->
+    unhex(Tl, Acc);
+unhex([D1, D2 | Tl], Acc) ->
+    case {is_hex_digit(D1), is_hex_digit(D2)} of
+        {true, true} ->
+            unhex(Tl, [erlang:list_to_integer([D1, D2], 16) | Acc]);
+        _ ->
+            unhex([], Acc)
+    end.
+
+
 
 parse_audio_fmtp(#stream_info{codec = Codec, options = Options} = Stream, Opts) ->
   Config = case proplists:get_value("config", Opts) of
     undefined -> undefined;
-    HexConfig -> ssl_debug:unhex(HexConfig)
+    HexConfig -> unhex(HexConfig)
   end,
   Stream1 = case Codec of
     aac ->
