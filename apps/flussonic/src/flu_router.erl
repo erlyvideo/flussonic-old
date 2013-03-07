@@ -14,8 +14,7 @@
 
 -record(routes, {
   media = [],
-  prefixes = [],
-  api = []
+  prefixes = []
 }).
 
 
@@ -26,9 +25,36 @@ execute(Req, Env) ->
   case route(Path, Router) of
     undefined ->
       {ok, Req1, Env};
-    {ok, Routing} ->
-      {ok, Req1, [{routing,Routing}|Env]}
+    {ok, Routing1} ->
+      Routing2 = authorize(Routing1, Req1),
+      {ok, Req1, [{routing,Routing2}|Env]}
   end.
+
+authorize({M,F,A2,Opts} = R, Req) ->
+  Auth = proplists:get_value(auth,Opts),
+
+  case Auth of
+    true ->
+      {name,Name} = lists:keyfind(name,1,Opts),
+      Type = proplists:get_value(type,Opts,<<"media">>),
+      try media_handler:check_sessions(Req, Name, [{type, Type} | Opts]) of
+        {ok, Token} ->
+          A = if
+            M == flu_stream andalso F == hds_manifest andalso Token =/= undefined -> A2 ++ [Token];
+            M == dvr_session andalso F == hds_manifest andalso Token =/= undefined -> A2 ++ [Token];
+            true -> A2
+          end,
+          {M,F,A,Opts}
+      catch
+        throw:{return,Code,Reply} ->
+          {flu_www, reply, [{ok,{Code,[], [Reply,"\n"]}}], []}
+      end;
+    _ ->
+      R
+  end.
+
+
+
 
 
 % Known media requests:
@@ -64,7 +90,7 @@ compile(Config) ->
   MediaRequests1 = [
      {"/(?<name>.+)/tracks-(?<tracks>[\\d,]+)/index.m3u8", {hls_track_playlist, [name,tracks]}}
     ,{"/(?<name>.+)/tracks-(?<tracks>[\\d,]+)/hls/segment(?<segment>\\d+)\\.ts", {hls_track_segment, [name,tracks,segment]}}
-    ,{"/(?<name>.+)/(?<path>\\d{4}/\\d{2}/\\d{2}/\\d{2}/\\d{2}/\\d{2}-\\d+)\\.ts", {hls_segment, [name,path]}}
+    ,{"/(?<name>.+)/(?<path>\\d{4}/\\d{2}/\\d{2}/\\d{2}/\\d{2}/\\d{2}-\\d+\\.ts)", {hls_segment, [name,path]}}
     ,{"/(?<name>.+)/archive-(?<from>\\d+)-(?<duration>\\d+)\\.mp4", {archive_mp4,[name,from,duration]}} % require Req
     ,{"/(?<name>.+)/archive-(?<from>\\d+)-(?<duration>\\d+)\\.ts", {archive_ts,[name,from,duration]}} % require Req
     ,{"/(?<name>.+)/archive/(?<from>\\d+)/(?<duration>\\d+)/mpegts", {archive_mpegts,[name,from,duration]}} % require Req
@@ -97,10 +123,7 @@ compile(Config) ->
     (_) -> []
   end, Config),
 
-
-  ApiOptions = proplists:get_value(api, Config, []),
-
-  #routes{media = MediaRequests2, prefixes = Prefixes, api = ApiOptions}.
+  #routes{media = MediaRequests2, prefixes = Prefixes}.
 
 binarize([]) -> [];
 binarize([{dvr,Root}|Options]) -> [{dvr,to_b(Root)}|binarize(Options)];
@@ -129,9 +152,6 @@ route(Path, undefined) ->
 % Стримы и файлы имеют внешнее имя (vod/hobbyt.mp4, live/ustream, ort) и урл (/var/movies/video.mp4,
 % dvr:/storage/dvr/ort, rtsp://) и т.п.
 
-route(<<"/">>, #routes{api = Opts}) -> api(<<"mainpage">>, Opts);
-route(<<"/admin">>, #routes{api = Opts}) -> api(<<"mainpage">>, Opts);
-route(<<"/erlyvideo/api/", Api/binary>>, #routes{api = Opts}) -> api(Api, Opts);
 
 route(Path, #routes{media = Media, prefixes = Prefixes}) ->
   case route_media_request(Path, Media) of
@@ -143,43 +163,6 @@ route(Path, #routes{media = Media, prefixes = Prefixes}) ->
         MFA -> {ok, MFA}
       end
   end.
-
-
-api(Command, Opts) ->
-  case api0(Command, Opts) of
-    undefined -> undefined;
-    MFA -> {ok, MFA}
-  end.
-
-api0(<<"mainpage">>, Opts) ->
-  {api_handler, mainpage, [req,Opts], [{tag,html}|Opts]};
-api0(<<"sendlogs">>, Opts) ->
-  {api_handler, sendlogs, [req,Opts], Opts};
-api0(<<"reload">>, Opts) ->
-  {api_handler, reload, [req,Opts], Opts};
-api0(<<"streams">>, Opts) ->
-  {api_handler, streams, [req,Opts], Opts};
-api0(<<"sessions">>, Opts) ->
-  {api_handler, sessions, [req,Opts], Opts};
-api0(<<"server">>, Opts) ->
-  {api_handler, server, [req,Opts], Opts};
-api0(<<"pulse">>, Opts) ->
-  {api_handler, pulse, [req,Opts], Opts};
-api0(<<"stream_health/", Name/binary>>, Opts) ->
-  {api_handler, health, [req,Name,Opts], Opts};
-api0(<<"stream_restart/", Name/binary>>, Opts) ->
-  {api_handler, stream_restart, [req,Name,Opts], Opts};
-api0(<<"media_info/", Name/binary>>, Opts) ->
-  {api_handler, media_info, [req,Name,Opts], Opts};
-api0(<<"dvr_status/", Status/binary>>, Opts) ->
-  case re:run(Status, "(?<year>\\d{4})/(?<month>\\d+)/(?<day>\\d+)/(?<name>.+)", [{capture,[year,month,day,name],binary}]) of
-    {match, [Y,M,D,Name]} ->
-      {api_handler, dvr_status, [req,to_i(Y),to_i(M),to_i(D),Name,Opts], Opts};
-    nomatch ->
-      {flu_www, bad_request, [req], []}
-  end;
-api0(_, _Opts) ->
-  undefined.
 
 
 
@@ -219,70 +202,70 @@ handler([{Prefix,PrefixLen,IsPrefixed,Spec}|Prefixes], Name, Request, Matches) -
 
 
 mfa(hls_playlist, {stream, _URL, Options}, Name, []) ->
-  {flu_stream, hls_playlist, [Name], [{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
+  {flu_stream, hls_playlist, [Name], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
 
 mfa(hls_playlist, {live, Options}, Name, _) ->
-  {flu_stream, hls_playlist, [Name], [{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
+  {flu_stream, hls_playlist, [Name], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
 
 mfa(hls_playlist, {file, Directory, Options}, Name, [PathInfo|_]) ->
-  {flu_file, hls_playlist, [<<Directory/binary, "/", PathInfo/binary>>, Name], [{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
+  {flu_file, hls_playlist, [<<Directory/binary, "/", PathInfo/binary>>, Name], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
 
 mfa(hls_mbr_playlist, {file, Directory, Options}, Name, [PathInfo]) ->
-  {flu_file, hls_mbr_playlist, [<<Directory/binary, "/", PathInfo/binary>>, Name], [{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
+  {flu_file, hls_mbr_playlist, [<<Directory/binary, "/", PathInfo/binary>>, Name], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
 
 mfa(hds_track_fragment, {file, Directory, Options}, Name, [PathInfo,Tracks_,Fragment_]) ->
   Tracks = [to_i(Track) || Track <- binary:split(Tracks_, <<",">>, [global])],
-  {flu_file, hds_fragment, [<<Directory/binary, "/", PathInfo/binary>>, Name, Tracks, to_i(Fragment_)], [{tag,hds_d},{name,Name}|Options]};
+  {flu_file, hds_fragment, [<<Directory/binary, "/", PathInfo/binary>>, Name, Tracks, to_i(Fragment_)], [{tag,f4f},{name,Name}|Options]};
 
 mfa(hls_track_playlist, {file, Directory, Options}, Name, [PathInfo,Tracks_]) ->
   Tracks = [to_i(Track) || Track <- binary:split(Tracks_, <<",">>, [global])],
-  {flu_file, hls_playlist, [<<Directory/binary, "/", PathInfo/binary>>, Name, Tracks], [{tag,hls},{name,Name}|Options]};
+  {flu_file, hls_playlist, [<<Directory/binary, "/", PathInfo/binary>>, Name, Tracks], [auth,{tag,hls},{name,Name}|Options]};
 
 mfa(hls_track_segment, {file, Directory, Options}, Name, [PathInfo,Tracks_, Segment_]) ->
   Tracks = [to_i(Track) || Track <- binary:split(Tracks_, <<",">>, [global])],
-  {flu_file, hls_segment, [<<Directory/binary, "/", PathInfo/binary>>, Name, Tracks, to_i(Segment_)], [{tag,hls_d},{name,Name}|Options]};
+  {flu_file, hls_segment, [<<Directory/binary, "/", PathInfo/binary>>, Name, Tracks, to_i(Segment_)], [{tag,mpegts},{name,Name}|Options]};
 
 mfa(hls_file_segment, {file, Directory, Options}, Name, [PathInfo, Segment_]) ->
-  {flu_file, hls_segment, [<<Directory/binary, "/", PathInfo/binary>>, Name, to_i(Segment_)], [{tag,hls_d},{name,Name}|Options]};
+  {flu_file, hls_segment, [<<Directory/binary, "/", PathInfo/binary>>, Name, to_i(Segment_)], [{tag,mpegts},{name,Name}|Options]};
 
 mfa(hls_segment, {stream, _URL, Options}, Name, [Path]) ->
-  {flu_stream, hls_segment, [dvr(Options), Name, Path], [{tag,hls_d},{name,Name}|Options]};
+  {flu_stream, hls_segment, [dvr(Options), Name, Path], [{tag,mpegts},{name,Name}|Options]};
 
 mfa(hls_segment, {live, Options}, Name, [_PathInfo, Path]) ->
-  {flu_stream, hls_segment, [dvr(Options), Name, Path], [{tag,hls_d},{name,Name}|Options]};
+  {flu_stream, hls_segment, [dvr(Options), Name, Path], [{tag,mpegts},{name,Name}|Options]};
 
 
 
 mfa(archive_mp4, {stream, _, Options}, Name, [From_, Duration_]) ->
-  {dvr_handler, mp4, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [{pid,self()},{tag,mp4},{type,<<"mp4">>},{name,Name}|Options]};
+  {dvr_handler, mp4, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [auth,{pid,self()},{tag,mp4},{type,<<"mp4">>},{name,Name}|Options]};
 mfa(archive_mp4, {live, Options}, Name, [_PathInfo, From_, Duration_]) ->
-  {dvr_handler, mp4, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [{pid,self()},{tag,mp4},{type,<<"mp4">>},{name,Name}|Options]};
+  {dvr_handler, mp4, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [auth,{pid,self()},{tag,mp4},{type,<<"mp4">>},{name,Name}|Options]};
 
 mfa(archive_ts, {stream, _, Options}, Name, [From_, Duration_]) ->
-  {dvr_handler, ts_file, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [{pid,self()},{type,<<"mpegts">>},{tag,hls_d},{name,Name}|Options]};
+  {dvr_handler, ts_file, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [auth,{pid,self()},{type,<<"mpegts">>},{tag,mpegts},{name,Name}|Options]};
 mfa(archive_ts, {live, Options}, Name, [_PathInfo, From_, Duration_]) ->
-  {dvr_handler, ts_file, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [{pid,self()},{type,<<"mpegts">>},{tag,hls_d},{name,Name}|Options]};
+  {dvr_handler, ts_file, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [auth,{pid,self()},{type,<<"mpegts">>},{tag,mpegts},{name,Name}|Options]};
 
 mfa(archive_mpegts, {stream, _, Options}, Name, [From_, Duration_]) ->
-  {dvr_handler, ts_stream, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [{pid,self()},{type,<<"mpegts_dvr">>},{tag,hls_d},{name,Name}|Options]};
+  {dvr_handler, ts_stream, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [auth,{pid,self()},{type,<<"mpegts_dvr">>},{tag,mpegts},{name,Name}|Options]};
 mfa(archive_mpegts, {live, Options}, Name, [_PathInfo, From_, Duration_]) ->
-  {dvr_handler, ts_stream, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [{pid,self()},{type,<<"mpegts_dvr">>},{tag,hls_d},{name,Name}|Options]};
+  {dvr_handler, ts_stream, [req, dvr(Options), Name, to_i(From_), to_duration(Duration_)], [auth,{pid,self()},{type,<<"mpegts_dvr">>},{tag,mpegts},{name,Name}|Options]};
 
 
 mfa(archive_hds, {stream, _, Options}, Name, [From, Duration]) ->
-  {dvr_session, hds_manifest, [dvr(Options), Name, to_i(From), to_duration(Duration)], [{tag,hds},{type,<<"hds_dvr">>},{name,Name}|Options]};
+  {dvr_session, hds_manifest, [dvr(Options), Name, to_i(From), to_duration(Duration)], [auth,{tag,hds},{type,<<"f4fvr">>},{name,Name}|Options]};
 mfa(archive_hds, {live, Options}, Name, [_PathInfo, From, Duration]) ->
-  {dvr_session, hds_manifest, [dvr(Options), Name, to_i(From), to_duration(Duration)], [{tag,hds},{type,<<"hds_dvr">>},{name,Name}|Options]};
+  {dvr_session, hds_manifest, [dvr(Options), Name, to_i(From), to_duration(Duration)], [auth,{tag,hds},{type,<<"f4fvr">>},{name,Name}|Options]};
 
 mfa(archive_bootstrap, {stream, _, Options}, Name, [From, Duration]) ->
-  {dvr_session, bootstrap, [dvr(Options), Name, to_i(From), to_duration(Duration)], [{tag,hds_b},{type,<<"hds_dvr">>},{name,Name}|Options]};
+  {dvr_session, bootstrap, [dvr(Options), Name, to_i(From), to_duration(Duration)], [auth,{tag,hds_b},{type,<<"f4fvr">>},{name,Name}|Options]};
 mfa(archive_bootstrap, {live, Options}, Name, [_PathInfo, From, Duration]) ->
-  {dvr_session, bootstrap, [dvr(Options), Name, to_i(From), to_duration(Duration)], [{tag,hds_b},{type,<<"hds_dvr">>},{name,Name}|Options]};
+  {dvr_session, bootstrap, [dvr(Options), Name, to_i(From), to_duration(Duration)], [auth,{tag,hds_b},{type,<<"f4fvr">>},{name,Name}|Options]};
 
 mfa(archive_fragment, {stream, _, Options}, Name, [From, Duration, Fragment]) ->
-  {dvr_session, hds_fragment, [dvr(Options), Name, to_i(From), to_duration(Duration), to_i(Fragment)], [{tag,hds_d},{name,Name}|Options]};
+  {dvr_session, hds_fragment, [dvr(Options), Name, to_i(From), to_duration(Duration), to_i(Fragment)], [{tag,f4f},{name,Name}|Options]};
 mfa(archive_fragment, {live, Options}, Name, [_PathInfo, From, Duration, Fragment]) ->
-  {dvr_session, hds_fragment, [dvr(Options), Name, to_i(From), to_duration(Duration), to_i(Fragment)], [{tag,hds_d},{name,Name}|Options]};
+  {dvr_session, hds_fragment, [dvr(Options), Name, to_i(From), to_duration(Duration), to_i(Fragment)], [{tag,f4f},{name,Name}|Options]};
 
 mfa(archive_hls_long, {stream, _, Options}, Name, [From, Duration]) ->
   {flu_www, redirect, [<<"/", Name/binary, "/index-", From/binary, "-", Duration/binary, ".m3u8">>], [{tag,none},{name,Name}|Options]};
@@ -290,52 +273,52 @@ mfa(archive_hls_long, {live, Options}, Name, [_PathInfo, From, Duration]) ->
   {flu_www, redirect, [<<"/", Name/binary, "/index-", From/binary, "-", Duration/binary, ".m3u8">>], [{tag,none},{name,Name}|Options]};
 
 mfa(archive_hls, {stream, _, Options}, Name, [From, Duration]) ->
-  {dvr_session, hls_playlist, [dvr(Options), Name, to_i(From), to_duration(Duration)], [{tag,hls},{type,<<"hls_dvr">>},{name,Name}|Options]};
+  {dvr_session, hls_playlist, [dvr(Options), Name, to_i(From), to_duration(Duration)], [auth,{tag,hls},{type,<<"mpegtsvr">>},{name,Name}|Options]};
 mfa(archive_hls, {live, Options}, Name, [_PathInfo, From, Duration]) ->
-  {dvr_session, hls_playlist, [dvr(Options), Name, to_i(From), to_duration(Duration)], [{tag,hls},{type,<<"hls_dvr">>},{name,Name}|Options]};
+  {dvr_session, hls_playlist, [dvr(Options), Name, to_i(From), to_duration(Duration)], [auth,{tag,hls},{type,<<"mpegtsvr">>},{name,Name}|Options]};
 
 
 mfa(timeshift_abs, {stream, _, Options}, Name, [From]) ->
-  {dvr_handler, timeshift_abs, [req, dvr(Options), Name, to_i(From)], [{pid,self()},{type,<<"mpegts_dvr">>},{tag,hls_d},{name,Name}|Options]};
+  {dvr_handler, timeshift_abs, [req, dvr(Options), Name, to_i(From)], [auth,{pid,self()},{type,<<"mpegts_dvr">>},{tag,mpegts},{name,Name}|Options]};
 mfa(timeshift_abs, {live, Options}, Name, [_PathInfo, From]) ->
-  {dvr_handler, timeshift_abs, [req, dvr(Options), Name, to_i(From)], [{pid,self()},{type,<<"mpegts_dvr">>},{tag,hls_d},{name,Name}|Options]};
+  {dvr_handler, timeshift_abs, [req, dvr(Options), Name, to_i(From)], [auth,{pid,self()},{type,<<"mpegts_dvr">>},{tag,mpegts},{name,Name}|Options]};
 
 
 mfa(timeshift_rel, {stream, _, Options}, Name, [From]) ->
-  {dvr_handler, timeshift_rel, [req, dvr(Options), Name, to_i(From)], [{pid,self()},{type,<<"mpegts_dvr">>},{tag,hls_d},{name,Name}|Options]};
+  {dvr_handler, timeshift_rel, [req, dvr(Options), Name, to_i(From)], [auth,{pid,self()},{type,<<"mpegts_dvr">>},{tag,mpegts},{name,Name}|Options]};
 mfa(timeshift_rel, {live, Options}, Name, [_PathInfo, From]) ->
-  {dvr_handler, timeshift_rel, [req, dvr(Options), Name, to_i(From)], [{pid,self()},{type,<<"mpegts_dvr">>},{tag,hls_d},{name,Name}|Options]};
+  {dvr_handler, timeshift_rel, [req, dvr(Options), Name, to_i(From)], [auth,{pid,self()},{type,<<"mpegts_dvr">>},{tag,mpegts},{name,Name}|Options]};
 
 
 mfa(hds_manifest, {stream, _, Options}, Name, []) ->
-  {flu_stream, hds_manifest, [Name], [{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
+  {flu_stream, hds_manifest, [Name], [auth,{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
 mfa(hds_manifest, {live, Options}, Name, [_PathInfo]) ->
-  {flu_stream, hds_manifest, [Name], [{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
+  {flu_stream, hds_manifest, [Name], [auth,{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
 mfa(hds_manifest, {file, Directory, Options}, Name, [PathInfo]) ->
-  {flu_file, hds_manifest, [<<Directory/binary, "/", PathInfo/binary>>, Name], [{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
+  {flu_file, hds_manifest, [<<Directory/binary, "/", PathInfo/binary>>, Name], [auth,{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
 
 
 mfa(hds_bootstrap, {stream, _, Options}, Name, []) ->
-  {flu_stream, bootstrap, [Name], [{tag,hds_b},{type,<<"hds">>},{name,Name}|Options]};
+  {flu_stream, bootstrap, [Name], [auth,{tag,hds_b},{type,<<"hds">>},{name,Name}|Options]};
 mfa(hds_bootstrap, {live, Options}, Name, [_PathInfo]) ->
-  {flu_stream, bootstrap, [Name], [{tag,hds_b},{type,<<"hds">>},{name,Name}|Options]};
-mfa(hds_bootstrap, {file, Directory, Options}, Name, [PathInfo]) ->
-  {flu_file, bootstrap, [<<Directory/binary, "/", PathInfo/binary>>, Name], [{tag,hds_b},{type,<<"hds">>},{name,Name}|Options]};
+  {flu_stream, bootstrap, [Name], [auth,{tag,hds_b},{type,<<"hds">>},{name,Name}|Options]};
+% mfa(hds_bootstrap, {file, Directory, Options}, Name, [PathInfo]) ->
+%   {flu_file, bootstrap, [<<Directory/binary, "/", PathInfo/binary>>, Name], [{tag,hds_b},{type,<<"hds">>},{name,Name}|Options]};
 
 
 mfa(hds_fragment, {stream, _, Options}, Name, [Fragment]) ->
-  {flu_stream, hds_fragment, [Name, to_i(Fragment)], [{tag,hds_d},{name,Name}|Options]};
+  {flu_stream, hds_fragment, [Name, to_i(Fragment)], [{tag,f4f},{name,Name}|Options]};
 mfa(hds_fragment, {live, Options}, Name, [_PathInfo, Fragment]) ->
-  {flu_stream, hds_fragment, [Name, to_i(Fragment)], [{tag,hds_d},{name,Name}|Options]};
+  {flu_stream, hds_fragment, [Name, to_i(Fragment)], [{tag,f4f},{name,Name}|Options]};
 
 mfa(hds_fragment, {file, Directory, Options}, Name, [PathInfo, Fragment]) ->
-  {flu_file, hds_fragment, [<<Directory/binary, "/", PathInfo/binary>>, Name, to_i(Fragment)], [{tag,hds_d},{name,Name}|Options]};
+  {flu_file, hds_fragment, [<<Directory/binary, "/", PathInfo/binary>>, Name, to_i(Fragment)], [{tag,f4f},{name,Name}|Options]};
 
 
 mfa(mpegts, {stream, _, Options}, Name, []) ->
-  {mpegts_handler, request, [req, Name, Options], [{pid,self()},{tag,hls_d},{type,<<"mpegts">>},{name,Name}|Options]};
+  {mpegts_handler, request, [req, Name, Options], [auth,{pid,self()},{tag,mpegts},{type,<<"mpegts">>},{name,Name}|Options]};
 mfa(mpegts, {live, Options}, Name, [_PathInfo]) ->
-  {mpegts_handler, request, [req, Name, Options], [{pid,self()},{tag,hls_d},{type,<<"mpegts">>},{name,Name}|Options]};
+  {mpegts_handler, request, [req, Name, Options], [auth,{pid,self()},{tag,mpegts},{type,<<"mpegts">>},{name,Name}|Options]};
 
 
 mfa(_Request, _Spec, _Name, _Matches) ->

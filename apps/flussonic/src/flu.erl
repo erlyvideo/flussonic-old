@@ -137,8 +137,15 @@ start_webserver(Config) ->
   Middlewares = case RateLimit of
     undefined -> [];
     _ -> [rate_limiter]
-  end ++ [flu_router, flu_www, cowboy_router, cowboy_handler],
-  ProtoOpts = [{env,[{dispatch, cowboy_router:compile(Dispatch)},{router,flu_router:compile(Config)},{rate_limit,RateLimit}]},{max_keepalive,4096},{middlewares, Middlewares}],
+  end ++ [flu_router, api_handler, flu_www, cowboy_router, cowboy_handler],
+  ProtoOpts = [{env,[
+      {api, api_handler:compile(Config)},
+      {rate_limit,RateLimit},
+      {dispatch, cowboy_router:compile(Dispatch)},
+      {router,flu_router:compile(Config)}
+    ]},
+    {max_keepalive,4096},
+    {middlewares, Middlewares}],
   
   start_http(flu_http, 100, 
     [{port,HTTPPort},{backlog,4096},{max_connections,32768}],

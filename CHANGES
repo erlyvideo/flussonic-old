@@ -1,3 +1,8 @@
+flussonic (3.69.5)
+
+  * fixed HLS ram segments #156
+  * fixed authorized HDS and HLS segments serving
+  
 flussonic (3.69.4)
 
   * R16 compatibility

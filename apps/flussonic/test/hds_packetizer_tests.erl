@@ -17,15 +17,19 @@ hds_packetizer_test_() ->
 
 
 setup() ->
-  application:start(gen_tracker),
+  Apps = [crypto, ranch, cowboy, public_key,ssl, lhttpc, gen_tracker, flussonic],
+  [ok = application:start(App) || App <- Apps],
   gen_tracker_sup:start_tracker(flu_streams),
-  application:start(flussonic),
-  ok.
+  flu:start_webserver([
+    {http,5555},
+    {prepend_routes,[{<<"/auth">>, fake_auth, [unique_user_id]}]},
+    {stream,<<"stream1">>,<<"passive://">>,[{sessions, "http://127.0.0.1:5555/auth"}]}
+  ]),
+  Apps.
 
-teardown(_) ->
+teardown(Apps) ->
   error_logger:delete_report_handler(error_logger_tty_h),
-  application:stop(flussonic),
-  application:stop(gen_tracker),
+  [application:stop(App) || App <- lists:reverse(Apps)],
   error_logger:add_report_handler(error_logger_tty_h),
   ok.
 
@@ -76,12 +80,26 @@ test_full_cycle() ->
   [flu_stream:send_frame(S, Frame) || Frame <- gop(2)],
   [flu_stream:send_frame(S, Frame) || Frame <- gop(3)],
 
+
+
   ?assertMatch({ok, Fragment} when is_binary(Fragment),
     flu_stream_data:get(<<"stream1">>, {hds_fragment, 1, 1})),
   ?assertMatch({ok, Manifest} when is_binary(Manifest),
     flu_stream_data:get(<<"stream1">>, hds_manifest)),
   ?assertMatch({ok, Bootstrap} when is_binary(Bootstrap),
     flu_stream_data:get(<<"stream1">>, bootstrap)),
+
+  % Now lets check full HTTP cycle
+
+  {ok, {_,403, _, _}} = http_stream:request_body("http://127.0.0.1:5555/stream1/manifest.f4m", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,200, _, _Manifest}} = http_stream:request_body("http://127.0.0.1:5555/stream1/manifest.f4m?token=123", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,403, _, _}} = http_stream:request_body("http://127.0.0.1:5555/stream1/bootstrap", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,200, _, _Bootstrap}} = http_stream:request_body("http://127.0.0.1:5555/stream1/bootstrap?token=123", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,200, _, _}} = http_stream:request_body("http://127.0.0.1:5555/stream1/hds/0/Seg1-Frag1", [{keepalive,false},{no_fail,true}]),
+
+
+
+
 
   {ok, <<_:32, "mdat", FLV/binary>>} = flu_stream_data:get(<<"stream1">>, {hds_fragment, 1, 1}),
   [#video_frame{content = metadata}|Frames] = flv:read_all_frames(FLV),

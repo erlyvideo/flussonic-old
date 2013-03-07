@@ -4,6 +4,40 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
+api_route_test_() ->
+[
+
+  % Now goes API
+
+  {"root", ?_assertMatch({api_handler, mainpage, [],_}, r(<<"/">>))}
+  ,{"root", ?_assertMatch({api_handler, mainpage, [],_}, r(<<"/admin">>))}
+
+  ,{"api_sendlogs", ?_assertMatch({api_handler, sendlogs, [],_}, r(<<"/erlyvideo/api/sendlogs">>))}
+  ,{"api_reload", ?_assertMatch({api_handler, reload, [],_}, r(<<"/erlyvideo/api/reload">>))}
+  ,{"api_events", ?_assertMatch(undefined, r(<<"/erlyvideo/api/events">>))}
+  ,{"api_streams", ?_assertMatch({api_handler, streams, [],_}, r(<<"/erlyvideo/api/streams">>))}
+  ,{"api_server", ?_assertMatch({api_handler, server, [],_}, r(<<"/erlyvideo/api/server">>))}
+  ,{"api_sessions", ?_assertMatch({api_handler, sessions, [req],_}, r(<<"/erlyvideo/api/sessions">>))}
+  ,{"api_pulse", ?_assertMatch({api_handler, pulse, [],_}, r(<<"/erlyvideo/api/pulse">>))}
+  ,{"api_stream_health", ?_assertMatch({api_handler, health, [<<"ort/good">>],_}, r(<<"/erlyvideo/api/stream_health/ort/good">>))}
+  ,{"api_stream_restart", ?_assertMatch({api_handler, stream_restart, [<<"ort/good">>],_}, r(<<"/erlyvideo/api/stream_restart/ort/good">>))}
+  ,{"api_media_info", ?_assertMatch({api_handler, media_info, [<<"ort/good">>],_}, r(<<"/erlyvideo/api/media_info/ort/good">>))}
+  ,{"api_dvr_status", ?_assertMatch({api_handler, dvr_status, [2012,9,15,<<"ort/good">>],_}, 
+    r(<<"/erlyvideo/api/dvr_status/2012/9/15/ort/good">>))}
+
+
+].
+
+r(Path) -> 
+  case api_handler:route(Path, []) of
+    {ok, {M,F,A,Meta}} -> {M,F,A,proplists:get_value(tag,Meta)};
+    undefined -> undefined
+  end.
+
+
+
+
+
 api_handler_test_() ->
   {foreach,
   fun() ->

@@ -7,6 +7,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
+-export([forbidden/1, bad_request/1, reply/1]).
+
 
 
 execute(Req, Env) ->
@@ -18,6 +20,15 @@ execute(Req, Env) ->
   end.
 
 
+forbidden(_Req) ->
+  {ok, {401, [{<<"Www-Authenticate">>, <<"Basic realm=Flussonic">>}], "401 Forbidden\n"}}.
+
+bad_request(_Req) ->
+  {ok, {400, [], "400 Bad request\n"}}.
+
+reply(Reply) ->
+  Reply.
+
 handle_flu_action(M,F,A1,Opts,Req) ->
   A = case A1 of
     [req|A_] -> [Req|A_];
@@ -25,7 +36,7 @@ handle_flu_action(M,F,A1,Opts,Req) ->
   end,
 
   T1 = os:timestamp(),
-  Reply1 = try run_action_with_auth(M,F,A, Opts, Req)
+  Reply1 = try erlang:apply(M,F,A)
   catch
     throw:R -> R;
     Class:Reason ->
@@ -54,20 +65,6 @@ handle_flu_action(M,F,A1,Opts,Req) ->
   end.
 
 
-run_action_with_auth(M,F,A,_Opts,_Req) when M == api_handler ->
-  erlang:apply(M,F,A);
-
-run_action_with_auth(M,F,A2,Opts,Req) ->
-  {name,Name} = lists:keyfind(name,1,Opts),
-  Type = proplists:get_value(type,Opts,<<"media">>),
-  {ok, Token} = media_handler:check_sessions(Req, Name, [{type, Type} | Opts]),
-
-  A = if
-    M == flu_stream andalso F == hds_manifest andalso Token =/= undefined -> A2 ++ [Token];
-    M == dvr_session andalso F == hds_manifest andalso Token =/= undefined -> A2 ++ [Token];
-    true -> A2
-  end,
-  erlang:apply(M,F,A).
 
 
 convert_old_replies({error, busy}) -> {ok, {503, [], <<"busy\n">>}};
@@ -114,9 +111,9 @@ return_req(_, Req) ->
 
 headers(html) -> [{<<"Content-Type">>, <<"text/html">>}];
 headers(hds) -> [{<<"Content-Type">>, <<"text/xml">>}|no_cache()];
-headers(hds_d) -> [{<<"Content-Type">>, <<"video/f4f">>}];
+headers(f4f) -> [{<<"Content-Type">>, <<"video/f4f">>}];
 headers(hls) -> [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()];
-headers(hls_d) -> [{<<"Content-Type">>, <<"video/MP2T">>}];
+headers(mpegts) -> [{<<"Content-Type">>, <<"video/MP2T">>}];
 headers(json) -> [{<<"Content-Type">>,<<"application/json">>}];
 headers(_) -> [].
 
