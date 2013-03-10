@@ -55,25 +55,20 @@ http_mock_url() -> "http://127.0.0.1:6070/auth".
 
 test_new_session1() ->
   Session = flu_session:new_or_update([{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{access,granted}]),
-  ?assertMatch(#session{access = granted}, Session),
-  ?assertEqual(<<"cam0">>, flu_session:url(Session)).
+  ?assertMatch(#session{access = granted}, Session).
 
 
-test_new_session2() ->
-  Session = flu_session:new_or_update([{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{access,granted},{name,<<"cam1">>}]),
-  ?assertMatch(#session{access = granted}, Session),
-  ?assertEqual(<<"cam1">>, flu_session:url(Session)).
 
 
 
 
 test_remember_positive_with_changing_reply() ->
   meck:expect(flu_session, backend_request, fun(_,_,_) -> {ok, []} end),
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])),
 
   meck:expect(flu_session, backend_request, fun(_,_,_) -> {error, [{code,403}]} end),
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])).
 
 
@@ -85,11 +80,11 @@ test_cached_positive() ->
     {ok, [{user_id,15},{auth_time, 10000}]}
   end),
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested),
 
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), Identity, [])),
 
   receive
@@ -117,7 +112,7 @@ test_monitor_session() ->
   meck:expect(flu_session, backend_request, fun(_,_,_) -> {ok, []} end),
   Identity = [{ip,<<"127.0.0.5">>},{token,<<"123">>},{name,<<"cam0">>}],
 
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), Identity, [{type,<<"rtmp">>},{pid,self()}])),
   ?assertMatch([_], flu_session:list()),
   [Info] = flu_session:list(),
@@ -139,16 +134,16 @@ test_backend_down_when_already_granted() ->
   meck:expect(flu_session, backend_request, fun(_,_,_) -> {ok, []} end),
   Identity = [{ip,<<"127.0.0.5">>},{token,<<"123">>},{name,<<"cam0">>}],
 
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [{type,<<"rtmp">>}])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [{type,<<"rtmp">>}])),
 
   meck:expect(flu_session, backend_request, fun(_,_,_) -> undefined end),
 
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [{type,<<"rtmp">>}])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [{type,<<"rtmp">>}])),
   ok.
 
 test_session_info() ->
   meck:expect(flu_session, backend_request, fun(_,_,_) -> {ok, [{user_id,15}]} end),
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [])),
   Info = flu_session:info([{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}]),
   ?assertEqual(<<"cam0">>, proplists:get_value(name, Info)),
@@ -275,7 +270,7 @@ test_expire_and_delete_session() ->
     {ok,[{user_id,15},{auth_time, 5000}]} 
   end),
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested),
 
@@ -284,7 +279,7 @@ test_expire_and_delete_session() ->
   flu_session ! clean,
   gen_server:call(flu_session, sync_call),
 
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), Identity, [])),
 
   assertBackendRequested(backend_wasnt_requested_second_time),
@@ -298,7 +293,7 @@ test_dont_expire_monitored_session() ->
     {ok,[{user_id,15},{auth_time, 5000}]} 
   end),
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), Identity, [{type,<<"rtmp">>},{pid,self()}])),
   assertBackendRequested(backend_wasnt_requested),
   [#session{session_id = Id}] = ets:tab2list(flu_session:table()),
@@ -323,22 +318,22 @@ test_rerequest_expiring_session() ->
     {ok,[{user_id,15},{auth_time, 5000}]} 
   end),
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested),
 
   meck:expect(flu, now_ms, fun() -> 12000 end),
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendNotRequested(backend_was_requested1),
 
 
   meck:expect(flu, now_ms, fun() -> 14000 end),
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendNotRequested(backend_was_requested2),
 
 
   meck:expect(flu, now_ms, fun() -> 16000 end),
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested_second_time),
 
   ok.
@@ -353,11 +348,11 @@ test_rerequest_expiring_unique_session() ->
     {ok,[{user_id,15},{auth_time, 5000},{unique,true}]} 
   end),
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested),
 
   meck:expect(flu, now_ms, fun() -> 30000 end),
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [])),
 
   assertBackendRequested(backend_wasnt_requested_second_time),
   ok.
@@ -375,7 +370,7 @@ test_session_is_not_destroyed_after_rerequest() ->
     {ok,[{user_id,15},{auth_time, 5000}]} 
   end),
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}],
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested),
 
   #session{} = Session = flu_session:find_session(Identity),
@@ -383,7 +378,7 @@ test_session_is_not_destroyed_after_rerequest() ->
   ets:insert(flu_session:table(), Session1),
 
   meck:expect(flu, now_ms, fun() -> 20000 end),
-  ?assertEqual({ok, <<"cam0">>}, flu_session:verify(http_mock_url(), Identity, [])),
+  ?assertMatch({ok, _}, flu_session:verify(http_mock_url(), Identity, [])),
   assertBackendRequested(backend_wasnt_requested_second_time),
 
   #session{bytes_sent = BytesSent} = flu_session:find_session(Identity),
@@ -399,12 +394,12 @@ test_unique_session_with_new_ip() ->
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
     {ok,[{user_id,14},{unique,true}]} 
   end),
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"1">>},{name,<<"cam0">>}], [])),
 
   ?assertMatch([#session{ip = <<"127.0.0.1">>}], ets:select(flu_session:table(), ets:fun2ms(fun(#session{user_id = 14, access= granted} = E) -> E end))),
 
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"94.95.96.97">>},{token,<<"1">>},{name,<<"cam0">>}], [])),
 
   ?assertMatch([#session{ip = <<"94.95.96.97">>}], ets:select(flu_session:table(), ets:fun2ms(fun(#session{user_id = 14, access= granted} = E) -> E end))),
@@ -423,13 +418,13 @@ test_unique_session_with_persistent_connection() ->
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
     {ok,[{user_id,14},{unique,true}]} 
   end),
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"1">>},{name,<<"cam0">>}], [{pid,Connection}])),
 
   ?assertMatch([#session{ip = <<"127.0.0.1">>, pid = Connection}], 
     ets:select(flu_session:table(), ets:fun2ms(fun(#session{user_id = 14, access= granted} = E) -> E end))),
 
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"94.95.96.97">>},{token,<<"2">>},{name,<<"cam0">>}], [])),
 
   ?assertEqual(false, erlang:is_process_alive(Connection)),
@@ -450,7 +445,7 @@ test_unique_session_with_persistent_connection_same_ip() ->
   meck:expect(flu_session, backend_request, fun(_, _, _) ->
     {ok,[{user_id,14},{unique,true}]} 
   end),
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"1">>},{name,<<"cam0">>}], [{pid,Pid1}])),
 
   ?assertMatch([#session{ip = <<"127.0.0.1">>, pid = Pid1}], 
@@ -463,7 +458,7 @@ test_unique_session_with_persistent_connection_same_ip() ->
     end
   end),
 
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"1">>},{name,<<"cam0">>}], [{pid,Pid2}])),
 
   ?assertEqual(false, erlang:is_process_alive(Pid1)),
@@ -493,7 +488,7 @@ test_periodic_refresh_of_auth() ->
   end),
 
   Identity = [{ip,<<"127.0.0.1">>},{token,<<"1">>},{name,<<"cam0">>}],
-  ?assertEqual({ok, <<"cam0">>},
+  ?assertMatch({ok, _},
     flu_session:verify(http_mock_url(), Identity, [{pid,Pid1}])),
   ?assertMatch([#session{ip = <<"127.0.0.1">>, pid = Pid1}], 
     ets:select(flu_session:table(), ets:fun2ms(fun(#session{user_id = 14, access= granted} = E) -> E end))),

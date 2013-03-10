@@ -178,6 +178,12 @@ test_monotone_proper_timestamps_in_middle_of_stream() ->
 
 
 
+test_pushers_are_starting() ->
+  ?assertEqual([], flu_stream:list()),
+  Stream = <<"livestream1">>,
+  {ok, _Pid} = flu_stream:autostart(Stream, [{push,"tshttp://localhost:5670/live2"},publish_enabled,{url, "passive://url"}]),
+  ok.
+
 
 
 

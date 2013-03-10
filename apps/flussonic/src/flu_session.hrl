@@ -1,5 +1,5 @@
 -record(session, {
-  session_id :: binary(),
+  session_id :: integer(),
   token :: binary(),
   ip :: binary(),
   name :: binary(),

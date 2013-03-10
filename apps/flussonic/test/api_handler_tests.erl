@@ -9,13 +9,14 @@ api_route_test_() ->
 
   % Now goes API
 
-  {"root", ?_assertMatch({api_handler, mainpage, [],_}, r(<<"/">>))}
-  ,{"root", ?_assertMatch({api_handler, mainpage, [],_}, r(<<"/admin">>))}
+  % {"root", ?_assertMatch({api_handler, mainpage, [],_}, r(<<"/">>))}
+  {"root", ?_assertMatch({api_handler, mainpage, [],_}, r(<<"/admin">>))}
 
   ,{"api_sendlogs", ?_assertMatch({api_handler, sendlogs, [],_}, r(<<"/erlyvideo/api/sendlogs">>))}
   ,{"api_reload", ?_assertMatch({api_handler, reload, [],_}, r(<<"/erlyvideo/api/reload">>))}
   ,{"api_events", ?_assertMatch(undefined, r(<<"/erlyvideo/api/events">>))}
   ,{"api_streams", ?_assertMatch({api_handler, streams, [],_}, r(<<"/erlyvideo/api/streams">>))}
+  ,{"api_files", ?_assertMatch({api_handler, files, [],_}, r(<<"/erlyvideo/api/files">>))}
   ,{"api_server", ?_assertMatch({api_handler, server, [],_}, r(<<"/erlyvideo/api/server">>))}
   ,{"api_sessions", ?_assertMatch({api_handler, sessions, [req],_}, r(<<"/erlyvideo/api/sessions">>))}
   ,{"api_pulse", ?_assertMatch({api_handler, pulse, [],_}, r(<<"/erlyvideo/api/pulse">>))}
@@ -40,31 +41,13 @@ r(Path) ->
 
 api_handler_test_() ->
   {foreach,
-  fun() ->
-      Apps = [crypto, ranch, gen_tracker, cowboy, flussonic],
-      [application:start(App) || App <- Apps],
-      meck:new([flu], [{passthrough,true}]),
-      inets:start(),
-      % application:load(lager),
-      % application:set_env(lager,error_logger_redirect,false),
-      % application:set_env(lager,handlers,[{lager_console_backend,error}]),
-      % lager:start(),
-      
-      ok
-  end,
-  fun(_) ->
-    error_logger:delete_report_handler(error_logger_tty_h),
-    meck:unload([flu]),
-    application:stop(cowboy),
-    application:stop(flussonic),
-    application:stop(ranch),
-    application:stop(gen_tracker),
-    application:stop(inets),
-    error_logger:add_report_handler(error_logger_tty_h),
-    ok
-  end,
-  [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
-    lists:prefix("test_", atom_to_list(F))]
+  flu_test:setup_([log, {meck, [flu]}], fun() ->
+    inets:start()
+  end),
+  flu_test:teardown_(fun() ->
+    application:stop(inets)
+  end),
+  flu_test:tests(?MODULE)
   }.
 
 

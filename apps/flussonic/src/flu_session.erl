@@ -35,7 +35,7 @@
 
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
--export([find_session/1, new_or_update/2, url/1, ref/1]).
+-export([find_session/1, new_or_update/2, id/1, ref/1, add_bytes/2]).
 -export([info/1]).
 -export([table/0]).
 -export([stats/0]).
@@ -125,7 +125,7 @@ backend_request0(<<"http://", _/binary>> = URL, Identity, Options) when is_list(
 
 
 -spec verify(URL::auth_url(), Identity::session_identity(), Options::[session_option()]) ->
-  {ok, NewName::binary()} | {error, Code::non_neg_integer(), ErrorMsg::iolist()}.
+  {ok, SessionId::integer()} | {error, Code::non_neg_integer(), ErrorMsg::iolist()}.
 
 verify(URL, Identity, Options) when is_list(URL) ->
   verify(list_to_binary(URL), Identity, Options);
@@ -137,6 +137,11 @@ verify(URL, Identity, Options) ->
     throw:Reply -> Reply
   end.
 
+
+add_bytes(undefined, _) -> ok;
+
+add_bytes(SessionId, Bytes) when is_integer(SessionId), is_integer(Bytes) ->
+  catch ets:update_counter(flu_session:table(), SessionId, {#session.bytes_sent, Bytes}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -267,10 +272,10 @@ verify0(URL, Identity, Options) ->
         {ok, Opts1} ->
           disconnect_other_instances(proplists:get_value(unique, Opts1), proplists:get_value(user_id, Opts1), session_id(Identity)),
           Session1 = new_or_update(Identity, [{access,granted},{last_verify_time,Now}] ++ Opts1 ++ Options),
-          {ok, url(Session1)}
+          {ok, id(Session1)}
       end;
     false when Session#session.access == granted ->
-      {ok, url(Session)};
+      {ok, id(Session)};
     false when Session#session.access == denied ->
       {error, 403, "cached_negative"}
   end.
@@ -289,8 +294,8 @@ timeout() ->
 clients() ->
   Now = flu:now_ms(),
   Sessions = ets:select(flu_session:table(), ets:fun2ms(fun(#session{access = granted} = E) -> E end)),
-  [[{id,Id},{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type},{user_id,UserId}] || 
-    #session{session_id = Id, ip = IP, name = Name, user_id =UserId, created_at = StartAt, type = Type} <- Sessions].
+  [[{id,Id},{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type},{user_id,UserId},{bytes,Sent}] || 
+    #session{session_id = Id, ip = IP, name = Name, user_id =UserId, created_at = StartAt, type = Type, bytes_sent = Sent} <- Sessions].
 
 list() ->
   clients().
@@ -320,7 +325,7 @@ stats() ->
 % cookie_name() ->
 %   <<"flu_cookie_">>.
 
-url(#session{name = Name}) -> Name.
+id(#session{session_id = ID}) -> ID.
 ref(#session{ref = Ref}) -> Ref.
 
 
@@ -370,6 +375,7 @@ new_or_update(Identity, Opts) ->
       {Old_, false};
     [] ->
       catch gen_tracker:increment(flu_streams, Name, client_count, 1),
+      catch gen_tracker:increment(flu_files, Name, client_count, 1),
       {#session{session_id = SessionId, token = Token, ip = Ip, name = Name, created_at = Now,
       bytes_sent = 0, user_id = UserId, type = proplists:get_value(type, Opts, <<"http">>)}, true}
   end,
@@ -395,6 +401,7 @@ delete_session(#session{name = Name} = Session) ->
   % ?D({delete_session,Session}),
   ets:delete_object(flu_session:table(), Session),
   catch gen_tracker:increment(flu_streams, Name, client_count, -1),
+  catch gen_tracker:increment(flu_files, Name, client_count, -1),
   flu_event:user_disconnected(Session#session.name, info(Session)).
 
 

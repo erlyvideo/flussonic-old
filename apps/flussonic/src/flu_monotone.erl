@@ -17,7 +17,7 @@ subscribe(Monotone, Pid) ->
   add_client(Monotone, Pid, raw, undefined).
 
 add_client(Monotone, Pid, Proto, Socket) when
-  Proto == rtmp orelse Proto == tcp_mpegts orelse Proto == udp_mpegts orelse Proto == raw ->
+  Proto == rtmp orelse Proto == tcp_mpegts orelse Proto == chunked_mpegts orelse Proto == udp_mpegts orelse Proto == raw ->
   gen_server:call(Monotone, {add_client, Pid, Proto, Socket}).
 
 start_link(Name) ->
@@ -72,8 +72,7 @@ stop(Monotone) ->
   start_at,
   timer,
   waiting = [],
-  udp_mpegts = [],
-  tcp_mpegts = [],
+  send_mpegts = [],
   mpegts,
   rtmp = [],
   raw = [],
@@ -165,11 +164,11 @@ terminate(_,_) ->
   ok.
 
 
-delete_client(#monotone{raw = Raw, waiting = Waiting, udp_mpegts = UDP} = M, Pid) ->
+delete_client(#monotone{raw = Raw, waiting = Waiting, send_mpegts = Mpeg} = M, Pid) ->
   M#monotone{
     raw = lists:keydelete(Pid, #client.pid, Raw),
     waiting = lists:keydelete(Pid, #client.pid, Waiting),
-    udp_mpegts = lists:keydelete(Pid, #client.pid, UDP)
+    send_mpegts = lists:keydelete(Pid, #client.pid, Mpeg)
   }.
 
 
@@ -178,8 +177,9 @@ add_client_to_list(#monotone{raw = Raw, stream = Stream} = M, #client{proto = ra
   [Pid ! C#video_frame{stream_id = Stream} || C <- configs(M)],
   M#monotone{raw = [Client|Raw]};
 
-add_client_to_list(#monotone{udp_mpegts = UDP} = M, #client{proto = udp_mpegts} = Client) ->
-  {ok, ok, M#monotone{udp_mpegts = [Client|UDP]}};
+add_client_to_list(#monotone{send_mpegts = UDP} = M, #client{proto = P} = Client) when 
+  P == udp_mpegts; P == tcp_mpegts; P == chunked_mpegts ->
+  {ok, ok, M#monotone{send_mpegts = [Client|UDP]}};
 
 add_client_to_list(#monotone{} = M, #client{} = _Client) ->
   {ok, {error, not_implemented}, M}.
@@ -240,7 +240,7 @@ delay(#video_frame{dts = DTS}, #monotone{first_dts = FirstDTS, start_at = StartA
 deliver_frame(undefined, #monotone{} = M) ->
   M;
 
-deliver_frame(#media_info{} = MI, #monotone{raw = S, mpegts = Mpegts1, tcp_mpegts = TCP} = M) ->
+deliver_frame(#media_info{} = MI, #monotone{raw = S, mpegts = Mpegts1, send_mpegts = TCP} = M) ->
   [Pid ! MI || #client{pid = Pid} <- S],
   Mpegts2 = send_mpegts(MI, MI, Mpegts1, TCP),
   M#monotone{mpegts = Mpegts2};
@@ -255,8 +255,12 @@ deliver_frame(#video_frame{flavor = keyframe, dts = DTS} = Frame, #monotone{wait
     (#client{proto = rtmp, socket = Socket} = C, #monotone{rtmp = RTMP} = M) ->
       (catch port_command(Socket, RTMPConfigs, [nosuspend])),
       M#monotone{rtmp = [C#client{start_dts = DTS}|RTMP]};
-    (#client{proto = tcp_mpegts} = C, #monotone{tcp_mpegts = MPEG} = M) ->
-      M#monotone{tcp_mpegts = [C|MPEG]};
+    (#client{proto = tcp_mpegts} = C, #monotone{send_mpegts = MPEG} = M) ->
+      M#monotone{send_mpegts = [C|MPEG]};
+    (#client{proto = udp_mpegts} = C, #monotone{send_mpegts = MPEG} = M) ->
+      M#monotone{send_mpegts = [C|MPEG]};
+    (#client{proto = chunked_mpegts} = C, #monotone{send_mpegts = MPEG} = M) ->
+      M#monotone{send_mpegts = [C|MPEG]};
     (#client{proto = Proto} = _C, #monotone{} = M) ->
       lager:info("Proto ~p is not supported yet", [Proto]),
       M
@@ -264,7 +268,7 @@ deliver_frame(#video_frame{flavor = keyframe, dts = DTS} = Frame, #monotone{wait
   % ?D({start_clients,W}),
   deliver_frame(Frame, Monotone1#monotone{waiting = []});
 
-deliver_frame(#video_frame{} = Frame, #monotone{raw  = S, rtmp = RTMP, tcp_mpegts = TCP,stream = Stream, mpegts = Mpegts1, media_info = MI} = M) ->
+deliver_frame(#video_frame{} = Frame, #monotone{raw  = S, rtmp = RTMP, send_mpegts = TCP,stream = Stream, mpegts = Mpegts1, media_info = MI} = M) ->
   % ?debugFmt("deliver ~p ~p to ~p", [M#monotone.name, round(Frame#video_frame.dts), S]),
   Frame2 = Frame#video_frame{stream_id = Stream},
   [Pid ! Frame2 || #client{pid = Pid} <- S],
@@ -282,13 +286,18 @@ send_mpegts(_MI, _Frame, Mpegts, []) ->
 
 send_mpegts(MI, Frame, undefined, TCP) ->
   Mpegts1_ = mpegts:init([{resync_on_keyframe,true}]),
-  {Mpegts2_, Data1} = mpegts:encode(Mpegts1_, MI),
-  [(catch port_command(Socket, Data1, [nosuspend])) || #client{socket = Socket} <- TCP],
+  Mpegts2_ = send_mpegts(MI, MI, Mpegts1_, TCP),
   send_mpegts(MI, Frame, Mpegts2_, TCP);
 
 send_mpegts(_MI, Frame, Mpegts1, TCP) ->
   {Mpegts3_, Data2} = mpegts:encode(Mpegts1, Frame),
-  [(catch port_command(Socket, Data2, [nosuspend])) || #client{socket = Socket} <- TCP],
+  case iolist_size(Data2) > 0 of
+    true ->
+    [(catch port_command(Socket, Data2, [nosuspend])) || #client{socket = Socket, proto = tcp_mpegts} <- TCP],
+    Chunk = [io_lib:format("~.16. B\r\n", [iolist_size(Data2)]),Data2,"\r\n"],
+    [(catch port_command(Socket, Chunk, [nosuspend])) || #client{socket = Socket, proto = chunked_mpegts} <- TCP],
+    ok;
+  false -> ok end,
   Mpegts3_.
 
 

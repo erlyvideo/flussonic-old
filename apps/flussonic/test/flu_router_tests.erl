@@ -83,7 +83,8 @@ media_request_test_() ->
 
 routes() ->
   Config = [
-     {stream, "ort", "url1"}
+    {segments_auth,false}
+    ,{stream, "ort", "url1"}
     ,{stream, "ort/good", "url11"}
     ,{stream, "ort-rec", "url2", [{dvr,"dvr2:/storage"}]}
     ,{live, "clients/15"}
@@ -238,6 +239,101 @@ route_test_() ->
 
 
   ].
+
+
+
+  % Req = cowboy_req:new(fake_sock, dvr_fake_tcp, <<"GET">>, path, query_, fragment,
+  %   version, headers, host, port, buffer, false, undefined, undefined),
+
+% 1. test with sessions false that no cookie is created
+% 2. test with sessions true that no cookie is created if x-playback
+% 3. test with sessions true with token that cookie is created
+% 4. test with sessions true with token with wrong cookie that cookie is overwritten
+% 5. test with sessions true without token that cookie is created
+% 6. test with sessions true with cookie that cookie is not recreated
+% 7. test it with referer session checking
+
+
+c(Config) ->
+  {ok, Compiled} = flu_config:parse_config(Config, undefined),
+  [{router,flu_router:compile(Compiled)}].
+
+authenticate_test_() ->
+  {foreach, 
+  flu_test:setup_(),
+  flu_test:teardown_(),
+  flu_test:tests(?MODULE)}.
+
+test_sess_false_no_cookie() ->
+  {ok, Req, _Env} = flu_router:execute(
+    flu_test:req("http://localhost:5671/vod/bunny.mp4/manifest.f4m"),
+    c([{file, "vod", "../../../priv", [{sessions, false}]}])
+  ),
+  Headers = cowboy_req:get(resp_headers, Req),
+  ?assertEqual(undefined, proplists:get_value(<<"set-cookie">>, Headers)),
+  ok.
+
+
+test_sess_true_has_playback() ->
+  {ok, Req, _Env} = flu_router:execute(
+    flu_test:req("http://localhost:5671/vod/bunny.mp4/manifest.f4m", [{<<"x-playback-session-id">>,<<"3099F04D-B9CA-444F-ACD2-BED3C6439D07">>}], get),
+    c([{file, "vod", "../../../priv", [{sessions, true}]}])
+  ),
+  Headers = cowboy_req:get(resp_headers, Req),
+  ?assertEqual(undefined, proplists:get_value(<<"set-cookie">>, Headers)),
+  ok.
+
+
+test_sess_and_token_create_cookie() ->
+  {ok, Req, _Env} = flu_router:execute(
+    flu_test:req("http://localhost:5671/vod/bunny.mp4/manifest.f4m?token=123"),
+    c([{file, "vod", "../../../priv", [{sessions, true}]}])
+  ),
+  Headers = cowboy_req:get(resp_headers, Req),
+  ?assertMatch(<<"flusession=123", _/binary>>, iolist_to_binary(proplists:get_value(<<"set-cookie">>, Headers))),
+  ok.
+
+
+test_sess_and_token_and_cookie_no_overwrite() ->
+  {ok, Req, _Env} = flu_router:execute(
+    flu_test:req("http://localhost:5671/vod/bunny.mp4/manifest.f4m?token=123", [{<<"cookie">>,<<"flusession=123">>}], get),
+    c([{file, "vod", "../../../priv", [{sessions, true}]}])
+  ),
+  Headers = cowboy_req:get(resp_headers, Req),
+  ?assertEqual(undefined, proplists:get_value(<<"set-cookie">>, Headers)),
+  ok.
+
+
+test_sess_and_token_overwrite_wrong_cookie() ->
+  {ok, Req, _Env} = flu_router:execute(
+    flu_test:req("http://localhost:5671/vod/bunny.mp4/manifest.f4m?token=123", [{<<"cookie">>,<<"flusession=AAAA">>}], get),
+    c([{file, "vod", "../../../priv", [{sessions, true}]}])
+  ),
+  Headers = cowboy_req:get(resp_headers, Req),
+  ?assertMatch(<<"flusession=123", _/binary>>, iolist_to_binary(proplists:get_value(<<"set-cookie">>, Headers))),
+  ok.
+
+
+
+
+
+test_sess_create_uuid_token() ->
+  {ok, Req, _Env} = flu_router:execute(
+    flu_test:req("http://localhost:5671/vod/bunny.mp4/manifest.f4m"),
+    c([{file, "vod", "../../../priv", [{sessions, true}]}])
+  ),
+  Headers = cowboy_req:get(resp_headers, Req),
+  ?assertMatch(<<"flusession=", _Token:36/binary, ";", _/binary>>, iolist_to_binary(proplists:get_value(<<"set-cookie">>, Headers))),
+  ok.
+
+test_sess_no_overwrite_good_cookie() ->
+  {ok, Req, _Env} = flu_router:execute(
+    flu_test:req("http://localhost:5671/vod/bunny.mp4/manifest.f4m", [{<<"cookie">>,<<"flusession=AAAA">>}], get),
+    c([{file, "vod", "../../../priv", [{sessions, true}]}])
+  ),
+  Headers = cowboy_req:get(resp_headers, Req),
+  ?assertEqual(undefined, proplists:get_value(<<"set-cookie">>, Headers)),
+  ok.
 
 
 

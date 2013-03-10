@@ -7,31 +7,10 @@
 
 
 hds_packetizer_test_() ->
-  TestFunctions = [F || {F,0} <- ?MODULE:module_info(exports),
-    lists:prefix("test_", atom_to_list(F))],
-  {foreach, 
-    fun setup/0,
-    fun teardown/1,
-    [{atom_to_list(F), fun ?MODULE:F/0} || F <- TestFunctions]
-  }.
-
-
-setup() ->
-  Apps = [crypto, ranch, cowboy, public_key,ssl, lhttpc, gen_tracker, flussonic],
-  [ok = application:start(App) || App <- Apps],
-  gen_tracker_sup:start_tracker(flu_streams),
-  flu:start_webserver([
-    {http,5555},
-    {prepend_routes,[{<<"/auth">>, fake_auth, [unique_user_id]}]},
-    {stream,<<"stream1">>,<<"passive://">>,[{sessions, "http://127.0.0.1:5555/auth"}]}
-  ]),
-  Apps.
-
-teardown(Apps) ->
-  error_logger:delete_report_handler(error_logger_tty_h),
-  [application:stop(App) || App <- lists:reverse(Apps)],
-  error_logger:add_report_handler(error_logger_tty_h),
-  ok.
+  {foreach, flu_test:setup_(fun() ->
+    flu_test:set_config([{stream,<<"stream1">>,<<"passive://">>,[{sessions, "http://127.0.0.1:5671/auth/token_unique_number"}]}])
+  end), flu_test:teardown_(),
+  flu_test:tests(?MODULE)}.
 
 
 test_init() ->
@@ -91,11 +70,11 @@ test_full_cycle() ->
 
   % Now lets check full HTTP cycle
 
-  {ok, {_,403, _, _}} = http_stream:request_body("http://127.0.0.1:5555/stream1/manifest.f4m", [{keepalive,false},{no_fail,true}]),
-  {ok, {_,200, _, _Manifest}} = http_stream:request_body("http://127.0.0.1:5555/stream1/manifest.f4m?token=123", [{keepalive,false},{no_fail,true}]),
-  {ok, {_,403, _, _}} = http_stream:request_body("http://127.0.0.1:5555/stream1/bootstrap", [{keepalive,false},{no_fail,true}]),
-  {ok, {_,200, _, _Bootstrap}} = http_stream:request_body("http://127.0.0.1:5555/stream1/bootstrap?token=123", [{keepalive,false},{no_fail,true}]),
-  {ok, {_,200, _, _}} = http_stream:request_body("http://127.0.0.1:5555/stream1/hds/0/Seg1-Frag1", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,403, _, _}} = http_stream:request_body("http://127.0.0.1:5670/stream1/manifest.f4m", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,200, _, _Manifest}} = http_stream:request_body("http://127.0.0.1:5670/stream1/manifest.f4m?token=123", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,403, _, _}} = http_stream:request_body("http://127.0.0.1:5670/stream1/bootstrap", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,200, _, _Bootstrap}} = http_stream:request_body("http://127.0.0.1:5670/stream1/bootstrap?token=123", [{keepalive,false},{no_fail,true}]),
+  {ok, {_,200, _, _}} = http_stream:request_body("http://127.0.0.1:5670/stream1/hds/0/Seg1-Frag1?token=123", [{keepalive,false},{no_fail,true}]),
 
 
 

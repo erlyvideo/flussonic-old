@@ -6,6 +6,7 @@
 -export([start_link/0]).
 -export([init/1, handle_info/2, terminate/2]).
 -include("log.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([route/2]).
 
@@ -14,7 +15,8 @@
 
 -record(routes, {
   media = [],
-  prefixes = []
+  prefixes = [],
+  segments_auth
 }).
 
 
@@ -26,32 +28,103 @@ execute(Req, Env) ->
     undefined ->
       {ok, Req1, Env};
     {ok, Routing1} ->
-      Routing2 = authorize(Routing1, Req1),
-      {ok, Req1, [{routing,Routing2}|Env]}
+      {Routing2, Req2} = authorize(Routing1, Req1),
+      {ok, Req2, [{routing,Routing2}|Env]}
   end.
 
-authorize({M,F,A2,Opts} = R, Req) ->
+
+%
+% Схема авторизации выглядит так:
+%
+% 1) проверяем входящий запрос на наличие token в query string
+% 2) если token нет, то проверяем x-playback-id (для айфона)
+% 3) если ничего нет, то генерируем uuid и сразу выставляем его как cookie
+% 4) когда token получен, проверяем есть ли сессия в кеше
+% 5) 
+
+authorize({M,_F,_A,Opts} = R, Req) ->
   Auth = proplists:get_value(auth,Opts),
+  AuthURL = proplists:get_value(sessions,Opts,true),
 
-  case Auth of
-    true ->
-      {name,Name} = lists:keyfind(name,1,Opts),
-      Type = proplists:get_value(type,Opts,<<"media">>),
-      try media_handler:check_sessions(Req, Name, [{type, Type} | Opts]) of
-        {ok, Token} ->
-          A = if
-            M == flu_stream andalso F == hds_manifest andalso Token =/= undefined -> A2 ++ [Token];
-            M == dvr_session andalso F == hds_manifest andalso Token =/= undefined -> A2 ++ [Token];
-            true -> A2
-          end,
-          {M,F,A,Opts}
-      catch
-        throw:{return,Code,Reply} ->
-          {flu_www, reply, [{ok,{Code,[], [Reply,"\n"]}}], []}
-      end;
-    _ ->
-      R
+  {Method, Req1} = cowboy_req:method(Req),
+
+  % We need to make this hack here, because MPEG-TS POST requires other way of authorization
+  if Auth =/= true orelse AuthURL == false orelse (M == mpegts_handler andalso Method == <<"POST">>) ->
+    {R, Req1};
+  true ->
+    check_token_authorization(R, AuthURL, Req1)
   end.
+
+% iPhone sends: {<<"x-playback-session-id">>,<<"3099F04D-B9CA-444F-ACD2-BED3C6439D07">>}
+
+check_token_authorization({M,F,A,Opts}, AuthURL, Req) ->
+  {Type, Token, Req1} = retrieve_token(Req, Opts),
+
+  % {Path,_} = cowboy_req:path(Req),
+  % ?D({Type,Path, Token}),
+
+  {Identity, Options, Req2} = prepare_session_options(Req1, Token, Opts),
+
+  case flu_session:verify(AuthURL, Identity, Options) of
+    {ok, SessionId} ->
+      A1 = if
+        M == flu_stream andalso F == hds_manifest andalso Token =/= undefined andalso Type == token -> A ++ [Token];
+        M == dvr_session andalso F == hds_manifest andalso Token =/= undefined andalso Type == token -> A ++ [Token];
+        true -> A
+      end,
+      {{M,F,A1,[{session_id,SessionId}|Opts]}, Req2};
+    {error, Code, Reply} ->
+      {{flu_www, reply, [{ok,{Code,[], [Reply,"\n"]}}], []}, Req1}
+  end.
+
+
+
+retrieve_token(Req, Opts) ->
+  {name,Name} = lists:keyfind(name,1,Opts),
+  case cowboy_req:qs_val(<<"token">>, Req, undefined) of
+    {undefined, Req1} ->
+      case cowboy_req:header(<<"x-playback-session-id">>, Req1) of
+        {undefined, Req2} ->
+          case cowboy_req:cookie(<<"flusession">>, Req2) of
+            {undefined, Req3} ->
+              Token = uuid:gen(),
+              Req4 = cowboy_req:set_resp_cookie(<<"flusession">>, Token, [{max_age,300},{path, <<"/", Name/binary>>}], Req3),
+              {uuid, Token, Req4};
+            {Token, Req3} ->
+              {cookie, Token, Req3}
+          end;    
+        {Token, Req2} ->
+          {ios, Token, Req2}
+      end;
+    {Token, Req1} ->
+      case cowboy_req:cookie(<<"flusession">>, Req1) of
+        {Token, Req2} ->
+          {token, Token, Req2};
+        {_, Req2} ->
+          Req3 = cowboy_req:set_resp_cookie(<<"flusession">>, Token, [{max_age,300},{path, <<"/", Name/binary>>}], Req2),
+          {token, Token, Req3}
+      end
+  end.
+
+
+
+prepare_session_options(Req, Token, Opts) ->
+  {name,Name} = lists:keyfind(name,1,Opts),
+  {PeerAddr, Req1} = cowboy_req:peer_addr(Req),
+  Ip = list_to_binary(inet_parse:ntoa(PeerAddr)),
+  Identity = [{token,Token},{name,Name},{ip,Ip}],
+
+  {Referer, Req2} = cowboy_req:header(<<"referer">>, Req1),
+
+  Type = proplists:get_value(type, Opts, <<"media">>),
+  Options = [{type,Type}] ++ case Referer of
+    undefined -> [];
+    _ -> [{referer,Referer}]
+  end ++ case proplists:get_value(pid, Opts) of
+    undefined -> [];
+    Pid -> [{pid,Pid}]
+  end,
+  {Identity, Options, Req2}.
 
 
 
@@ -123,7 +196,8 @@ compile(Config) ->
     (_) -> []
   end, Config),
 
-  #routes{media = MediaRequests2, prefixes = Prefixes}.
+  SegmentsAuth = proplists:get_value(segments_auth, Config, true),
+  #routes{media = MediaRequests2, prefixes = Prefixes, segments_auth = SegmentsAuth}.
 
 binarize([]) -> [];
 binarize([{dvr,Root}|Options]) -> [{dvr,to_b(Root)}|binarize(Options)];
@@ -153,14 +227,24 @@ route(Path, undefined) ->
 % dvr:/storage/dvr/ort, rtsp://) и т.п.
 
 
-route(Path, #routes{media = Media, prefixes = Prefixes}) ->
+route(Path, #routes{media = Media, prefixes = Prefixes, segments_auth = SegmentsAuth}) ->
   case route_media_request(Path, Media) of
     undefined ->
       undefined;
     {_, _} = Routing ->
       case handler(Prefixes, Routing) of
         undefined -> undefined;
-        MFA -> {ok, MFA}
+        {M,F,A,Opts} ->
+          Opts1 = case SegmentsAuth of
+            true -> 
+              case proplists:get_value(auth,Opts) of
+                true -> Opts;
+                _ -> [auth|Opts]
+              end;
+            _ ->
+              Opts
+          end,
+          {ok, {M,F,A,Opts1}}
       end
   end.
 

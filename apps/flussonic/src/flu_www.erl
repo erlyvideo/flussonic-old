@@ -54,7 +54,7 @@ handle_flu_action(M,F,A1,Opts,Req) ->
   Reply3 = normalize_short_replies(Reply2, Opts, Req),
 
   % Calculate stats
-  log_request(Req, Reply3, timer:now_diff(T2,T1) div 1000),
+  log_request(Req, Reply3, timer:now_diff(T2,T1) div 1000, proplists:get_value(session_id,Opts)),
 
   case Reply3 of
     {ok, {Code, Headers, Body}} when is_number(Code) ->
@@ -91,13 +91,14 @@ normalize_short_replies({ok,{_,_,_}} = Reply, _,_) ->
   Reply.
 
 
-log_request(Req, Reply, Time) ->
+log_request(Req, Reply, Time, SessionId) ->
   {Path, _} = cowboy_req:path(Req),
   {Code, Size} = case Reply of
     {ok, {Code_, _, Body_}} -> {Code_, iolist_size(Body_)};
     _ -> {0, 0}
   end,
-  lager:debug([{request,web},{duration,Time}],"~3..0B ~5.. B ~B ~s", [Code,Time, Size, Path]),
+  lager:debug([{request,web},{duration,Time}],"~3..0B ~5.. B ~B ~s ~p", [Code,Time, Size, Path, SessionId]),
+  flu_session:add_bytes(SessionId, Size),
   ok.
 
 

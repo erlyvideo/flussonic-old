@@ -122,13 +122,9 @@ parse_playlist([_|Playlist], Acc) ->
 
 -define(TIMEOUT, 10000).
 
-fetch(URL, undefined) ->
-  {ok, Pid} = lhttpc:connect_client(URL, [{connect_timeout,5000}]),
-  fetch(URL, Pid);
-
-fetch(URL, Pid) ->
-  {ok, {{200, _}, _Headers, Body}} = lhttpc:request_client(Pid, URL, "GET", [], 15000),
-  {ok, Pid, Body}.
+fetch(URL, _) ->
+  {ok, {{200, _}, _Headers, Body}} = lhttpc:request(URL, "GET", [], 15000),
+  {ok, undefined, Body}.
 
 
 

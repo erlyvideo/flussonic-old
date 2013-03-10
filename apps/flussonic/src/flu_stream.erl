@@ -96,24 +96,27 @@ add_ts_delay(Attrs) ->
 
 
 send_frame(Stream, #video_frame{} = Frame) when is_pid(Stream) ->
-  {message_queue_len, MsgCount} = erlang:process_info(Stream, message_queue_len),
-  if MsgCount > 40 ->
-    timer:sleep(1000),
-    {error, busy};
-  true ->
-    try gen_server:call(Stream, Frame)
-    catch
-      exit:{timeout, _} ->
-        Dict = case process_info(Stream, dictionary) of
-          {dictionary, Dict_} -> Dict_;
-          undefined -> []
-        end,
-        Name = proplists:get_value(name, Dict, <<"dead stream">>),
-        Status = proplists:get_value(status, Dict),
-        lager:error("failed to send frame to ~s (~p) in status ~p, ~p", [Name, Stream, Status, erlang:get_stacktrace()]),
-        % [io:format("~10.. s: ~p~n", [K,V]) || {K,V} <- process_info(Stream)]
-        {error, timeout}
-    end
+  
+  case erlang:process_info(Stream, message_queue_len) of
+    {message_queue_len, MsgCount} when MsgCount > 40 ->
+      timer:sleep(500),
+      {error, busy};
+    undefined ->
+      {error, nostream};
+    _ ->
+      try gen_server:call(Stream, Frame)
+      catch
+        exit:{timeout, _} ->
+          Dict = case process_info(Stream, dictionary) of
+            {dictionary, Dict_} -> Dict_;
+            undefined -> []
+          end,
+          Name = proplists:get_value(name, Dict, <<"dead stream">>),
+          Status = proplists:get_value(status, Dict),
+          lager:error("failed to send frame to ~s (~p) in status ~p, ~p", [Name, Stream, Status, erlang:get_stacktrace()]),
+          % [io:format("~10.. s: ~p~n", [K,V]) || {K,V} <- process_info(Stream)]
+          {error, timeout}
+      end
   end.
 
 
@@ -288,7 +291,7 @@ start_link(Name,Options) ->
 
 init([Name,Options1]) ->
   put(status, booting),
-  Options = lists:ukeymerge(1, lists:ukeysort(1,Options1), [{name,Name}]),
+  Options = lists:umerge(lists:usort(Options1), [{name,Name}]),
   erlang:put(name, Name),
   Source = proplists:get_value(source, Options1),
   if is_pid(Source) -> erlang:monitor(process, Source); true -> ok end,
@@ -366,7 +369,7 @@ shutdown_packetizer({Module,State}) ->
   Module:terminate(normal, State).
   
 
-configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, options = Options, media_info = MediaInfo} = Stream) ->
+configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, options = Options, media_info = MediaInfo} = Stream) ->
   put(status, {configure,hls}),
   HLS = case proplists:get_value(hls, Options) of
     false -> shutdown_packetizer(HLS1), {blank_packetizer, undefined};
@@ -384,14 +387,32 @@ configure_packetizers(#stream{hls = HLS1, hds = HDS1, udp = UDP1, rtmp = RTMP1, 
     Dest when is_list(Dest) orelse is_binary(Dest) -> init_if_required(UDP1, udp_packetizer, Options);
     OtherUDP -> lager:error("Invalid {udp,~p} option, need {udp,\"udp://239.0.0.1:5000\"}", [OtherUDP]), {blank_packetizer, undefined}
   end,
-  put(status, {configure,rtmp}),
-  RTMP = case proplists:get_value(rtmp, Options) of
-    undefined -> shutdown_packetizer(RTMP1), {blank_packetizer, undefined};
-    _ -> init_if_required(RTMP1, rtmp_packerizer, Options)
-  end,
   put(status, {pass,media_info}),
-  Stream1 = pass_message(MediaInfo, Stream#stream{hls = HLS, hds = HDS, udp = UDP, rtmp = RTMP}),
-  Stream1.
+  Stream1 = pass_message(MediaInfo, Stream#stream{hls = HLS, hds = HDS, udp = UDP}),
+  Stream2 = configure_push(Stream1),
+  Stream2.
+
+configure_push(#stream{push = Push1, options = Options, name = Name} = Stream) ->
+  put(status, {configure,push}),
+  NewPush = [iolist_to_binary([URL, "/", Name]) || {push,URL} <- Options],
+  
+  LeavingOld = lists:flatmap(fun(URL) ->
+    case lists:member(URL, NewPush) of
+      true -> [URL];
+      false -> flussonic_sup:stop_stream_helper(Name, {push,URL}),[]
+    end
+  end, Push1),
+
+  StartingNew = lists:flatmap(fun(URL) ->
+    case lists:member(URL, LeavingOld) of
+      true -> [];
+      false -> flussonic_sup:start_stream_helper(Name, {push, URL}, {flu_pusher, start_link, [Name,URL]}), [URL]
+    end
+  end, NewPush),
+
+  Push2 = StartingNew ++ LeavingOld,
+  Stream#stream{push = Push2}.
+
 
 
 

@@ -49,13 +49,6 @@ request(Req, Name, Options) ->
   {Method, Req1} = cowboy_req:method(Req),
   {Peer, Req2} = cowboy_req:peer_addr(Req1),
 
-  case flu_stream:find(Name) of
-    {ok, _Pid} -> 
-      ok;
-    _ ->
-      flu_stream:autostart(Name, Options)
-  end,
-
   put(name, {mpegts_play,Name,Peer}),
 
   try handle0(Req2, #mpegts{name = Name, method = Method, options = Options}) of
@@ -77,7 +70,7 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
   OurName = iolist_to_binary(io_lib:format("mpegts_client(~s)", [Name])),
   erlang:put(name, OurName),
 
-  {ok, Pid} = flu_stream:find(Name),
+  {ok, Pid} = flu_stream:autostart(Name, Options),
   ?D({mpegts_play,Name}),
   inet:setopts(Socket, [{send_timeout,10000},{sndbuf,1200000}]),
   Transport:send(Socket, "HTTP/1.0 200 OK\r\nContent-Type: video/mpeg2\r\nConnection: close\r\n\r\n"),
@@ -91,6 +84,7 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
 
 handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>}) ->
   proplists:get_value(publish_enabled, Options) == true orelse throw({return,403,<<"publish not enabled">>}),
+
 
   case proplists:get_value(password, Options) of
     undefined -> ok;
@@ -109,7 +103,7 @@ handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>})
 
   {ok, Req2} = cowboy_req:reply(200, [], <<>>, Req1),
 
-  {ok, Recorder} = flu_stream:find(StreamName),
+  {ok, Recorder} = flu_stream:autostart(StreamName, Options),
   flu_stream:set_source(Recorder, self()),
   {ok, Req3} = ?MODULE:read_loop(Recorder, mpegts_decoder:init(), Req2),
   flu_stream:set_source(Recorder, undefined),

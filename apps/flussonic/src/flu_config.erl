@@ -93,8 +93,7 @@ load_includes(Env, ConfigPath) ->
 load_includes([{include, Wildcard}|Env], Root, Acc) ->
   Files = filelib:wildcard(Wildcard, Root),
   Env1 = lists:foldr(fun(File, Env_) ->
-    {ok, SubEnv, SubPath} = file:path_consult([Root], File),
-    ?D({include,SubPath}),
+    {ok, SubEnv, _SubPath} = file:path_consult([Root], File),
     SubEnv ++ Env_
   end, Env, Files),
   load_includes(Env1, Root, Acc);
@@ -125,8 +124,8 @@ expand_entry({mpegts, Prefix},GlobalOptions) -> {mpegts, to_b(Prefix), merge([{c
 expand_entry({mpegts, Prefix, Options},GlobalOptions) -> {mpegts, to_b(Prefix), merge(Options,[{clients_timeout,false}|GlobalOptions])};
 expand_entry({webm, Prefix},GlobalOptions) -> {webm, to_b(Prefix), merge([{clients_timeout,false}],GlobalOptions)};
 expand_entry({webm, Prefix, Options},GlobalOptions) -> {webm, to_b(Prefix), merge(Options,[{clients_timeout,false}|GlobalOptions])};
-expand_entry({live, Prefix},GlobalOptions) -> {live, to_b(Prefix), GlobalOptions};
-expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merge(Options,GlobalOptions)};
+expand_entry({live, Prefix},GlobalOptions) -> {live, to_b(Prefix), merge(GlobalOptions, [{clients_timeout,false}])};
+expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merge(Options,GlobalOptions, [{clients_timeout,false}])};
 expand_entry({file, Prefix, Root},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), GlobalOptions};
 expand_entry({file, Prefix, Root, Options},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), merge(Options,GlobalOptions)};
 expand_entry(api, GlobalOptions) -> {api, GlobalOptions};
@@ -136,7 +135,7 @@ expand_entry({plugin, Plugin},_GlobalOptions) -> {plugin, Plugin, []};
 expand_entry(Entry,_GlobalOptions) -> Entry.
 
 merge(Opts1, Opts2) ->
-  lists:ukeymerge(1, lists:ukeysort(1, Opts1), lists:ukeysort(1,Opts2)).
+  lists:umerge(lists:usort(Opts1), lists:usort(Opts2)).
 
 merge(Opts1, Opts2, Opts3) ->
   merge(Opts1, merge(Opts2, Opts3)).

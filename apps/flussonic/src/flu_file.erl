@@ -32,7 +32,7 @@
 
 
 -export([get/2]).
--export([list/0]).
+-export([list/0, json_list/0]).
 -export([read_gop/4, read_gop/3, read_gop/2, keyframes/1]).
 
 -export([init_reader/2, reader_loop/1, read_request/5]).
@@ -65,9 +65,21 @@ list() ->
   [begin
     Pid = proplists:get_value(pid,Info),
     {dictionary,Dict} = erlang:process_info(Pid, dictionary),
-    {Name,Pid,Dict}
+    Workers = proplists:get_value(worker_count,Dict,0),
+    Clients = proplists:get_value(client_count,Info,0),
+    Meta = [
+      {worker_count,Workers},
+      {client_count,Clients},
+      {pid,Pid}
+    ],
+    {Name,Meta}
   end || {Name,Info} <- gen_tracker:list(flu_files)].
 
+json_list() ->
+  Files = [begin
+    [{name,Name}] ++ [{K,V} || {K,V} <- Info, lists:member(K,[worker_count,client_count])]
+  end || {Name,Info} <- list()],
+  [{files,Files},{event,'file.list'}].
 
 
 autostart(File, _) when is_pid(File) ->
@@ -234,6 +246,7 @@ init([Name, Options]) ->
 
   
   Timeout = proplists:get_value(timeout, Options, 60000),
+  gen_tracker:setattr(flu_files, Name, [{client_count,0}]),
 
   case proc_lib:start(?MODULE, init_reader, [self(), URL]) of
     {ok, Pid, MediaInfo, Keyframes} ->
@@ -434,6 +447,10 @@ handle_info(Info, State) ->
 schedule_read_request({From, Format, Fragment, Tracks}, #state{timeout = Timeout, readers = [Pid|Readers], jobs = Jobs} = State) ->
   read_request(Pid, From, Format, Fragment, Tracks),
   {noreply, State#state{readers = Readers, jobs = [{Pid,From}|Jobs]}, Timeout};
+
+% We should refuse to start more than 4 spare workers simultaneously
+schedule_read_request(_Request, #state{starting_workers = Starting, timeout = Timeout} = State) when Starting > 4 ->
+  {reply, {error, busy}, State, Timeout};
 
 schedule_read_request(_Request, #state{jobs = Jobs, readers = [], disk_path = URL, timeout = Timeout, 
     starting_workers = Starting} = State) when length(Jobs) + Starting < 70 -> 

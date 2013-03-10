@@ -4,40 +4,24 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
-http_mock_url() -> "http://127.0.0.1:6070/auth".
+http_mock_url() -> "http://127.0.0.1:5671/auth/check".
 
 backend_test_() ->
-  {foreach, fun() ->
-    fake_auth:start_http(),
-    meck:new([fake_auth, auth_http_backend], [{passthrough,true}]),
-    ok
-  end, fun(_) ->
-    error_logger:delete_report_handler(error_logger_tty_h),
-    application:stop(cowboy),
-    application:stop(ranch),
-    application:stop(lhttpc),
-    application:stop(lhttpc),
-    application:stop(ssl),
-    application:stop(public_key),
-    meck:unload([fake_auth, auth_http_backend]),
-    error_logger:add_report_handler(error_logger_tty_h),
-    ok
-  end,
-  [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
-    lists:prefix("test_", atom_to_list(F))]
-  }.
+  {foreach, 
+  flu_test:setup_([{meck, [fake_auth, auth_http_backend]}]),
+  flu_test:teardown_(),
+  flu_test:tests(?MODULE)}.
 
 
 
 test_simple() ->
-  meck:expect(fake_auth, reply, fun(_) -> {200,[], <<"">>} end),
   ?assertEqual({ok, [{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>}]},
-    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify("http://127.0.0.1:5671/auth/normal", 
+      [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 test_with_auth_duration() ->
-  meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-AuthDuration">>, <<"600">>}], <<"">>} end),
   ?assertEqual({ok, [{auth_time,600000},{delete_time,600000},{referer,<<"http://ya.ru/">>}]},
-    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify("http://127.0.0.1:5671/auth/600", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 % test_backend_request3() ->
 %   meck:expect(fake_auth, reply, fun() -> {302,[{<<"X-Name">>, <<"cam1">>}], <<"">>} end),
@@ -45,13 +29,12 @@ test_with_auth_duration() ->
 %     auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_403_response() ->
-  meck:expect(fake_auth, reply, fun(_) -> {403,[], <<"">>} end),
   ?assertEqual({error, [{auth_time,30000},{code,403},{delete_time,30000}]},
-    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
+    auth_http_backend:verify("http://127.0.0.1:5671/auth/deny", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_500_response() ->
   ?assertEqual(undefined,
-    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
+    auth_http_backend:verify("http://127.0.0.1:5671/auth/500", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], []) ).
 
 test_backend_is_down() ->
   ?assertEqual(undefined,
@@ -59,30 +42,28 @@ test_backend_is_down() ->
 
 
 test_with_user_id_and_duration() ->
-  meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-AuthDuration">>, <<"600">>},{<<"X-UserId">>,<<"15">>}], <<"">>} end),
   ?assertEqual({ok, [{auth_time,600000},{delete_time,600000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
-    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify("http://127.0.0.1:5671/auth/user15_600", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 test_with_user_id() ->
-  meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-UserId">>,<<"15">>}], <<"">>} end),
   ?assertEqual({ok, [{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>},{user_id,15}]},
-    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify("http://127.0.0.1:5671/auth/user15", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 
 
 test_backend_unique_uid() ->
-  meck:expect(fake_auth, reply, fun(_) -> {200,[{<<"X-UserId">>,<<"15">>},{<<"X-Unique">>, <<"true">>}], <<"">>} end),
   ?assertEqual({ok, [{auth_time,30000},{delete_time,30000},{referer,<<"http://ya.ru/">>},{unique,true},{user_id,15}]},
-    auth_http_backend:verify(http_mock_url(), [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
+    auth_http_backend:verify("http://127.0.0.1:5671/auth/user15_unique", [{ip,<<"127.0.0.1">>},{token,<<"123">>},{name,<<"cam0">>}], [{referer,<<"http://ya.ru/">>}]) ).
 
 
 test_backend_arguments() ->
   Self = self(),
-  meck:expect(fake_auth, reply, fun(Req) ->
+  meck:expect(fake_auth, handle, fun(Req, _) ->
     {QsVals, _} = cowboy_req:qs_vals(Req),
     % ?debugFmt("qs_vals: ~p", [QsVals]),
     Self ! {backend_request, QsVals},
-    {200,[{<<"X-UserId">>,<<"15">>},{<<"X-AuthDuration">>, <<"5">>}], <<"">>} 
+    {ok, R1} = cowboy_req:reply(200, [{<<"X-UserId">>,<<"15">>},{<<"X-AuthDuration">>, <<"5">>}], <<"">>, Req),
+    {ok, R1, undefined}
   end),
   auth_http_backend:verify(http_mock_url(), [{ip,<<"94.95.96.97">>},{token,<<"123">>},{name,<<"bunny.mp4">>}],
   [{referer,<<"http://ya.ru/">>}]),
@@ -106,7 +87,7 @@ test_url_prepare() ->
     {error, rejected}
   end),
 
-  auth_http_backend:verify(http_mock_url(), [{ip,<<"94.95.96.97">>},{token,<<"123">>},
+  auth_http_backend:verify("http://127.0.0.1:5671/auth/check", [{ip,<<"94.95.96.97">>},{token,<<"123">>},
     {name,<<"bunny.mp4">>}], [{total_users,0},{referer,<<"http://ya.ru/?token=456&name=lalala">>}]),
 
   URL = receive
@@ -117,7 +98,7 @@ test_url_prepare() ->
 
   {ok, {http, "", Host, _, Path, "?" ++ Qs}} = http_uri:parse(URL),
   ?assertEqual("127.0.0.1", Host),
-  ?assertEqual("/auth", Path),
+  ?assertEqual("/auth/check", Path),
   Query = httpd:parse_query(Qs),
   ?assertEqual("94.95.96.97", proplists:get_value("ip", Query)),
   ?assertEqual("123", proplists:get_value("token", Query)),

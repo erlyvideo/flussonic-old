@@ -39,13 +39,15 @@
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
 
--export([reload/0, sendlogs/0, mainpage/0, streams/0, sessions/1, server/0, pulse/0]).
+-export([reload/0, sendlogs/0, mainpage/0, streams/0, files/0, sessions/1, server/0, pulse/0]).
 -export([stream_restart/1, health/1, media_info/1, dvr_status/4]).
 
 -export([routes/1]).
 
 routes(Options) ->
-  [{"/erlyvideo/api/events", api_handler, [{mode,events}|Options]}].
+  [
+  {"/", api_handler, [{mode,mainpage}|Options]},
+  {"/erlyvideo/api/events", api_handler, [{mode,events}|Options]}].
 
 
 compile(Config) ->
@@ -70,6 +72,7 @@ auth_level(mainpage) -> http_auth;
 auth_level(sendlogs) -> http_auth;
 auth_level(reload) -> admin;
 auth_level(streams) -> http_auth;
+auth_level(files) -> http_auth;
 auth_level(sessions) -> http_auth;
 auth_level(server) -> http_auth;
 auth_level(pulse) -> http_auth;
@@ -81,7 +84,7 @@ auth_level(dvr_status) -> http_auth.
 
 
 
-route(<<"/">>, Opts) -> api(<<"mainpage">>, Opts);
+% route(<<"/">>, Opts) -> api(<<"mainpage">>, Opts);
 route(<<"/admin">>, Opts) -> api(<<"mainpage">>, Opts);
 route(<<"/erlyvideo/api/", Api/binary>>, Opts) -> api(Api, Opts);
 route(_, _) -> undefined.
@@ -101,6 +104,8 @@ api0(<<"reload">>, Opts) ->
   {api_handler, reload, [], Opts};
 api0(<<"streams">>, Opts) ->
   {api_handler, streams, [], Opts};
+api0(<<"files">>, Opts) ->
+  {api_handler, files, [], Opts};
 api0(<<"sessions">>, Opts) ->
   {api_handler, sessions, [req], Opts};
 api0(<<"server">>, Opts) ->
@@ -148,6 +153,11 @@ init({_Any,http}, Req, Opts) ->
       Mode = proplists:get_value(mode, Opts),
       {ok, Req1, {Mode,Opts}}
   end.
+
+handle(Req, {mainpage, _}) ->
+  {ok, Bin} = mainpage(),
+  {ok, R1} = cowboy_req:reply(200, [], Bin, Req),
+  {ok, R1, undefined};
 
 handle(Req, {events, _Opts}) ->
   {Accept, _Req1} = cowboy_req:header(<<"accept">>, Req),
@@ -204,6 +214,9 @@ pulse() ->
 
 streams() ->
   {json, flu_stream:json_list()}.
+
+files() ->
+  {json, flu_file:json_list()}.
 
 
 stream_restart(Name) ->
@@ -287,6 +300,10 @@ websocket_handle({text, <<"pulse">>}, Req, State) ->
 
 websocket_handle({text, <<"streams">>}, Req, State) ->
   JSON = iolist_to_binary(mochijson2:encode(flu_stream:json_list())),
+  {reply, {text,JSON}, Req, State};
+
+websocket_handle({text, <<"files">>}, Req, State) ->
+  JSON = iolist_to_binary(mochijson2:encode(flu_file:json_list())),
   {reply, {text,JSON}, Req, State};
 
 websocket_handle({text, <<"server">>}, Req, State) ->

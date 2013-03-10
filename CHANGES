@@ -1,3 +1,19 @@
+flussonic (3.69.6)
+
+  * linux traffic collector handles opened fd
+  * protect pulse log collecting with catch
+  * added new cookie-based authorization
+  * added autogenerating of auth tokens
+  * segments are now served with authorization
+  * fixed MPEG-TS publishing. Possible on live urls also
+  * sessions are true by default
+  * sessions are accounting byte traffic now
+  * opened files accounting
+  * show opened files in admin panel
+  * added push option to stream
+  * live streams are with {clients_timeout,false} by default
+  * bundled working GrindPlayer
+
 flussonic (3.69.5)
 
   * fixed HLS ram segments #156

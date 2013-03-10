@@ -12,6 +12,19 @@ expand_entry_test_() ->
   ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{dvr,"root"},{static,false}]}]},
       flu_config:parse_config([{rewrite, "stream1", "fake://stream1", [{dvr,"root"}]}], undefined)),
 
+
+  ?_assertEqual({ok, [
+    {stream, <<"stream1">>, <<"fake://stream1">>, [{dvr,"root"},{sessions,false},{static,false}]},
+    {sessions,false},
+    {stream, <<"stream2">>, <<"fake://stream1">>, [{dvr,"root"},{sessions,false},{static,false}]}
+  ]},
+  flu_config:parse_config([
+    {rewrite, "stream1", "fake://stream1", [{dvr,"root"}]},
+    {sessions,false},
+    {rewrite, "stream2", "fake://stream1", [{dvr,"root"}]}
+  ], undefined)),
+
+
   ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,true}]}]},
       flu_config:parse_config([{stream, "stream1", "fake://stream1"}], undefined)),
   ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{dvr,"root"},{static,true}]}]},
@@ -22,10 +35,14 @@ expand_entry_test_() ->
   ?_assertEqual({ok, [{mpegts, <<"stream">>, [{clients_timeout,false},{sessions, "http://host"}]}]},
       flu_config:parse_config([{mpegts, "stream", [{sessions, "http://host"}]}], undefined)),
 
-  ?_assertEqual({ok, [{live, <<"live">>, []}]},
+  ?_assertEqual({ok, [{live, <<"live">>, [{clients_timeout,false}]}]},
       flu_config:parse_config([{live, "live"}], undefined)),
-  ?_assertEqual({ok, [{live, <<"live">>, [{sessions, "http://host"}]}]},
+  ?_assertEqual({ok, [{live, <<"live">>, [{clients_timeout,false},{sessions, "http://host"}]}]},
       flu_config:parse_config([{live, "live", [{sessions, "http://host"}]}], undefined)),
+
+  ?_assertEqual({ok, [{live, <<"live">>, [publish_enabled, {clients_timeout,false}, {push, "http://a"},{push, "http://b"}] }]},
+    flu_config:parse_config([{live, "live", [{push, "http://b"},{push,"http://a"},publish_enabled]}], undefined)),
+
 
   ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, []}]}, 
       flu_config:parse_config([{file, "vod", "/movies"}], undefined)),
@@ -56,7 +73,7 @@ expand_entry_test_() ->
 global_sessions_test_() ->
   [?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{sessions,"http://ya.ru"},{static,true}]},{sessions,"http://ya.ru"}]},
       flu_config:parse_config([{stream, "stream1", "fake://stream1"},{sessions, "http://ya.ru"}], undefined)),
-  ?_assertEqual({ok, [{live, <<"live">>, [{sessions, "http://ya.ru"}]}, {sessions,"http://ya.ru"}]},
+  ?_assertEqual({ok, [{live, <<"live">>, [{clients_timeout,false},{sessions, "http://ya.ru"}]}, {sessions,"http://ya.ru"}]},
       flu_config:parse_config([{live, "live"}, {sessions, "http://ya.ru"}], undefined)),
   ?_assertEqual({ok, [{file, <<"vod">>, <<"/movies">>, [{sessions, "http://ya.ru/"}]}, {sessions,"http://ya.ru/"}]}, 
       flu_config:parse_config([{file, "vod", "/movies"}, {sessions, "http://ya.ru/"}], undefined))

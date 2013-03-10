@@ -22,6 +22,7 @@ start_link() ->
 
 -record(traffic, {
   os,
+  f,
   stats,
   start_at,
   interval,
@@ -106,12 +107,13 @@ init([]) ->
     "Linux\n" -> linux;
     _ -> bsd
   end,
+  F = open(OS),
   StartAt = os:timestamp(),
   Interval = 1000,
   Minute = erlang:send_after(60000, self(), flush_minute),
   {N, Delay} = current_second(),
   Second = erlang:send_after(Delay, self(), collect),
-  {ok, #traffic{os = OS, stats = [], start_at = StartAt, n = N, interval = Interval, minute_timer = Minute, second_timer = Second}}.
+  {ok, #traffic{os = OS, f = F, stats = [], start_at = StartAt, n = N, interval = Interval, minute_timer = Minute, second_timer = Second}}.
 
 %%-------------------------------------------------------------------------
 %% @spec (Request, From, State) -> {reply, Reply, State}          |
@@ -152,9 +154,9 @@ handle_cast(_Msg, State) ->
 %% @end
 %% @private
 %%-------------------------------------------------------------------------
-handle_info(collect, #traffic{os = OS, stats = Stats1, second_timer = OldSecond} = Server) ->
+handle_info(collect, #traffic{os = OS, f = F, stats = Stats1, second_timer = OldSecond} = Server) ->
   erlang:cancel_timer(OldSecond),
-  MomentStats = ?MODULE:OS(),
+  MomentStats = read(OS, F),
   {N, Sleep} = current_second(),
 
   Stats2 = lists:foldl(fun({Iface, NewIbytes, NewObytes} = S, Stats_) ->
@@ -226,17 +228,32 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 linux() ->
-  Path = "/proc/net/dev",
-  {ok, F} = file:open(Path, [raw,read]),
-  Content = collect_file(F),
-  file:close(F),
-  linux(Content).
+  F = open(linux),
+  Reply = read(linux, F),
+  close(linux, F),
+  Reply.
+ 
 
-collect_file(F) ->
-  case file:read(F, 1024) of
-    {ok, S} -> S ++ collect_file(F);
-    eof -> []
-  end.
+open(linux) ->
+  Path = "/proc/net/dev",
+  case file:open(Path, [raw,read]) of
+    {ok, F} -> F;
+    {error, _} -> undefined
+  end;
+
+open(bsd) ->
+  undefined.
+
+close(_, undefined) -> ok;
+close(linux, F) -> file:close(F).
+
+read(linux, undefined) -> ok;
+read(linux, F) ->
+  {ok, Bin} = file:pread(F,0,4096),
+  linux(Bin);
+read(bsd, _) ->
+  bsd().
+
 
 parse_linux_headers(Header1, Header2) ->
   [_|Parts] = [list_to_atom(string:to_lower(string:strip(Part))) || Part <- string:tokens(Header1, "|")],

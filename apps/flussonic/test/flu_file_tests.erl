@@ -335,8 +335,20 @@ test_mbr_hls_segment({_,File}) ->
 
 http_file_test_() ->
   Spec = {foreach,
-    fun setup/0,
-    fun teardown/1,
+    flu_test:setup_(fun() ->
+      flu_test:set_config([{file, "http_vod", "http://localhost:5672/"}]),
+      inets:start(),
+      inets:start(httpd,[
+        {server_root,"../test"},
+        {port,5672},
+        {server_name,"test_server"},
+        {document_root,"../../../priv"},
+        {modules,[mod_alias,mod_range, mod_auth, mod_actions, mod_dir, mod_get, mod_head]}
+      ])
+    end),
+    flu_test:teardown_(fun() ->
+      application:stop(inets)
+    end),
     % [{with, [fun ?MODULE:F/1]} || F <- TestFunctions]
     [
       {"test_local_http_file_playlist", fun test_local_http_file_playlist/0},
@@ -352,58 +364,15 @@ http_file_test_() ->
 
 
 
-setup() ->
-  inets:start(),
-  {ok, Httpd} = inets:start(httpd,[
-    {server_root,"../test"},
-    {port,9090},
-    {server_name,"test_server"},
-    {document_root,"../../../priv"},
-    {modules,[mod_alias,mod_range, ?MODULE, mod_auth, mod_actions, mod_dir, mod_get, mod_head]}
-  ]),
-
-  {ok, Apps} = start_flu(),
-  set_config([{file, "http_vod", "http://localhost:9090/"}]),
-  {ok, Httpd, Apps}.
-
-start_flu() ->
-  Apps = [gen_tracker, flussonic, crypto, ranch, cowboy, public_key, ssl, lhttpc, pulse, http_file],
-  [application:start(App) || App <- Apps],
-  gen_tracker_sup:start_tracker(flu_files),
-
-  application:load(lager),
-  application:set_env(lager,error_logger_redirect,false),
-  application:set_env(lager,handlers,[{lager_console_backend,error}]),
-  % application:set_env(lager,error_logger_redirect,true),
-  % lager:start(),
-
-  {ok,Apps}.
-
-set_config(Env) ->
-  {ok, Conf} = flu_config:parse_config(Env,undefined),
-  application:set_env(flussonic, config, Conf),
-  flu:start_webserver([{http,5555}|Conf]),
-  ok.
-
-
-teardown({ok, Httpd, Apps}) ->
-  error_logger:delete_report_handler(error_logger_tty_h),
-  ok = inets:stop(httpd, Httpd),
-  ok = application:stop(inets),
-  [application:stop(App) || App <- lists:reverse(Apps)],
-  application:stop(lager),
-  error_logger:add_report_handler(error_logger_tty_h),
-  ok.
-
 
 test_local_http_file_playlist() ->
-  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hls_playlist(<<"http://localhost:9090/bunny.mp4">>, <<"bunny.mp4">>)),
+  ?assertMatch({ok, Bin} when is_binary(Bin), flu_file:hls_playlist(<<"http://localhost:5672/bunny.mp4">>, <<"bunny.mp4">>)),
   ok.
 
 test_local_http_file_segment() ->
   ?assertMatch({ok, Bin} when is_binary(Bin) orelse is_list(Bin), 
-    flu_file:hls_segment(<<"http://localhost:9090/bunny.mp4">>, <<"bunny.mp4">>, 2)),
-  {ok, Bin_} = flu_file:hls_segment(<<"http://localhost:9090/bunny.mp4">>, <<"bunny.mp4">>, 2),
+    flu_file:hls_segment(<<"http://localhost:5672/bunny.mp4">>, <<"bunny.mp4">>, 2)),
+  {ok, Bin_} = flu_file:hls_segment(<<"http://localhost:5672/bunny.mp4">>, <<"bunny.mp4">>, 2),
   Bin = iolist_to_binary(Bin_),
   {ok, Frames} = mpegts_decoder:decode_file(Bin),
   ?assert(length(Frames) > 10),
@@ -412,7 +381,7 @@ test_local_http_file_segment() ->
 
 
 test_access_http_file() ->
-  Result = http_stream:request_body("http://localhost:5555/http_vod/bunny.mp4/index.m3u8",[{keepalive,false}]),
+  Result = http_stream:request_body("http://localhost:5670/http_vod/bunny.mp4/index.m3u8",[{keepalive,false}]),
   ?assertMatch({ok,{_,200,_, _}}, Result),
   {ok,{_,200,_,Body}} = Result,
   Segments = [Row || <<"hls/segment", _/binary>> = Row <- binary:split(Body, <<"\n">>,[global])],
@@ -461,28 +430,11 @@ flu_file_http_test_() ->
     {error, _} -> []
   end,
   {foreach,
-  fun() ->
-    start_flu(),
-    set_config([{file, "vod", "../../../priv"}]),
-    ok
-  end,
-  fun(_) ->
-    error_logger:delete_report_handler(error_logger_tty_h),
-    ok = application:stop(ranch),
-    ok = application:stop(flussonic),
-    ok = application:stop(cowboy),
-    application:stop(lhttpc),
-    application:stop(ssl),
-    application:stop(lhttpc),
-    application:stop(public_key),
-    application:stop(inets),
-    application:stop(http_file),
-    application:stop(pulse),
-    application:stop(crypto),
-    ok = application:stop(gen_tracker),
-    error_logger:add_report_handler(error_logger_tty_h),
-    ok
-  end, HLS ++ [
+  flu_test:setup_(fun() ->
+    flu_test:set_config([{file, "vod", "../../../priv"}])
+  end),
+  flu_test:teardown_(), 
+  HLS ++ [
     {"test_flu_hds_good_manifest_mp4", T("bunny.mp4", test_flu_hds_good_manifest)}
     ,{"test_flu_hds_good_segment_mp4", T("bunny.mp4", test_flu_hds_good_segment)}
 
@@ -497,39 +449,39 @@ flu_file_http_test_() ->
   ]}.
 
 test_flu_hds_good_manifest(Path) ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/manifest.f4m",[{keepalive,false},{no_fail,true}]),
+  Result = http_stream:request_body("http://127.0.0.1:5670/vod/"++Path++"/manifest.f4m",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 200, _, _}}, Result).
 
 test_flu_hds_good_segment(Path) ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/hds/0/Seg0-Frag4",[{keepalive,false},{no_fail,true}]),
+  Result = http_stream:request_body("http://127.0.0.1:5670/vod/"++Path++"/hds/0/Seg0-Frag4",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 200, _, Bin}} when size(Bin) > 1024, Result).
 
 
 test_flu_hls_good_segment(Path) ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/hls/segment4.ts",[{keepalive,false},{no_fail,true}]),
+  Result = http_stream:request_body("http://127.0.0.1:5670/vod/"++Path++"/hls/segment4.ts",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 200, _, Bin}} when size(Bin) > 1024, Result).
 
 
 test_flu_hds_no_segment(Path) ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/hds/0/Seg0-Frag100",[{keepalive,false},{no_fail,true}]),
+  Result = http_stream:request_body("http://127.0.0.1:5670/vod/"++Path++"/hds/0/Seg0-Frag100",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 404, _, _}}, Result).
 
 
 test_flu_hls_no_segment(Path) ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/hls/segment100.ts",[{keepalive,false},{no_fail,true}]),
+  Result = http_stream:request_body("http://127.0.0.1:5670/vod/"++Path++"/hls/segment100.ts",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 404, _, _}}, Result).
 
 test_answer_404_on_no_file(Path) ->
-  Result = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/manifest.f4m",[{keepalive,false},{no_fail,true}]),
+  Result = http_stream:request_body("http://127.0.0.1:5670/vod/"++Path++"/manifest.f4m",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 404, _, _}}, Result).
 
 test_answer_404_on_no_file_with_auth(Path) ->
-  set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:5555/crossdomain.xml"}]},{root, "../../../wwwroot"}]),
+  flu_test:set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:5671/auth/token_a"}]}]),
 
-  Result1 = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/manifest.f4m",[{keepalive,false}]),
+  Result1 = http_stream:request_body("http://127.0.0.1:5670/vod/"++Path++"/manifest.f4m",[{keepalive,false}]),
   ?assertMatch({error, {http_code, 403}}, Result1),
 
-  Result2 = http_stream:request_body("http://127.0.0.1:5555/vod/"++Path++"/manifest.f4m?token=a",[{keepalive,false},{no_fail,true}]),
+  Result2 = http_stream:request_body("http://127.0.0.1:5670/vod/"++Path++"/manifest.f4m?token=a",[{keepalive,false},{no_fail,true}]),
   ?assertMatch({ok, {_, 404, _, _}}, Result2),
   ok.
 

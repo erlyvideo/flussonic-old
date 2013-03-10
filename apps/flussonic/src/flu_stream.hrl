@@ -18,7 +18,7 @@
   hds,
   hls,
   udp,
-  rtmp,
+  push = [],
   monotone,
   check_timer
 }).

@@ -28,6 +28,10 @@ current_time() ->
   Mega*1000000 + Sec.
 
 read_segment(Size, Duration, ReadTime, SegmentTime) ->
+  catch read_segment0(Size, Duration, ReadTime, SegmentTime).
+
+
+read_segment0(Size, Duration, ReadTime, SegmentTime) ->
   T = current_time(),
 
   ets:insert_new(pulse_file_min, {T, 0, 0, 0, 0}),

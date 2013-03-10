@@ -7,51 +7,22 @@
 
 mpegts_test_() ->
   {foreach,
-  fun() ->
-    Apps = [crypto, ranch, gen_tracker, cowboy, public_key, ssl, lhttpc, flussonic],
-    [application:start(App) || App <- Apps],
-    Conf = [
+  flu_test:setup_(fun() ->
+    flu_test:set_config([
       {rewrite, "testlivestream", "/dev/null"},
       {stream, "channel0", "passive://ok"},
       {stream, "channel1", "passive://ok"},
-      {stream, "channel2", "passive://ok", [{sessions, "http://127.0.0.1:5555/auth"}]},
-      {stream, "channel3", "passive://ok", [{password,"user1:pass1"}]},
+      {stream, "channel2", "passive://ok", [{sessions, "http://127.0.0.1:5671/auth/token_unique_number"}]},
+      {stream, "channel3", "passive://ok", [{password,"pass1"},{publish_enabled,true},{sessions, "http://127.0.0.1:5671/auth/token_unique_number"}]},
       {mpegts, "mpegts"},
       {live, "live"},
       {live, "liveauth", [{password, "user2:pass2"}]}
-    ],
-    {ok, Config} = flu_config:parse_config(Conf, undefined),
-    application:set_env(flussonic, config, Config),
-    application:load(lager),
-    application:set_env(lager,handlers,[{lager_console_backend,error}]),
-    application:set_env(lager,error_logger_redirect,true),
-    application:set_env(lager,crash_log,undefined),
-    % lager:start(),
-
-    flu:start_webserver([{http,5555},{prepend_routes,[{<<"/auth">>, fake_auth, [unique_user_id]}]} | Config]),
-
-    {ok, _Pid} = flu_stream:autostart(<<"channel0">>),
-    % [Pid ! F || F <- lists:sublist(flu_rtmp_tests:h264_aac_frames(), 1, 50)],
-    {ok,Apps}
-  end,
-  fun({ok, Apps}) ->
-    error_logger:delete_report_handler(error_logger_tty_h),
-    [application:stop(App) || App <- lists:reverse(Apps)],
-    error_logger:add_report_handler(error_logger_tty_h),
+    ]),
+    flu_stream:autostart(<<"channel0">>),
     ok
-  end,
-  [
-    {"test_404_if_not_started", fun test_404_if_not_started/0}
-    ,{"test_null_packets_if_no_media_info", fun test_null_packets_if_no_media_info/0}
-    ,{"test_mpegts2", fun test_mpegts2/0}
-    ,{"test_null_packets_when_frames_delay", fun test_null_packets_when_frames_delay/0}
-    ,{"test_change_media_info", fun test_change_media_info/0}
-    ,{"test_unauthorized_access", fun test_unauthorized_access/0}
-    ,{"test_authorized_access_with_unique_user_id", fun test_authorized_access_with_unique_user_id/0}
-    ,{"test_publish_mpegts_wrong_url", fun test_publish_mpegts_wrong_url/0}
-    % ,{"test_publish_mpegts", fun test_publish_mpegts/0}
-  ]
-  }.
+  end),
+  flu_test:teardown_(),
+  flu_test:tests(?MODULE)}.
 
 
 test_mpegts2() ->
@@ -61,7 +32,7 @@ test_mpegts2() ->
 
 test_404_if_not_started() ->
   % {ok, _Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
-  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock, ["GET /channel4/mpegts HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   ?assertEqual(404, Code),
@@ -71,7 +42,7 @@ test_404_if_not_started() ->
 
 test_null_packets_if_no_media_info() ->
   % {ok, _Stream} = flu_stream:autostart(<<"testlivestream">>, [{source_timeout,10000},{source,self()}]),
-  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock, ["GET /channel1/mpegts HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   ?assertEqual(200, Code),
@@ -89,7 +60,7 @@ capture_mpegts_url(URL) ->
   {ok, M} = gen_server:call(Stream, start_monotone),
   gen_server:call(M, {set_start_at,{0,0,0}}),    
 
-  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock, ["GET ",URL," HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   read_headers(Sock),
@@ -108,7 +79,7 @@ capture_mpegts_url(URL) ->
 
 
 test_null_packets_when_frames_delay() ->
-  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock, ["GET /channel0/mpegts HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   read_headers(Sock),
@@ -136,7 +107,7 @@ test_change_media_info() ->
   gen_server:call(Stream, {set, MI1}),
   MI2 = video_frame:define_media_info(MI1, Frames1),
 
-  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock, ["GET /channel1/mpegts HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   read_headers(Sock),
@@ -164,7 +135,7 @@ test_change_media_info() ->
 
 
 test_unauthorized_access() ->
-  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock1, ["GET /channel2/mpegts HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0),
   ?assertEqual(403, Code),
@@ -174,14 +145,14 @@ test_unauthorized_access() ->
 
 test_authorized_access_with_unique_user_id() ->
 
-  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock1, ["GET /channel2/mpegts?token=123 HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0),
   ?assertEqual(200, Code),
   read_headers(Sock1),
 
 
-  {ok, Sock2} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock2} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock2, ["GET /channel2/mpegts?token=456 HTTP/1.0\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock2, 0),
   read_headers(Sock2),
@@ -198,8 +169,8 @@ test_authorized_access_with_unique_user_id() ->
 
 
 test_publish_mpegts_wrong_url() ->
-  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
-  gen_tcp:send(Sock1, ["POST /channel1/mpegts HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"]),
+  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock1, ["POST /channel0/mpegts?token=123 HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0, 200),
   ?assertEqual(403, Code),
   gen_tcp:close(Sock1),
@@ -207,8 +178,8 @@ test_publish_mpegts_wrong_url() ->
 
 
 test_publish_mpegts() ->
-  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false},{send_timeout,500}]),
-  gen_tcp:send(Sock1, ["POST /mpegts/channel1 HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"]),
+  {ok, Sock1} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false},{send_timeout,500}]),
+  gen_tcp:send(Sock1, ["POST /channel3/mpegts?password=pass1 HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n"]),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock1, 0, 200),
   ?assertEqual(200, Code),
 
@@ -216,7 +187,10 @@ test_publish_mpegts() ->
   Frames1 = flu_rtmp_tests:h264_aac_frames(),
   _ = lists:foldl(fun(F, M) ->
     {M1, D} = mpegts:encode(M,F),
-    ok = gen_tcp:send(Sock1, [io_lib:format("~.16. B\r\n", [iolist_size(D)]),D,"\r\n"]),
+    case iolist_size(D) > 0 of
+      true -> ok = gen_tcp:send(Sock1, [io_lib:format("~.16. B\r\n", [iolist_size(D)]),D,"\r\n"]);
+      false -> ok 
+    end,
     M1
   end, mpegts:init([{resync_on_keyframe,true}]), Frames1),
   gen_tcp:close(Sock1),

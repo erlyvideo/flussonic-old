@@ -1,4 +1,3 @@
-
 (function($) { 
 
 if($.fn.simpleDatepicker) {
@@ -10,6 +9,7 @@ if($.fn.simpleDatepicker) {
 Erlyvideo = {
 
 // Templates for players
+  hds_player: "StrobeMediaPlayback",
 
   // HDS player  
   osmf_player: function(element, url, info) {
@@ -22,15 +22,15 @@ Erlyvideo = {
     }
     if(url.indexOf(".f4m") == -1 && url.indexOf(".m3u8") == -1) url = url + "/manifest.f4m";
 
-    url = url + "?token="+((new Date()).getTime())
+    // url = url + "?token="+((new Date()).getTime());
   	var flashvars = {
   		src : url,
       // javascriptCallbackFunction: "onJavaScriptBridgeCreated",
   		autoPlay: true
   	};
   	var paramObj = {allowScriptAccess : "always", allowFullScreen : "true", allowNetworking : "all"};
-    swfobject.embedSWF("/flu/StrobeMediaPlayback.swf", element, width, height, "10.3", "/flu/expressInstall.swf",
-      flashvars, paramObj, {name: "StrobeMediaPlayback"});
+    swfobject.embedSWF("/flu/"+Erlyvideo.hds_player+".swf", element, width, height, "10.3", "/flu/expressInstall.swf",
+      flashvars, paramObj, {name: Erlyvideo.hds_player});
   },
   
   // RTMP JWplayer
@@ -65,7 +65,8 @@ Erlyvideo = {
   hls: function(element, stream, info) {
     var width = info && info.width || 640;
     var height = info && info.height || 480;
-    $(element).html("<video width="+width+" height="+height+" src=\""+stream+"?token="+((new Date()).getTime())+"\" autoplay controls></video>");
+    // stream = stream + "?token="+((new Date()).getTime());
+    $(element).html("<video width="+width+" height="+height+" src=\""+stream+"\" autoplay controls></video>");
   },
 
 
@@ -148,7 +149,10 @@ Erlyvideo = {
         Erlyvideo.draw_server_info(message);
         break;
       case "stream.list":
-        Erlyvideo.draw_stream_info(message);
+        Erlyvideo.draw_stream_list(message);
+        break;
+      case "file.list":
+        Erlyvideo.draw_stream_list(message);
         break;
       case "stream.add_dvr_fragment":
         Erlyvideo.add_dvr_fragment(message);
@@ -216,6 +220,7 @@ Erlyvideo = {
   load_stream_info: function() {
     // console.log("loading");
     Erlyvideo.request("streams");
+    Erlyvideo.request("files");
     Erlyvideo.stream_load_timer = setTimeout(Erlyvideo.load_stream_info, 3000);
   },
 
@@ -251,53 +256,67 @@ Erlyvideo = {
     $("#dvr-list").showDVR(name, opts || {});
   },
   
-  current_streams: {},
+  current_streams: {
+    "streams" : {},
+    "files" : {}
+  },
 
-  draw_stream_info: function(streams) {
+  vname: function(name) {
+    return name.replace(/\//g, "_").replace(/\./, "_");
+  },
+
+  draw_stream_list: function(msg) {
     var i;
     var total = 0;
     var total_file = 0;
     
     var new_streams = {};
-    
-    for(i = 0; i < streams["streams"].length; i++) {
-      var s1 = streams["streams"][i];
+
+    var type = 
+      msg.event == "stream.list" ? "streams" : 
+      msg.event == "file.list" ? "files" : [];
+
+    var msg_streams = msg[type];
+
+    for(i = 0; i < msg_streams.length; i++) {
+      var s1 = msg_streams[i];
       var s = JSON.parse(JSON.stringify(s1));
-      s.vname = s.name.replace(/\//g, "_");
+      s.vname = Erlyvideo.vname(s.name);
       s.play_name = s.name;
       s.lifetime = Erlyvideo.format_seconds(s.lifetime / 1000);
 
       s.ts_delay = s.ts_delay < 5000 ? 0 :  Erlyvideo.format_seconds(Math.round(s.ts_delay / 1000));
-      if(s.type == "file") {
+      if(type == "files") {
         s.ts_delay = 0;
+        s.hds = s.hls = s.rtmp = true;
         total_file += s.client_count;
       }
-      if(!Erlyvideo.current_streams[s.name]) {
-        Erlyvideo.current_streams[s.name] = s1;
+      if(!Erlyvideo.current_streams[type][s.name]) {
+        Erlyvideo.current_streams[type][s.name] = s1;
         s.hds = s.hds ? "visible" : "hidden";
         s.hls = s.hls ? "visible" : "hidden";
         s.dvr = s.dvr ? "visible" : "hidden";
         s.rtmp = s.rtmp ? "visible" : "hidden";
         $("#stream-list").append(Mustache.to_html(Erlyvideo.stream_template, s));
       } else {
-        var s1 = $("#stream-"+s.name.replace(/\//g, "_"));
-        s1.find(".client_count").html(s.client_count);
-        s1.find(".lifetime").html(s.lifetime);
-        if(s.ts_delay >= 0) s1.find(".ts_delay").html(s.ts_delay);
-        if(s.retry_count >= 0) s1.find(".retry_count").html(s.retry_count);
-        s1.find(".s-hds").css('visibility', s.hds ? "visible" : "hidden");
-        s1.find(".s-hls").css('visibility', s.hls ? "visible" : "hidden");
-        s1.find(".s-dvr").css('visibility', s.dvr ? "visible" : "hidden");
-        s1.find(".s-rtmp").css('visibility', s.rtmp ? "visible" : "hidden");
+        var s_ = $("#stream-"+s.vname);
+        s_.find(".client_count").html(s.client_count);
+        s_.find(".lifetime").html(s.lifetime);
+        if(s.ts_delay >= 0) s_.find(".ts_delay").html(s.ts_delay);
+        if(s.retry_count >= 0) s_.find(".retry_count").html(s.retry_count);
+        s_.find(".s-hds").css('visibility', s.hds ? "visible" : "hidden");
+        s_.find(".s-hls").css('visibility', s.hls ? "visible" : "hidden");
+        s_.find(".s-dvr").css('visibility', s.dvr ? "visible" : "hidden");
+        s_.find(".s-rtmp").css('visibility', s.rtmp ? "visible" : "hidden");
       }
       new_streams[s.name] = s;
       total += s.client_count;
     }
 
-    for(var k in Erlyvideo.current_streams) {
+    for(var k in Erlyvideo.current_streams[type]) {
       if(!new_streams[k]) {
-        delete Erlyvideo.current_streams[k];
-        $("#stream-"+k.replace(/\//g, "_")).remove();
+        delete Erlyvideo.current_streams[type][k];
+        $("#stream-"+Erlyvideo.vname(k)).remove();
       }
     }
     var info = {};
@@ -316,7 +335,7 @@ Erlyvideo = {
 // Show stream clients list
 
   show_clients: function(name) {
-    $("#clients-"+name.replace(/\//g, "_")).show();
+    $("#clients-"+Erlyvideo.vname(name)).show();
     Erlyvideo.request("sessions?name="+name);
     Erlyvideo.session_load_timer = setTimeout(function() { Erlyvideo.show_clients(name); }, 2000);
   },
@@ -336,7 +355,7 @@ Erlyvideo = {
     var name = message.name;
     var sessions = message.sessions;
     var new_sessions = {};
-    var vname = name.replace(/\//g, "_");
+    var vname = Erlyvideo.vname(name);
     var list = $("#clients-list-"+vname);
     for(var i = 0; i < sessions.length; i++) {
       if(sessions[i].name == name) {
@@ -728,6 +747,8 @@ $(function() {
   }
   Erlyvideo.enable_play_tab();
   Erlyvideo.request("server");
+
+  if(params["player"] == "grind") Erlyvideo.hds_player = "GrindPlayer";
 
 
   // $('#traffic-stats').visualize({type: 'line', width: '800px'});
