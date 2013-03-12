@@ -249,7 +249,8 @@ close(linux, F) -> file:close(F).
 
 read(linux, undefined) -> ok;
 read(linux, F) ->
-  {ok, Bin} = file:pread(F,0,4096),
+  file:position(F,0),
+  {ok, Bin} = file:read(F,4096),
   linux(Bin);
 read(bsd, _) ->
   bsd().
@@ -284,7 +285,10 @@ bsd() ->
   bsd(os:cmd("netstat -ib")).
 
 bsd(Output) ->
-  [HeaderLine|Content] = string:tokens(Output,"\n"),
+  bsd0(string:tokens(Output,"\n")).
+
+bsd0([]) -> [];
+bsd0([HeaderLine|Content]) ->
   Headers = [list_to_atom(string:to_lower(string:strip(H))) || H <- string:tokens(HeaderLine, " ")],
   HeaderCount = length(Headers),
   Lines1 = lists:map(fun(Line) ->

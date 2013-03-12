@@ -258,35 +258,30 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
       throw({fail, [404, fmt("failed to find in config ~s/~s", [App, StreamName0])]});
     {ok, Spec} -> Spec
   end,
-  StreamName1 = case Type of
+  StreamName = case Type of
     file -> iolist_to_binary(StreamName0);
     stream -> iolist_to_binary(StreamName0);
     live -> Args
   end,
 
-  StreamName = case proplists:get_value(sessions, Options) of
-    undefined -> StreamName1;
+  ?D({flu_rtmp,StreamName}),
+
+  case proplists:get_value(sessions, Options, true) of
+    false -> ok;
     URL ->
-      Token = case to_b(proplists:get_value("token", QsVals)) of
-        undefined -> to_b(proplists:get_value("session", QsVals));
-        Token_ -> Token_
-      end,
-      is_binary(Token) orelse begin
-        lager:info("denied play(~s/~s) because no token passed", [App, StreamName1]),
-        throw({fail, [403, <<"no_token_passed">>]})
-      end,
+      Token = iolist_to_binary(proplists:get_value("token", QsVals, uuid:gen())),
       Ip = to_b(rtmp_session:get(Session, addr)),
       is_binary(Ip) orelse error({bad_ip, Ip, Session}),
-      Identity = [{name,StreamName1},{ip, Ip},{token,Token}],
+      Identity = [{name,StreamName},{ip, Ip},{token,Token}],
       Referer = rtmp_session:get_field(Session, pageUrl),
       AuthOptions = [{pid,self()},{referer,Referer},{type,<<"rtmp">>}|Options],
       case flu_session:verify(URL, Identity, AuthOptions) of
-        {ok, StreamName1_} ->
+        {ok, _} ->
           put(auth_info,{URL,Identity,AuthOptions}),
-          StreamName1_;
+          ok;
         {error, Code, Message} ->
-          lager:info("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName1, Token, Code, Message]),
-          throw({fail, [403, Code, to_b(Message), App, StreamName1, <<"auth_denied">>]})
+          lager:info("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName, Token, Code, Message]),
+          throw({fail, [403, Code, to_b(Message), App, StreamName, <<"auth_denied">>]})
       end
   end,
 

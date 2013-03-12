@@ -40,7 +40,7 @@ r(Path) ->
 
 
 api_handler_test_() ->
-  {foreach,
+  {setup,
   flu_test:setup_([log, {meck, [flu]}], fun() ->
     inets:start()
   end),
@@ -112,12 +112,14 @@ test_sessions() ->
 
 
 test_stream_restart() ->
-  set_config([{stream, "chan0", "passive://"}, api]),
+  set_config([{stream, "chan0", "passive://"}, {api, [{admin,"admin","pass0"}]}]),
   ?assertEqual([], flu_stream:list()),
   {ok, _Pid1} = flu_stream:autostart(<<"chan0">>),
   ?assertMatch([_], flu_stream:list()),
-  Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/stream_restart/chan0"),
-  ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
+  Reply1 = lhttpc:request("http://127.0.0.1:5555/erlyvideo/api/stream_restart/chan0", get, [], 1000),
+  ?assertMatch({ok, {{401,_}, _, _}}, Reply1),
+  Reply2 = lhttpc:request("http://admin:pass0@127.0.0.1:5555/erlyvideo/api/stream_restart/chan0", get, [], 1000),
+  ?assertMatch({ok, {{200,_}, _, _}}, Reply2),
   ?assertEqual([], flu_stream:list()),
   ok.
 

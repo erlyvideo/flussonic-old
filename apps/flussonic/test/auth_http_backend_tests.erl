@@ -7,7 +7,7 @@
 http_mock_url() -> "http://127.0.0.1:5671/auth/check".
 
 backend_test_() ->
-  {foreach, 
+  {setup, 
   flu_test:setup_([{meck, [fake_auth, auth_http_backend]}]),
   flu_test:teardown_(),
   flu_test:tests(?MODULE)}.

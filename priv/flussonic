@@ -72,7 +72,10 @@ case $1 in
     chmod 0600 $COOKIEFILE
   fi
   COOKIE=`cat $COOKIEFILE`
-  CMD="erl +K true +A 16 +a 2048 ${SBT} -name flussonic@127.0.0.1 -setcookie $COOKIE -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
+  if [ "$ASYNC_THREADS" == "" ] ; then
+    ASYNC_THREADS=16
+  fi
+  CMD="erl +K true +A ${ASYNC_THREADS} +a 1024 ${SBT} -name flussonic@127.0.0.1 -setcookie $COOKIE -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
   exec $CMD
   ;;
 "reload")

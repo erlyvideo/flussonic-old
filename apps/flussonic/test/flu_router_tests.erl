@@ -259,7 +259,7 @@ c(Config) ->
   [{router,flu_router:compile(Compiled)}].
 
 authenticate_test_() ->
-  {foreach, 
+  {setup, 
   flu_test:setup_(),
   flu_test:teardown_(),
   flu_test:tests(?MODULE)}.

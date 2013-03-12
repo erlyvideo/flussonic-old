@@ -311,7 +311,9 @@ init([Name,Options1]) ->
   lager:warning("Start stream \"~s\" with url ~p and options: ~p", [Name, Stream2#stream.url, Options]),
 
   {noreply, Stream3} = ?MODULE:handle_info(reconnect_source, Stream2),
-  gen_server:enter_loop(?MODULE, [], Stream3).
+  GopFlush = erlang:send_after(4*?SEGMENT_DURATION*1000, self(), gop_flush),
+  GopOpen = os:timestamp(),
+  gen_server:enter_loop(?MODULE, [], Stream3#stream{gop_flush = GopFlush, gop_open = GopOpen}).
 
 
 set_options(#stream{options = Options, name = Name, url = URL1, source = Source1} = Stream) ->
@@ -524,6 +526,10 @@ handle_info(reconnect_source, #stream{retry_count = Count, retry_limit = Limit, 
   ?D({Stream#stream.name, exits_due_retry_limit, Count}),
   {stop, normal, Stream};
 
+
+handle_info({'$set_opened_at', OpenedAt}, #stream{} = Stream) ->
+  {noreply, Stream#stream{gop_open = OpenedAt}};
+
 handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL1, retry_count = Count, options = Options} = Stream) ->
   {Proto, URL} = detect_proto(URL1),
   LogError = will_log_error(Count),
@@ -680,7 +686,28 @@ handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Du
   flu_monotone:send_frame(Monotone, Frame1),
   
   set_last_dts(Stream3#stream.last_dts, Stream3#stream.last_dts_at),
-  {noreply, Stream3}.
+  Stream4 = feed_gop(Frame1, Stream3),
+  {noreply, Stream4}.
+
+
+feed_gop(#video_frame{flavor = keyframe, dts = DTS} = F, #stream{gop_flush = OldGopFlush, gop = RGop, gop_open = GopOpen, gop_start_dts = StartDTS} = Stream) 
+  when length(RGop) > 0 andalso DTS - StartDTS >= ?SEGMENT_DURATION*1000 ->
+  catch erlang:cancel_timer(OldGopFlush),
+  Stream1 = case lists:reverse(RGop) of
+    [] -> Stream;
+    [#video_frame{dts = StartDTS}|_] = Gop -> pass_message(#gop{opened_at = GopOpen, frames = Gop, duration = DTS - StartDTS}, Stream)
+  end,
+  GopFlush = erlang:send_after(4*?SEGMENT_DURATION*1000, self(), gop_flush),
+  Stream1#stream{gop_flush = GopFlush, gop_open = os:timestamp(), gop_start_dts = DTS, gop = [F]};
+
+feed_gop(#video_frame{dts = DTS} = F, #stream{gop = []} = Stream) ->
+  Stream#stream{gop = [F], gop_open = os:timestamp(), gop_start_dts = DTS};
+
+feed_gop(#video_frame{} = F, #stream{gop = Gop} = Stream) ->
+  Stream#stream{gop = [F|Gop]}.
+
+
+
 
 
 

@@ -184,7 +184,7 @@ play(URL, Headers, _Body) ->
 play_media(Path, Headers) ->
   Name = to_b(Path),
   Ip = to_b(proplists:get_value(ip,Headers)),
-  Token = to_b(proplists:get_value("token",Headers)),
+  Token = to_b(proplists:get_value("token",Headers, uuid:gen())),
   Identity = [{name,Name},{ip, Ip},{token,Token}],
   Params = [{pid,self()},{type,<<"rtsp">>}],
   case flu_media:find_or_open(Name, [{identity,Identity},{session,Params}]) of

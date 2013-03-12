@@ -75,6 +75,9 @@ start_stream_helper(Stream, Id, {M,F,A}) when is_binary(Stream) ->
           supervisor:terminate_child(Helper, Id),
           supervisor:delete_child(Helper, Id),
           start_stream_helper(Stream, Id, {M,F,A});
+        {error, already_present} ->
+          supervisor:delete_child(Helper, Id),
+          start_stream_helper(Stream, Id, {M,F,A});          
         {error, Error} -> error(Error)
       end;
     false ->

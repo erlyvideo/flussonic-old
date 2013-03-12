@@ -47,7 +47,7 @@
 -record(state, {
   readers = [],
   jobs = [],
-  starting_workers = 0,
+  starting_workers = [],
   name,
   disk_path,
   options,
@@ -117,7 +117,11 @@ hds_manifest(Path, Name) when is_binary(Path),is_binary(Name) ->
 
 hds_fragment(Path, Name, Tracks, Fragment) when is_binary(Path),is_binary(Name),is_list(Tracks),is_integer(Fragment) ->
   case autostart(Path, Name) of
-    {ok, Pid} -> hds_fragment0(Pid, Fragment, Tracks);
+    {ok, Pid} -> 
+      case hds_fragment0(Pid, Fragment, Tracks) of
+        {error, {busy, Error}} -> lager:info("busy error reading ~s/~p~p: ~p", [Name,Tracks,Fragment,Error]),{error,busy};
+        Else -> Else
+      end;
     {error, _} = Error -> Error
   end.
 
@@ -147,7 +151,7 @@ make_call(Pid, Call) ->
   make_call(Pid, Call, 5).
 
 make_call(_Pid, _Call, 0) ->
-  {error, busy};
+  {error, {busy,too_many_retries}};
 
 make_call(Pid, Call, Retry) ->
   case gen_server:call(Pid, Call, 10000) of
@@ -243,10 +247,12 @@ init([Name, Options]) ->
   end,
 
   put(name, {flu_file,URL}),
-
+  % File is started ondemand, so we need to check how many active sessions
+  % already are asking this file
+  ClientCount = flu_session:client_count(Name),
   
   Timeout = proplists:get_value(timeout, Options, 60000),
-  gen_tracker:setattr(flu_files, Name, [{client_count,0}]),
+  gen_tracker:setattr(flu_files, Name, [{client_count,ClientCount}]),
 
   case proc_lib:start(?MODULE, init_reader, [self(), URL]) of
     {ok, Pid, MediaInfo, Keyframes} ->
@@ -300,6 +306,7 @@ init([Name, Options]) ->
 }).
 
 init_reader(Parent, Path) ->
+  put(name, {file_worker,Path}),
   Access = case re:run(Path, "http://") of
     nomatch -> file;
     _ -> http_file
@@ -340,7 +347,7 @@ reader_loop(#reader{} = State) ->
           error({Class,Error,erlang:get_stacktrace()})
       end
     after
-      10000 ->
+      60000 ->
         ok
   end.
 
@@ -414,17 +421,20 @@ handle_info(timeout, State) ->
 
 handle_info({reader_ready, Reader}, #state{timeout = Timeout, jobs = Jobs, readers = Readers} = State) ->
   Jobs1 = lists:keydelete(Reader, 1, Jobs),
-  {noreply, State#state{jobs = Jobs1, readers = [Reader|Readers]}, Timeout};
+  % It is very, very important that we put fresh worker in the end of queue
+  % If we do not do so, than last workers will shutdown and start again and it is very expensive
+  {noreply, State#state{jobs = Jobs1, readers = Readers ++ [Reader]}, Timeout};
 
 % Add here notifying of waiting clients
-handle_info({'DOWN', _, _, Reader, Reason}, #state{timeout = Timeout, jobs = Jobs, readers = Readers} = State) ->
+handle_info({'DOWN', _, _, Reader, Reason}, #state{timeout = Timeout, jobs = Jobs, readers = Readers, starting_workers = Starting} = State) ->
   case Reason of
     normal ->
       NewJobs = lists:keydelete(Reader, 1, Jobs),
       NewReaders = lists:delete(Reader, Readers),
+      NewStarting = lists:delete(Reader, Starting),
       put(worker_count, length(NewJobs) + length(NewReaders)),
       % ?D({spare_worker,Reader,gracefully_down, left, get(worker_count)}),
-      {noreply, State#state{jobs = NewJobs, readers = NewReaders}, Timeout};
+      {noreply, State#state{jobs = NewJobs, readers = NewReaders, starting_workers = NewStarting}, Timeout};
     _ -> {stop, Reason, State}
   end;
 
@@ -433,10 +443,10 @@ handle_info({ack, Pid, {ok, Pid, _, _}}, #state{timeout = Timeout, readers = Rea
   erlang:monitor(process, Pid),
   put(worker_count, length(Jobs) + length(Readers) + 1),
   % ?D({start_new_worker,State#state.disk_path,get(worker_count)}),
-  {noreply, State#state{readers = Readers ++ [Pid], starting_workers = Starting - 1}, Timeout};
+  {noreply, State#state{readers = Readers ++ [Pid], starting_workers = lists:delete(Pid, Starting)}, Timeout};
 
-handle_info({ack, _Pid, {error, _}}, #state{timeout = Timeout, starting_workers = Starting} = State) ->
-  {noreply, State#state{starting_workers = Starting - 1}, Timeout};
+handle_info({ack, Pid, {error, _}}, #state{timeout = Timeout, starting_workers = Starting} = State) ->
+  {noreply, State#state{starting_workers = lists:delete(Pid, Starting)}, Timeout};
 
 handle_info(Info, State) ->
   {stop, {unknown_info,Info}, State}.
@@ -449,19 +459,19 @@ schedule_read_request({From, Format, Fragment, Tracks}, #state{timeout = Timeout
   {noreply, State#state{readers = Readers, jobs = [{Pid,From}|Jobs]}, Timeout};
 
 % We should refuse to start more than 4 spare workers simultaneously
-schedule_read_request(_Request, #state{starting_workers = Starting, timeout = Timeout} = State) when Starting > 4 ->
-  {reply, {error, busy}, State, Timeout};
+schedule_read_request(_Request, #state{starting_workers = Starting, timeout = Timeout} = State) when length(Starting) > 4 ->
+  {reply, {error, retry}, State, Timeout};
 
 schedule_read_request(_Request, #state{jobs = Jobs, readers = [], disk_path = URL, timeout = Timeout, 
-    starting_workers = Starting} = State) when length(Jobs) + Starting < 70 -> 
+    starting_workers = Starting} = State) when length(Jobs) + length(Starting) < 25 -> 
   % ?D(ask_to_retry),
-  proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
-  proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
-  proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
-  {reply, {error, retry}, State#state{starting_workers = Starting + 3}, Timeout};
+  Pid1 = proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
+  Pid2 = proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
+  Pid3 = proc_lib:spawn(?MODULE, init_reader, [self(), URL]),
+  {reply, {error, retry}, State#state{starting_workers = [Pid1,Pid2,Pid3|Starting]}, Timeout};
 
 schedule_read_request(_Request, #state{timeout = Timeout} = State) ->
-  {reply, {error, busy}, State, Timeout}.
+  {reply, {error, {busy,too_many_jobs}}, State, Timeout}.
 
 
 

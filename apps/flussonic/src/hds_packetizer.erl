@@ -18,10 +18,6 @@
 -record(hds, {
   name,
   options = [],
-  start_dts,
-  last_dts,
-  gop = [],
-  force_flush,
   fragments,
   media_info,
   fragments_count = ?FRAGMENTS_COUNT,
@@ -38,10 +34,8 @@ init(Options) ->
   Name = proplists:get_value(name, Options),
   gen_tracker:setattr(flu_streams, Name, [{hds,true}]),
   FragmentsCount = proplists:get_value(hds_count, Options, ?FRAGMENTS_COUNT),
-  ForceFlush = erlang:send_after(?FLUSH_TIMEOUT, self(), force_hds_flush),
   {ok, #hds{
     name = Name,
-    force_flush = ForceFlush,
     fragments_count = FragmentsCount,
     options = Options,
     fragments = queue:new()
@@ -51,29 +45,12 @@ init(Options) ->
 handle_info(#media_info{} = MediaInfo, #hds{} = State) ->
   {noreply, State#hds{media_info = MediaInfo}};
 
-handle_info(#video_frame{codec = Codec, content = Content}, #hds{} = HDS) when 
-  Content =/= metadata andalso Codec =/= h264 andalso Codec =/= aac andalso Codec =/= mp3 ->
-  {noreply, HDS};
 
-handle_info(#video_frame{flavor = config} = Frame, #hds{media_info = MI1} = HDS) ->
-  MI2 = video_frame:define_media_info(MI1, Frame),
-  {noreply, HDS#hds{media_info = MI2}};
-
-handle_info(force_hds_flush, #hds{force_flush = OldTimer} = HDS) ->
-  erlang:cancel_timer(OldTimer),
-  HDS1 = flush_fragment(HDS),
-  ForceFlush = erlang:send_after(?FLUSH_TIMEOUT, self(), force_hds_flush),
-  {noreply, HDS1#hds{force_flush = ForceFlush}};
-
-
-handle_info(#video_frame{flavor = keyframe, dts = DTS} = Frame, #hds{force_flush = OldTimer} = HDS) ->
-  erlang:cancel_timer(OldTimer),
-  HDS1 = flush_fragment(HDS, DTS),
-  ForceFlush = erlang:send_after(?FLUSH_TIMEOUT, self(), force_hds_flush),
-  {noreply, HDS1#hds{force_flush = ForceFlush, gop = [flv_video_frame:to_tag(Frame)], start_dts = DTS, last_dts = DTS}};
-
-handle_info(#video_frame{dts = DTS} = Frame, #hds{gop = GOP} = HDS) ->
-  {noreply, HDS#hds{gop = [flv_video_frame:to_tag(Frame) | GOP], last_dts = DTS}};
+handle_info({gop, _OpenedAt,[#video_frame{dts = StartDTS}|_], Duration} = Gop, #hds{} = HDS) ->
+  HDS1 = create_new_fragment(Gop, HDS),
+  HDS2 = delete_old_fragment(HDS1),
+  HDS3 = regenerate_bootstrap(HDS2, StartDTS+Duration),
+  {noreply, HDS3};
 
 handle_info(_Else, State) ->
   {noreply, State}.
@@ -87,35 +64,18 @@ terminate(_,#hds{name = Name, segment = Segment, fragments = Fragments}) ->
   ok.
 
 
-flush_fragment(#hds{start_dts = undefined} = HDS) ->
-  HDS#hds{gop = []};
 
-flush_fragment(#hds{last_dts = DTS} = HDS) ->
-  flush_fragment(HDS, DTS + 5).
-
-flush_fragment(#hds{media_info = undefined} = HDS, _NextDTS) ->
-  HDS#hds{gop = []};
-
-flush_fragment(#hds{start_dts = undefined} = HDS, _NextDTS) ->
-  HDS#hds{gop = []};
-
-flush_fragment(#hds{} = HDS, NextDTS) ->
-  HDS1 = create_new_fragment(HDS),
-  HDS2 = delete_old_fragment(HDS1),
-  HDS3 = regenerate_bootstrap(HDS2, NextDTS),
-  HDS3.
-
-
-
-create_new_fragment(#hds{gop = GOP, start_dts = DTS, fragment = Fragment, segment = Segment, fragments = Fragments, name = Name} = HDS) ->
+create_new_fragment({gop, _, [#video_frame{dts = DTS}|_]=Frames, _Duration}, 
+  #hds{fragment = Fragment, segment = Segment, fragments = Fragments, name = Name} = HDS) ->
+  
   Configs = make_config(HDS, DTS),
 
-  Bin1 = [[flv_video_frame:to_tag(F) || F <- Configs], lists:reverse(GOP)],
+  Bin1 = [[flv_video_frame:to_tag(F) || F <- Configs], [flv_video_frame:to_tag(F) || F <- Frames]],
 
   Bin = iolist_to_binary([<<(iolist_size(Bin1) + 8):32, "mdat">>, Bin1]),
   flu_stream_data:set(Name, {hds_fragment, Segment,Fragment}, Bin),
   % erlang:put({hds_fragment, Segment,Fragment}, Bin),
-  HDS#hds{fragment = Fragment + 1, fragments = queue:in(#fragment{number = Fragment, dts = DTS}, Fragments), gop = []}.
+  HDS#hds{fragment = Fragment + 1, fragments = queue:in(#fragment{number = Fragment, dts = DTS}, Fragments)}.
 
 delete_old_fragment(#hds{segment = Segment, fragments_count = FragmentsCount, fragments = Fragments, name = Name} = HDS) ->
   NewFragments = case queue:len(Fragments) of

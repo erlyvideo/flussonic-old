@@ -3,7 +3,7 @@
   url,
   options,
   source,
-  source_ref,
+  source_ref,  
   static = false,
   source_timeout,
   clients_timeout,
@@ -20,5 +20,19 @@
   udp,
   push = [],
   monotone,
-  check_timer
+  check_timer,
+  gop_flush,
+  gop_open,
+  gop_start_dts,
+  gop = []
 }).
+
+-define(SEGMENT_DURATION, 3).
+
+-record(gop,{
+  opened_at,
+  frames = [],
+  duration
+}).
+
+

@@ -44,10 +44,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("flu_session.hrl").
 
--export([verify/3]).
+-export([verify/3, client_count/1]).
 
 -export([backend_request/3]).
--export([recheck_connected/0]).
+-export([recheck_connected/0, delete_all_sessions/0]).
 
 -export([timeout/0]).
 
@@ -136,6 +136,10 @@ verify(URL, Identity, Options) ->
   catch
     throw:Reply -> Reply
   end.
+
+
+client_count(Name) when is_binary(Name) ->
+  ets:select_count(flu_session:table(), ets:fun2ms(fun(#session{name = N}) when N == Name -> true end)).
 
 
 add_bytes(undefined, _) -> ok;
@@ -294,8 +298,8 @@ timeout() ->
 clients() ->
   Now = flu:now_ms(),
   Sessions = ets:select(flu_session:table(), ets:fun2ms(fun(#session{access = granted} = E) -> E end)),
-  [[{id,Id},{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type},{user_id,UserId},{bytes,Sent}] || 
-    #session{session_id = Id, ip = IP, name = Name, user_id =UserId, created_at = StartAt, type = Type, bytes_sent = Sent} <- Sessions].
+  [[{id,Id},{ip,IP},{name,Name},{start_at,StartAt},{duration,Now - StartAt},{type,Type},{user_id,UserId},{bytes,Sent},{pid,Pid}] || 
+    #session{session_id = Id, ip = IP, name = Name, user_id =UserId, created_at = StartAt, type = Type, bytes_sent = Sent, pid = Pid} <- Sessions].
 
 list() ->
   clients().
@@ -304,7 +308,7 @@ json_list() ->
   [{event,'user.list'},{sessions,list()}].
 
 json_list(Name) ->
-  [{event,'user.list'},{name,Name},{sessions,[Session || Session <- list(), proplists:get_value(name,Session) == Name]}].  
+  [{event,'user.list'},{name,Name},{sessions,[ [{K,V} || {K,V} <- Session, is_binary(V) orelse is_list(V) orelse is_number(V)] || Session <- list(), proplists:get_value(name,Session) == Name]}].  
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -385,6 +389,7 @@ new_or_update(Identity, Opts) ->
     undefined -> Session1;
     LastVerify -> Session1#session{last_verify_time = LastVerify}
   end,
+  % TODO: race condition here. First try to insert_new and then restart with updating
   ets:insert(flu_session:table(), Session2),
 
   case New of
@@ -396,6 +401,10 @@ new_or_update(Identity, Opts) ->
 touch_session(undefined, _Now) -> ok;
 touch_session(#session{session_id = SessionId}, Now) ->
   ets:update_element(flu_session:table(), SessionId, {#session.last_access_time, Now}).
+
+
+delete_all_sessions() ->
+  [delete_session(S) || S <- ets:tab2list(flu_session:table())].
 
 delete_session(#session{name = Name} = Session) ->
   % ?D({delete_session,Session}),

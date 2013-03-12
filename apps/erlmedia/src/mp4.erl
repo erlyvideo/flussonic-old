@@ -892,7 +892,7 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module,Device}} = Media, N, [A_]
   {AStart, AEnd, TSList} = lookup_audio_dts(ATimestamps, round(VStartDTS*AScale/1000), round(VEndDTS*AScale/1000)),
   AOffsets = lookup_offsets(A, AStart, AEnd),
   AFrames1 = collect_frames(TSList, undefined, AOffsets, audio, ACodec, A_, AScale),
-  AFrames = [F#video_frame{body = unok(Module:pread(Device, Offset,Size))} || #video_frame{body = {Offset,Size}} = F <- AFrames1],
+  AFrames = read_disk_frames(Module, Device, AFrames1),
   {ok, AFrames};
 
 
@@ -907,7 +907,7 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_]) when 
   end,
   [Frame|VideoFrames1] = load_frames(V, VStart, VEnd-1),
   VideoFrames2 = [Frame#video_frame{flavor = keyframe}|VideoFrames1],
-  VideoFrames3 = [F#video_frame{body = unok(Module:pread(Device, Offset, Size))} || #video_frame{body = {Offset,Size}} = F <- VideoFrames2],
+  VideoFrames3 = read_disk_frames(Module, Device, VideoFrames2),
   VideoFrames = VideoFrames3,
 
   {ok, VideoFrames};
@@ -931,7 +931,6 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
   end,
   [Frame|VideoFrames1] = load_frames(V, VStart, VEnd-1),
   VideoFrames2 = [Frame#video_frame{flavor = keyframe}|VideoFrames1],
-  % TODO: optimize this place by gluing all offsets together
 
   VideoFrames3 = read_disk_frames(Module, Device, VideoFrames2),
   VideoFrames = VideoFrames3,
@@ -965,6 +964,15 @@ read_disk_frames(Module, Device, Frames) ->
   true ->
     [F#video_frame{body = unok(Module:pread(Device, Offset, Size))} || #video_frame{body = {Offset,Size}} = F <- Frames]
   end.
+
+% Code above does very simple request gluing. This should once replace it
+%
+% reduce_requests([]) -> [];
+% reduce_requests([Request]) -> [Request];
+% reduce_requests([{O1,S1},{O2,S2}|Requests]) when O2 - O1 > 3*S1 ->
+%   [{O1,S1}|reduce_requests([{O2,S2}|Requests])];
+% reduce_requests([{O1,_},{O2,S2}|Requests]) ->
+%   reduce_requests([{O1,S2+O2-O1}|Requests]).
 
 
 

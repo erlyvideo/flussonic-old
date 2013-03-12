@@ -46,7 +46,7 @@ Erlyvideo = {
       url = url.substring(slash+1, url.length);
     }
     var flashvars = {
-        file: url+"?token="+((new Date()).getTime()),
+        file: url,
         streamer:'rtmp://'+window.location.hostname+':1935/'+app,
         'rtmp.tunneling':false,
         autostart: true
@@ -262,7 +262,7 @@ Erlyvideo = {
   },
 
   vname: function(name) {
-    return name.replace(/\//g, "_").replace(/\./, "_");
+    return name.replace(/\//g, "_").replace(/\./g, "_");
   },
 
   draw_stream_list: function(msg) {

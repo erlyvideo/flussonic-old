@@ -60,8 +60,8 @@ find_or_open(Path, Headers) ->
 find_or_open0(Path, Headers) ->
   case lookup(Path) of
     {ok, {Type, Name, Opts}} ->
-      case proplists:get_value(sessions, Opts) of
-        undefined ->
+      case proplists:get_value(sessions, Opts, true) of
+        false ->
           {ok, Reply} = autostart(Type, Name, Opts),
           {ok, Reply};
         AuthUrl ->
