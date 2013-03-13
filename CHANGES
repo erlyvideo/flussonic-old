@@ -1,3 +1,23 @@
+flussonic (3.69.8)
+
+  * fixed authorization for mainpage broken in 3.69.6
+  * fixed reading of Last-Modified in http_file
+  * added Last-Modified to flu_file segments
+  * enabled audio-only HLS segments
+  * fixed bug with playing streams in rtmp
+
+flussonic (3.69.7)
+
+  * fixed linux stats
+  * autostarting streams in flu_router
+  * fixed failure in start_stream_helper
+  * sessions in rtsp play
+  * sessions in rtmp play
+  * initscript should read /etc/default/flussonic for ASYNC_THREADS
+  * HDS and HLS packetizers use single gop collector
+  * flu_file now initializes with proper session count
+  * direct hds segment access starts hds session
+
 flussonic (3.69.6)
 
   * linux traffic collector handles opened fd

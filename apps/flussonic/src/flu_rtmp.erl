@@ -358,7 +358,6 @@ play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media
 play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _StreamName) ->
   {ok, Media} = flu_stream:find(StreamName),
   erlang:monitor(process, Media),
-  ?D({play,StreamName,StreamId}),
   Session1 = case StreamId of
     1 ->
       RTMP = rtmp_session:get(Session, socket),

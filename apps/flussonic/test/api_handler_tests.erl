@@ -41,39 +41,36 @@ r(Path) ->
 
 api_handler_test_() ->
   {setup,
-  flu_test:setup_([log, {meck, [flu]}], fun() ->
-    inets:start()
-  end),
-  flu_test:teardown_(fun() ->
-    application:stop(inets)
-  end),
+  flu_test:setup_([{meck, [flu]}]),
+  flu_test:teardown_(),
   flu_test:tests(?MODULE)
   }.
 
 
 set_config(Conf) ->
-  {ok, Config} = flu_config:parse_config(Conf, []),
-  application:set_env(flussonic, config, Config),
-  flu:start_webserver([{http,5555}|Config]).
+  flu_test:set_config(Conf).
+  % {ok, Config} = flu_config:parse_config(Conf, []),
+  % application:set_env(flussonic, config, Config),
+  % flu:start_webserver([{http,5555}|Config]).
 
 
 test_protected_reconf_rejected() ->
   set_config([{api, [{admin, "admin", "pass0"}]}]),
-  {ok, Reply} = httpc:request("http://127.0.0.1:5555/erlyvideo/api/reload"),
-  ?assertMatch({{_,401,_},_,_}, Reply),
+  {ok, Reply} = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/reload", get, [], 1000),
+  ?assertMatch({{401,_},_,_}, Reply),
   ok.
 
 test_protected_reconf_passed() ->
   set_config([{api, [{admin, "admin", "pass0"}]}]),
   meck:expect(flu, reconf, fun() -> ok end),
-  {ok, Reply} = httpc:request(get, {"http://127.0.0.1:5555/erlyvideo/api/reload", 
-    [{"Authorization", "Basic "++base64:encode_to_string("admin:pass0")}]}, [], []),
-  ?assertMatch({{_,200,_},_,_}, Reply),
+  {ok, Reply} = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/reload", get,
+    [{"Authorization", "Basic "++base64:encode_to_string("admin:pass0")}], 1000),
+  ?assertMatch({{200,_},_,_}, Reply),
   ok.
 
 test_reconf() ->
   set_config([api]),
-  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5555, [binary,{packet,http},{active,false}]),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5670, [binary,{packet,http},{active,false}]),
   gen_tcp:send(Sock, "GET /erlyvideo/api/reload HTTP/1.0\r\n\r\n"),
   {ok, {http_response, _, Code,_}} = gen_tcp:recv(Sock, 0),
   gen_tcp:close(Sock),
@@ -83,30 +80,30 @@ test_reconf() ->
 
 test_streams() ->
   set_config([api]),
-  Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/streams"),
-  ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
+  Reply = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/streams", get, [], 1000),
+  ?assertMatch({ok, {{200,_}, _, _}}, Reply),
   ok.
 
 
 
 test_media_info() ->
   set_config([{file, "vod", "../../../priv"}, api]),
-  Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/media_info/vod/bunny.mp4"),
-  ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
+  Reply = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/media_info/vod/bunny.mp4", get, [], 1000),
+  ?assertMatch({ok, {{200,_}, _, _}}, Reply),
   ok.
 
 
 test_server_info() ->
   set_config([api]),
-  Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/server"),
-  ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
+  Reply = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/server", get, [], 1000),
+  ?assertMatch({ok, {{200,_}, _, _}}, Reply),
   ok.
 
 
 test_sessions() ->
   set_config([api]),
-  Reply = httpc:request("http://127.0.0.1:5555/erlyvideo/api/sessions"),
-  ?assertMatch({ok, {{_,200,_}, _, _}}, Reply),
+  Reply = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/sessions", get, [], 1000),
+  ?assertMatch({ok, {{200,_}, _, _}}, Reply),
   ok.
 
 
@@ -116,12 +113,48 @@ test_stream_restart() ->
   ?assertEqual([], flu_stream:list()),
   {ok, _Pid1} = flu_stream:autostart(<<"chan0">>),
   ?assertMatch([_], flu_stream:list()),
-  Reply1 = lhttpc:request("http://127.0.0.1:5555/erlyvideo/api/stream_restart/chan0", get, [], 1000),
+  Reply1 = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/stream_restart/chan0", get, [], 1000),
   ?assertMatch({ok, {{401,_}, _, _}}, Reply1),
-  Reply2 = lhttpc:request("http://admin:pass0@127.0.0.1:5555/erlyvideo/api/stream_restart/chan0", get, [], 1000),
+  Reply2 = lhttpc:request("http://admin:pass0@127.0.0.1:5670/erlyvideo/api/stream_restart/chan0", get, [], 1000),
   ?assertMatch({ok, {{200,_}, _, _}}, Reply2),
   ?assertEqual([], flu_stream:list()),
   ok.
+
+
+test_mainpage_admin() ->
+  filelib:ensure_dir("priv/index.html"),
+  file:write_file("priv/index.html", "good"),
+  set_config([api, {http_auth, "login", "pass"}]),
+  ?assertMatch({ok, {{401,_}, _, _}}, lhttpc:request("http://127.0.0.1:5670/admin", get, [], 1000)),
+  ?assertMatch({ok, {{200,_}, _, _}}, lhttpc:request("http://login:pass@127.0.0.1:5670/admin", get, [], 1000)),
+  ok.
+
+test_mainpage() ->
+  filelib:ensure_dir("priv/index.html"),
+  file:write_file("priv/index.html", "good"),
+  set_config([api, {http_auth, "login", "pass"}]),
+  ?assertMatch({ok, {{401,_}, _, _}}, lhttpc:request("http://127.0.0.1:5670/", get, [], 1000)),
+  ?assertMatch({ok, {{200,_}, _, _}}, lhttpc:request("http://login:pass@127.0.0.1:5670/", get, [], 1000)),
+  ok.
+
+
+test_events_sse() ->
+  set_config([api, {http_auth, "login", "pass"}]),
+  ?assertMatch({ok, {{401,_}, _, _}}, lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/events", get, [{"accept", "text/event-stream"}], 1000)),
+  {ok, Sock} = gen_tcp:connect("127.0.0.1", 5670, [binary,{active,false},{packet,http}]),
+  gen_tcp:send(Sock, ["GET /erlyvideo/api/events HTTP/1.1\r\n" "Host: localhost:8080\r\n" "Accept: text/event-stream\r\n"
+    "Authorization: Basic ",base64:encode("login:pass"), "\r\n"  "\r\n"]),
+  {ok, Reply} = gen_tcp:recv(Sock, 0, 500),
+  ?assertMatch({http_response,_,200,_}, Reply),
+  gen_tcp:close(Sock),
+  ok.
+
+
+
+
+
+
+
 
 
 

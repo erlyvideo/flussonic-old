@@ -30,6 +30,9 @@ main([URL|Args]) ->
 
 loop(RTMP) ->
   receive
-    {rtmp, RTMP, #rtmp_message{timestamp = TS, type = Type}} -> io:format("rtmp ~16.. s ~B~n", [Type, TS]), loop(RTMP);
+    {rtmp, RTMP, #rtmp_message{timestamp = TS, type = Type} = M} -> io:format("rtmp ~16.. s ~B~s~n", [Type, TS, info(M)]), loop(RTMP);
     Msg -> io:format("~p ~n", [Msg])
   end.
+
+info(#rtmp_message{type = metadata, body = Body}) -> io_lib:format(" ~240p", [Body]);
+info(_) -> "".

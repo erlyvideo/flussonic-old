@@ -333,7 +333,9 @@ keyframes(#mp4_media{} = Media) ->
 
 keyframes(#mp4_media{handler = Handler} = Media, Options) ->
   Tracks = tracks_for(Media, Options),
-  Keyframes = Handler:keyframes(Media, Tracks),
-  [{DTS, #frame_id{id = Id, tracks = Tracks}} || {DTS, Id} <- Keyframes].
+  case Handler:keyframes(Media, Tracks) of
+    {error, _} = Error -> Error;
+    Keyframes -> [{DTS, #frame_id{id = Id, tracks = Tracks}} || {DTS, Id} <- Keyframes]
+  end.
 
 

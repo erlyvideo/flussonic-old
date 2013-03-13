@@ -246,11 +246,11 @@ deliver_frame(#media_info{} = MI, #monotone{raw = S, mpegts = Mpegts1, send_mpeg
   M#monotone{mpegts = Mpegts2};
 
 deliver_frame(#video_frame{flavor = keyframe, dts = DTS} = Frame, #monotone{waiting = W, stream = Stream} = Monotone) when W =/= [] ->
-  Configs = configs(Monotone#monotone{current_dts = DTS}),
+  Configs = configs(Monotone#monotone{current_dts = 0}),
   RTMPConfigs = [(flv:rtmp_tag_generator(C))(0, 1) || C <- Configs],
   Monotone1 = lists:foldl(fun
     (#client{proto = raw, pid = Pid} = C, #monotone{raw = Raw} = M) ->
-      [Pid ! F#video_frame{stream_id = Stream} || F <- Configs],
+      [Pid ! F#video_frame{stream_id = Stream, dts = DTS, pts = DTS} || F <- Configs],
       M#monotone{raw = [C|Raw]};
     (#client{proto = rtmp, socket = Socket} = C, #monotone{rtmp = RTMP} = M) ->
       (catch port_command(Socket, RTMPConfigs, [nosuspend])),

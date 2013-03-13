@@ -79,6 +79,8 @@ convert_old_replies(Reply) -> Reply.
 
 normalize_short_replies({ok, {Code, Body}}, Opts, _) when is_number(Code) ->
   {ok, {Code, headers(proplists:get_value(tag, Opts)), Body}};
+normalize_short_replies({ok, Headers, Body}, Opts, _) when is_list(Headers) ->
+  {ok, {200, headers(proplists:get_value(tag, Opts)) ++ Headers, Body}};
 normalize_short_replies({ok, Body}, Opts, _) when is_binary(Body) orelse is_list(Body) ->
   {ok, {200, headers(proplists:get_value(tag, Opts)), Body}};
 normalize_short_replies({json, JSON},_,_) ->

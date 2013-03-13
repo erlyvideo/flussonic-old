@@ -1,6 +1,7 @@
 -module(flu_test).
 
 -compile(export_all).
+-include_lib("eunit/include/eunit.hrl").
 
 
 
@@ -86,6 +87,7 @@ tests(Mod, Prefix) ->
 set_config(Config) ->
   {ok, Compiled} = flu_config:parse_config(Config, undefined),
   application:set_env(flussonic, config, Compiled),
+  cowboy:stop_listener(flu_http),
 
   flu:start_webserver([{http,5670}|Compiled]),
 
@@ -98,6 +100,14 @@ set_config(Config) ->
     [{env,[{dispatch, cowboy_router:compile(AuthDispatch)}]}]),
   wait_for_connect(5671),
   wait_for_connect(5670),
+
+  case proplists:get_value(rtmp, Compiled) of
+    undefined -> ok;
+    RTMP ->
+      rtmp_socket:start_server(RTMP, rtmp_listener1, flu_rtmp),
+      wait_for_connect(RTMP)
+  end,
+
   ok.
 
 

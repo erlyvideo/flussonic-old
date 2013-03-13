@@ -6,6 +6,143 @@
 
 -compile(export_all).
 
+
+
+
+play_stream_test_() ->
+  {setup, flu_test:setup_([{apps,[rtmp]}],fun() ->
+    % flu_test:set_config([{stream, <<"ustream">>, "passive://", []}])
+    ok
+  end),
+  flu_test:teardown_(),
+  [
+  % {"test_stream_is_starting_properly", fun test_stream_is_starting_properly/0}
+  {"playtest_live_stream", fun playtest_live_stream/0}
+  ]}.
+
+
+% test_stream_is_starting_properly() ->
+%   Stream = <<"ustream">>,
+%   {ok, Pid} = flu_stream:find(Stream),
+%   {ok, M} = flussonic_sup:find_stream_helper(Stream, monotone),
+%   gen_server:call(M, {set_start_at,{0,0,0}}),
+%   [Pid ! F || F <- Frames1],
+%   _MI = gen_server:call(Pid, {get, media_info}),
+%   ok.
+
+
+
+play_stream1_test1_() ->
+  {foreach, fun() ->
+    init_all(),
+    ok
+  end, fun teardown_publish/1, [
+    {"playtest_static_stream", fun playtest_static_stream/0}
+    ,{"playtest_autostart_rewrite_stream", fun playtest_autostart_rewrite_stream/0}
+  ]}.
+
+playtest_live_stream() ->
+  ?assertEqual([], flu_stream:list()),
+  flu_test:set_config([{rtmp,1938},{live,"live"}]),
+  {ok, Pid} = flu_stream:autostart(<<"live/ustream">>),
+  {ok, M} = gen_server:call(Pid, start_monotone),
+
+  ?assertMatch([{<<"live/ustream">>, _}], flu_stream:list()),
+
+  AllFrames = h264_aac_frames(),
+  gen_server:call(M, {set_start_at,{0,0,0}}),
+
+  Frames1 = lists:sublist(AllFrames,1,400),
+  [Pid ! F || F <- Frames1],
+  gen_server:call(Pid, {get, media_info}),
+
+
+  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/live/ustream"),
+  rtmp_socket:setopts(RTMP, [{active,true}]),
+  ?assertMatch([{<<"live/ustream">>, _}], flu_stream:list()),
+
+  receive {rtmp,RTMP,#rtmp_message{type = stream_begin, stream_id = 1}} -> ok after 10 -> error(1) end,
+
+  Start = receive {rtmp,RTMP,#rtmp_message{type = metadata, stream_id = 1, body = [<<"onStatus">>|_]} = M1} -> M1 after 10 -> error(2) end,
+  ?assertMatch(#rtmp_message{timestamp = 0}, Start),
+
+  receive {rtmp,RTMP,#rtmp_message{type=audio,body = <<>>,timestamp = 0}} -> ok after 10 -> error(3) end,
+  receive {rtmp,RTMP,#rtmp_message{type=video,body = <<87,0>>,timestamp = 0}} -> ok after 10 -> error(4) end,
+  flush_rtmp_messages(RTMP),
+
+
+  Frames2 = lists:sublist(AllFrames,400,200),
+  [Pid ! F || F <- Frames2],
+  gen_server:call(Pid, {get, media_info}),
+
+  Meta = receive {rtmp,RTMP,#rtmp_message{type = metadata, stream_id = 1, body = [<<"onMetaData">>|_]} = M2} -> M2 after 10 -> error(4) end,
+  ?assertMatch(#rtmp_message{timestamp = 0}, Meta),
+
+  receive {rtmp,RTMP,#rtmp_message{type=video,body = <<23,0,_/binary>>,timestamp = 0}} -> ok after 10 -> error(5) end,
+  receive {rtmp,RTMP,#rtmp_message{type=audio,timestamp = 0}} -> ok after 10 -> error(6) end,
+
+  % rtmp_socket:close(RTMP),
+  ok.
+
+flush_rtmp_messages(RTMP) ->
+  receive
+    {rtmp,RTMP,#rtmp_message{}} -> flush_rtmp_messages(RTMP)
+  after
+    0 -> ok
+  end.
+
+playtest_static_stream() ->
+  ?assertEqual([], flu_stream:list()),
+  set_config([{stream,"mystream", "passive://ok"}]),
+  {ok, Pid} = flu_stream:autostart(<<"mystream">>),
+  {ok, M} = gen_server:call(Pid, start_monotone),
+
+  ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
+
+  spawn(fun() ->
+    timer:sleep(10),
+    gen_server:call(M, {set_start_at,{0,0,0}}),
+    [Pid ! Frame || Frame <- lists:sublist(h264_aac_frames(),1,50)],
+    ok
+  end),
+
+  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/live/mystream"),
+  ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
+  rtmp_socket:close(RTMP),
+  ok.
+
+
+wait_for_stream(Stream, 0) -> error({not_started,Stream});
+wait_for_stream(Stream, Count) ->
+  case flu_stream:find(Stream) of
+    {ok, Pid} -> Pid;
+    undefined -> timer:sleep(10), wait_for_stream(Stream, Count - 1)
+  end.
+
+playtest_autostart_rewrite_stream() ->
+  ?assertEqual([], flu_stream:list()),
+  set_config([{rewrite,"mystream", "passive://ok"}]),
+  spawn(fun() ->
+    Pid = wait_for_stream(<<"mystream">>, 10),
+    {ok, M} = gen_server:call(Pid, start_monotone),
+    gen_server:call(M, {set_start_at,{0,0,0}}),
+    [Pid ! Frame || Frame <- lists:sublist(h264_aac_frames(),1,50)],
+    ok
+  end),
+
+  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/rtmp/mystream"),
+  ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
+  rtmp_socket:close(RTMP),
+  ok.
+
+
+
+
+
+
+
+
+
 -record(env, {
   rtmp,
   stream,
@@ -475,83 +612,6 @@ rtmp_session_auth_test_() ->
 
 %   ok.
 
-
-
-
-
-play_stream_test_() ->
-  {foreach, fun() ->
-    init_all(),
-    #env{}
-  end, fun teardown_publish/1, [
-    {"playtest_live_stream", fun playtest_live_stream/0},
-    {"playtest_static_stream", fun playtest_static_stream/0}
-    ,{"playtest_autostart_rewrite_stream", fun playtest_autostart_rewrite_stream/0}
-  ]}.
-
-playtest_live_stream() ->
-  ?assertEqual([], flu_stream:list()),
-  set_config([{live,"live"}]),
-  {ok, Pid} = flu_stream:autostart(<<"live/ustream">>),
-  {ok, M} = gen_server:call(Pid, start_monotone),
-
-  ?assertMatch([{<<"live/ustream">>, _}], flu_stream:list()),
-
-  spawn(fun() ->
-    timer:sleep(10),
-    gen_server:call(M, {set_start_at,{0,0,0}}),
-    [Pid ! Frame || Frame <- lists:sublist(h264_aac_frames(),1,50)],
-    ok
-  end),
-  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/live/ustream"),
-  ?assertMatch([{<<"live/ustream">>, _}], flu_stream:list()),
-  rtmp_socket:close(RTMP),
-  ok.
-
-
-playtest_static_stream() ->
-  ?assertEqual([], flu_stream:list()),
-  set_config([{stream,"mystream", "passive://ok"}]),
-  {ok, Pid} = flu_stream:autostart(<<"mystream">>),
-  {ok, M} = gen_server:call(Pid, start_monotone),
-
-  ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
-
-  spawn(fun() ->
-    timer:sleep(10),
-    gen_server:call(M, {set_start_at,{0,0,0}}),
-    [Pid ! Frame || Frame <- lists:sublist(h264_aac_frames(),1,50)],
-    ok
-  end),
-
-  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/live/mystream"),
-  ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
-  rtmp_socket:close(RTMP),
-  ok.
-
-
-wait_for_stream(Stream, 0) -> error({not_started,Stream});
-wait_for_stream(Stream, Count) ->
-  case flu_stream:find(Stream) of
-    {ok, Pid} -> Pid;
-    undefined -> timer:sleep(10), wait_for_stream(Stream, Count - 1)
-  end.
-
-playtest_autostart_rewrite_stream() ->
-  ?assertEqual([], flu_stream:list()),
-  set_config([{rewrite,"mystream", "passive://ok"}]),
-  spawn(fun() ->
-    Pid = wait_for_stream(<<"mystream">>, 10),
-    {ok, M} = gen_server:call(Pid, start_monotone),
-    gen_server:call(M, {set_start_at,{0,0,0}}),
-    [Pid ! Frame || Frame <- lists:sublist(h264_aac_frames(),1,50)],
-    ok
-  end),
-
-  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/rtmp/mystream"),
-  ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
-  rtmp_socket:close(RTMP),
-  ok.
 
 
 

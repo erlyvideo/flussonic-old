@@ -42,6 +42,7 @@
 -include_lib("erlmedia/include/media_info.hrl").
 -include_lib("erlmedia/include/mp4.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/file.hrl").
 -define(SEGMENT_DURATION,10000).
 
 -record(state, {
@@ -118,7 +119,7 @@ hds_manifest(Path, Name) when is_binary(Path),is_binary(Name) ->
 hds_fragment(Path, Name, Tracks, Fragment) when is_binary(Path),is_binary(Name),is_list(Tracks),is_integer(Fragment) ->
   case autostart(Path, Name) of
     {ok, Pid} -> 
-      case hds_fragment0(Pid, Fragment, Tracks) of
+      case disk_request(Pid, hds_fragment, Fragment, Tracks) of
         {error, {busy, Error}} -> lager:info("busy error reading ~s/~p~p: ~p", [Name,Tracks,Fragment,Error]),{error,busy};
         Else -> Else
       end;
@@ -127,22 +128,8 @@ hds_fragment(Path, Name, Tracks, Fragment) when is_binary(Path),is_binary(Name),
 
 hds_fragment(Path, Name, Fragment) when is_binary(Path),is_binary(Name),is_integer(Fragment) ->
   case autostart(Path, Name) of
-    {ok, Pid} -> hds_fragment0(Pid, Fragment, undefined);
+    {ok, Pid} -> disk_request(Pid, hds_fragment, Fragment, undefined);
     {error, _} = Error -> Error
-  end.
-
-
-hds_fragment0(Pid, Fragment, Tracks) when is_pid(Pid) ->
-  T1 = os:timestamp(),
-  case make_call(Pid, {hds_fragment, Fragment, Tracks}) of
-    {ok, Segment, Duration, ReadTime} ->
-      T2 = os:timestamp(),
-      Size = iolist_size(Segment),
-      SegmentTime = timer:now_diff(T2,T1),
-      pulse:read_segment(Size, Duration, ReadTime, SegmentTime),
-      {ok, Segment};
-    {error, _} = Error ->
-      Error
   end.
 
 
@@ -174,27 +161,29 @@ hls_mbr_playlist(Path, Name) when is_binary(Path),is_binary(Name) ->
 
 hls_segment(Path, Name, Tracks, Segment) when is_binary(Path),is_binary(Name),is_list(Tracks),is_integer(Segment) ->
   case autostart(Path, Name) of
-    {ok, Pid} -> hls_segment0(Pid, Tracks, Segment);
+    {ok, Pid} -> disk_request(Pid, hls_segment, Segment, Tracks);
     {error, _} = Error -> Error
   end.
 
 hls_segment(Path, Name, Segment) when is_binary(Path),is_binary(Name),is_integer(Segment) ->
   case autostart(Path, Name) of
-    {ok, Pid} -> hls_segment0(Pid, undefined, Segment);
+    {ok, Pid} -> disk_request(Pid, hls_segment, Segment, undefined);
     {error, _} = Error -> Error
   end.
 
 
 
-hls_segment0(Pid, Tracks, Segment) when is_pid(Pid) ->
+disk_request(Pid, Request, Segment, Tracks) when is_pid(Pid) ->
   T1 = os:timestamp(),
-  case make_call(Pid, {hls_segment, Segment, Tracks}) of
-    {ok, Bin, Duration, ReadTime} ->
+  case make_call(Pid, {Request, Segment, Tracks}) of
+    {ok, Headers, Bin, Duration, ReadTime} ->
       T2 = os:timestamp(),
-      Size = iolist_size(Bin),
+      Size = erlang:external_size(Bin),
       SegmentTime = timer:now_diff(T2,T1),
       pulse:read_segment(Size, Duration, ReadTime, SegmentTime),
-      {ok, Bin};
+      ReadHeaders = [{<<"X-DiskTime">>, list_to_binary(integer_to_list(ReadTime))},
+      {<<"X-ReadTime">>, list_to_binary(integer_to_list(SegmentTime))}] ++ Headers,
+      {ok, ReadHeaders, Bin};
     {error, _} = Error ->
       Error
   end.
@@ -208,32 +197,18 @@ read_gop(Root, File, Id) ->
 read_gop(Path, Name, Tracks, Id) when is_binary(Path),is_binary(Name),is_integer(Id)->
   case autostart(Path, Name) of
     {ok, Pid} ->
-      T1 = os:timestamp(),
-      case make_call(Pid, {read_gop, Id, Tracks}) of
-        {ok, Gop, Duration, ReadTime} ->
-          T2 = os:timestamp(),
-          Size = erlang:external_size(Gop),
-          SegmentTime = timer:now_diff(T2,T1),
-          pulse:read_segment(Size, Duration, ReadTime, SegmentTime),
-          {ok, Gop};
-        {error, _} = Error ->
-          Error
+      case disk_request(Pid, read_gop, Id, Tracks) of
+        {ok, _, Gop} -> {ok, Gop};
+        {error, _} = Error -> Error
       end;
     Else ->
       Else
   end.
 
 read_gop(Pid, Id) ->
-  T1 = os:timestamp(),
-  case make_call(Pid, {read_gop, Id, undefined}) of
-    {ok, Gop, Duration, ReadTime} ->
-      T2 = os:timestamp(),
-      Size = erlang:external_size(Gop),
-      SegmentTime = timer:now_diff(T2,T1),
-      pulse:read_segment(Size, Duration, ReadTime, SegmentTime),
-      {ok, Gop};
-    {error, _} = Error ->
-      Error
+  case disk_request(Pid, read_gop, Id, undefined) of
+    {ok, _, Gop} -> {ok, Gop};
+    {error, _} = Error -> Error
   end.
 
 
@@ -300,6 +275,7 @@ init([Name, Options]) ->
   format,
   access,
   file,
+  headers,
   media_info,
   path,
   reader
@@ -324,13 +300,20 @@ init_reader(Parent, Path) ->
     {ok, File} ->
       {ok, Reader} = Format:init({Access, File}, []),
       MediaInfo = Format:media_info(Reader),
+      Headers = case Access:read_file_info(Path) of
+        {ok, #file_info{mtime = Mtime}} when is_tuple(Mtime) ->
+          [{<<"Last-Modified">>, list_to_binary(httpd_util:rfc1123_date(Mtime))}];
+        _ ->
+          []
+      end,
       case MediaInfo of
         #media_info{streams = Streams} when length(Streams) > 0 -> ok;
-        _ -> throw({stop, {invalid_media_info, MediaInfo}, {return, 500, "Invalid media_info in file"}})
+        _ -> proc_lib:init_ack({error, invalid_media_info}), exit(invalid_media_info)
       end,
       Keyframes = video_frame:reduce_keyframes(Format:keyframes(Reader)),
       proc_lib:init_ack({ok, self(), MediaInfo, Keyframes}),
-      ?MODULE:reader_loop(#reader{parent = Parent, format = Format, access = Access, path = Path, file = File, reader = Reader, media_info = MediaInfo});
+      ?MODULE:reader_loop(#reader{parent = Parent, format = Format, access = Access, path = Path, file = File, 
+        headers = Headers, reader = Reader, media_info = MediaInfo});
     {error, _} = Error ->
       proc_lib:init_ack(Error)
   end.
@@ -353,7 +336,8 @@ reader_loop(#reader{} = State) ->
 
 
 
-handle_reader_message(Message, #reader{format = Format, reader = Reader, parent = Parent, path = URL, media_info = #media_info{duration = D} = MI} = State) ->
+handle_reader_message(Message, #reader{format = Format, reader = Reader, parent = Parent, path = URL, headers = Headers,
+  media_info = #media_info{duration = D} = MI} = State) ->
   case Message of
     {'DOWN', _,_,_,_} -> 
       stop;
@@ -391,7 +375,7 @@ handle_reader_message(Message, #reader{format = Format, reader = Reader, parent 
             raw ->
               Gop
           end,
-          {ok, Segment, Duration, ReadTime};
+          {ok, Headers, Segment, Duration, ReadTime};
         {error, _} = Error ->
           Error
       end,
