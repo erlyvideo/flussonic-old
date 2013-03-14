@@ -138,6 +138,9 @@ sync(Proto, Channel, Sync) ->
   a_seq = 0,
   a_scale,
 
+  last_video_dts,
+  audio_dts_shift = 0,
+  shift_count = 0,
   options = []
 }).
 
@@ -393,17 +396,17 @@ handle_info({send_rr, N}, #rtsp{chan1 = Chan1, chan2 = Chan2, socket = Socket, r
   end,
   {noreply, RTSP};
 
-handle_info({udp, S, _, _, RTP}, #rtsp{rtp_chan1 = S, chan1 = Chan, consumer = Consumer} = RTSP) ->
+handle_info({udp, S, _, _, RTP}, #rtsp{rtp_chan1 = S, chan1 = Chan} = RTSP) ->
   {ok, Chan_, Frames} = decode_rtp(RTP, Chan),
-  [Consumer ! Frame || Frame <- Frames],
+  RTSP1 = send_frames(Frames, RTSP#rtsp{chan1 = Chan_}),
   inet:setopts(S, [{active,once}]),
-  {noreply, RTSP#rtsp{chan1 = Chan_}};
+  {noreply, RTSP1};
 
-handle_info({udp, S, _, _, RTP}, #rtsp{rtp_chan2 = S, chan2 = Chan, consumer = Consumer} = RTSP) ->
+handle_info({udp, S, _, _, RTP}, #rtsp{rtp_chan2 = S, chan2 = Chan} = RTSP) ->
   {ok, Chan_, Frames} = decode_rtp(RTP, Chan),
-  [Consumer ! Frame || Frame <- Frames],
+  RTSP1 = send_frames(Frames, RTSP#rtsp{chan2 = Chan_}),
   inet:setopts(S, [{active,once}]),
-  {noreply, RTSP#rtsp{chan2 = Chan_}};
+  {noreply, RTSP1};
 
 handle_info({udp, S, _, _, RTP}, #rtsp{rtcp_chan1 = S1, rtcp_chan2 = S2} = RTSP) when S == S1 orelse S == S2 ->
   Id = if S1 == S -> 0;
@@ -506,7 +509,7 @@ handle_input_rtp(ChannelId, RTP, RTSP) when ChannelId rem 2 == 1 ->
   RTSP1 = decode_rtcp(RTP, RTSP, ChannelId div 2),
   RTSP1;
 
-handle_input_rtp(ChannelId, RTP, #rtsp{consumer = Consumer} = RTSP) ->
+handle_input_rtp(ChannelId, RTP, #rtsp{} = RTSP) ->
   % <<2:2, 0:1, _Extension:1, 0:4, _Marker:1, _PayloadType:7, Sequence:16, Timecode:32, _StreamId:32, Data/binary>>
   ChannelId_ = ChannelId div 2,
   ChannelId_ == 0 orelse ChannelId_ == 1 orelse throw({stop, {unknown_rtp_channel, ChannelId}, RTSP}),
@@ -519,16 +522,29 @@ handle_input_rtp(ChannelId, RTP, #rtsp{consumer = Consumer} = RTSP) ->
       {ok, Chan2, Frames} = decode_rtp(RTP, Chan1),
       % if length(Frames) > 0 andalso ChannelId =/= 0 -> ?D({ChannelId, size(RTP), length(Frames), 
       %   [{C,round(T)} || #video_frame{codec = C, dts = T} <- Frames]}); true -> ok end,
-
-      [Consumer ! Frame || Frame <- Frames],
+      send_frames(Frames, setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan2))
       % <<_:32, TC:32, _/binary>> = RTP,
       % [lager:info("~4s ~8s ~B ~B", [Codec, Flavor, round(DTS), TC]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS, body = Body} <- Frames],
-      setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan2)
   end,
   RTSP1.
 
 
-
+send_frames([], RTSP) -> RTSP;
+send_frames([#video_frame{content = video, dts = DTS} = F | Frames], #rtsp{consumer = Consumer} = RTSP) ->
+  Consumer ! F,
+  send_frames(Frames, RTSP#rtsp{last_video_dts = DTS});
+send_frames([#video_frame{content = audio, dts = DTS} = F | Frames], #rtsp{consumer = Consumer, last_video_dts = VDts, url = URL,
+  audio_dts_shift = AShift, shift_count = Count} = RTSP) when abs(VDts - (DTS + AShift)) > 10000 ->
+  Consumer ! F#video_frame{dts = VDts, pts = VDts},
+  if Count < 3 ->
+    lager:info("AudioDTS shift on RTSP ~s: video: ~B, audio: ~B", [URL, round(VDts), round(DTS)]);
+  true -> ok end,
+  if Count > 6 -> erlang:exit(too_many_audio_shift);
+  true -> ok end,
+  send_frames(Frames, RTSP#rtsp{audio_dts_shift = DTS - VDts, shift_count = Count + 1});
+send_frames([#video_frame{content = audio, dts = DTS} = F | Frames], #rtsp{consumer = Consumer, audio_dts_shift = AShift} = RTSP) ->
+  Consumer ! F#video_frame{dts = DTS + AShift, pts = DTS + AShift},
+  send_frames(Frames, RTSP).
 
 
 

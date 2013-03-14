@@ -1,3 +1,10 @@
+flussonic (3.69.9)
+
+  * added aggressive audio/video sync in RTSP reader
+  * return 424 on dvr status of not-configured streams
+  * fixed dvr segments writing (no PAT was in mpegts)
+  * fixed 302 redirect on long dvr url
+
 flussonic (3.69.8)
 
   * fixed authorization for mainpage broken in 3.69.6

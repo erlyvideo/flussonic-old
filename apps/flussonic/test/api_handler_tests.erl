@@ -150,6 +150,22 @@ test_events_sse() ->
   ok.
 
 
+dvr_status_test_() ->
+  Spec = {setup, flu_test:setup_(),
+  flu_test:teardown_(),
+  [{"dvrtest_bad_status", fun dvrtest_bad_status/0}]},
+
+  case file:read_file_info("../../dvr") of
+    {ok, _} -> Spec;
+    {error, _} -> []
+  end.
+
+
+dvrtest_bad_status() ->
+  flu_test:set_config([{rewrite, "chan0", "passive://"}]),
+  ?assertMatch({ok, {{424,_}, _, _}}, lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/dvr_status/2012/09/15/chan0", get, [], 1000)),
+  ok.
+
 
 
 

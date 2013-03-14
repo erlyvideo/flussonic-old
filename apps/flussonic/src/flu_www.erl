@@ -7,7 +7,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 
--export([forbidden/1, bad_request/1, reply/1]).
+-export([forbidden/1, bad_request/1, redirect/1, reply/1]).
 
 
 
@@ -25,6 +25,9 @@ forbidden(_Req) ->
 
 bad_request(_Req) ->
   {ok, {400, [], "400 Bad request\n"}}.
+
+redirect(Location) ->
+  {ok, {302, [{<<"Location">>, iolist_to_binary(Location)}], ["Location: ", Location, "\n"]}}.
 
 reply(Reply) ->
   Reply.

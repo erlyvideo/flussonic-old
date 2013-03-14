@@ -20,7 +20,7 @@ setup(Fun) when is_function(Fun) ->
   setup([], Fun).
 
 setup(Opts, Fun) ->
-  Apps = [crypto, ranch, gen_tracker, cowboy, public_key, ssl, lhttpc, pulse, http_file, gen_tracker, flussonic] ++ proplists:get_value(apps, Opts, []),
+  Apps = [crypto, ranch, gen_tracker, cowboy, public_key, ssl, lhttpc, pulse, http_file, flussonic] ++ proplists:get_value(apps, Opts, []),
   [application:start(App) || App <- Apps],
   gen_tracker_sup:start_tracker(flu_files),
   gen_tracker_sup:start_tracker(flu_streams),

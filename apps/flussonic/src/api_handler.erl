@@ -290,7 +290,7 @@ health(Name) ->
 dvr_status(Year, Month, Day, Path) ->
   case dvr_handler:list_minutes(Path, Year, Month, Day) of
     undefined ->
-      throw({424, "No stream description or dvr found\n"});
+      {ok, {424, <<"No stream description or dvr found">>}};
     {ok, Minutes} ->
       % ?DBG("list_minutes(~p,~p,~p,~p) -> ~p results", [Path, Year, Month, Day, length(Minutes)]),
       {json, Minutes}
@@ -315,13 +315,9 @@ events_sse_loop(Transport, Socket) ->
   events_sse_loop(Transport,Socket).
 
 
-websocket_init(_TransportName, Req, Opts) ->
-  Mode = proplists:get_value(mode, Opts),
-  case Mode of
-    events -> flu_event:subscribe_to_events(self());
-    _ -> ok
-  end,
-  {ok, Req, {Mode,Opts}}.
+websocket_init(_TransportName, Req, [events, Api]) ->
+  flu_event:subscribe_to_events(self()),
+  {ok, Req, Api}.
 
 websocket_handle({text, <<"pulse">>}, Req, State) ->
   JSON = iolist_to_binary(mochijson2:encode(pulse:json_list())),
