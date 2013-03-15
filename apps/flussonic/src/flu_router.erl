@@ -73,7 +73,7 @@ check_token_authorization({M,F,A,Opts}, AuthURL, Req) ->
         M == dvr_session andalso F == hds_manifest andalso Token =/= undefined andalso Type == token -> A ++ [Token];
         true -> A
       end,
-      {{M,F,A1,[{session_id,SessionId}|Opts]}, Req2};
+      {{M,F,A1,[{session_id,SessionId}|Opts]}, cowboy_req:set_meta(session_id,SessionId,Req2)};
     {error, Code, Reply} ->
       {{flu_www, reply, [{ok,{Code,[], [Reply,"\n"]}}], []}, Req1}
   end.

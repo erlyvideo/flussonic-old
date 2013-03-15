@@ -142,3 +142,49 @@ peername(_) ->
   {ok, {{127,0,0,1}, 45430}}.
 
 
+
+
+
+
+media_info() ->
+  {ok, F} = file:open("../../../priv/bunny.mp4",[read,binary,raw]),
+  {ok, R} = mp4_reader:init({file,F},[]),
+  MediaInfo = mp4_reader:media_info(R),
+  file:close(F),
+  MediaInfo.  
+
+
+gop() ->
+  gop(undefined).
+
+gop(N) ->
+  {ok, F} = file:open("../../../priv/bunny.mp4",[read,binary,raw]),
+  {ok, R} = mp4_reader:init({file,F},[]),
+  {ok, Gop} = mp4_reader:read_gop(R, N),
+  file:close(F),
+  Gop.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

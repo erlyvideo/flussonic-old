@@ -305,10 +305,13 @@ list() ->
   clients().
 
 json_list() ->
-  [{event,'user.list'},{sessions,list()}].
+  [{event,'user.list'},{sessions,[json_clean(Session) || Session <- list()]}].
 
 json_list(Name) ->
-  [{event,'user.list'},{name,Name},{sessions,[ [{K,V} || {K,V} <- Session, is_binary(V) orelse is_list(V) orelse is_number(V)] || Session <- list(), proplists:get_value(name,Session) == Name]}].  
+  [{event,'user.list'},{name,Name},{sessions,[ json_clean(Session) || Session <- list(), proplists:get_value(name,Session) == Name]}].  
+
+json_clean(Session) ->
+  [{K,V} || {K,V} <- Session, is_binary(V) orelse is_list(V) orelse is_number(V)].
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

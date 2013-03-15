@@ -92,6 +92,20 @@ test_media_info() ->
   ?assertMatch({ok, {{200,_}, _, _}}, Reply),
   ok.
 
+test_stream_health() ->
+  ?assertMatch({ok, {{424,_}, _, _}}, lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/stream_health/ustream", get, [], 1000)),
+  set_config([{stream, "ustream", "passive://"}]),
+  ?assertMatch({ok, {{424,_}, _, _}}, lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/stream_health/ustream", get, [], 1000)),
+  {ok,Pid} = flu_stream:autostart(<<"ustream">>),
+  Pid ! flu_test:media_info(),
+  [Pid ! F || F <- flu_test:gop(1)],
+  gen_server:call(Pid, {get,media_info}),
+  ?assertMatch({ok, {{200,_}, _, <<"true\n">>}}, lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/stream_health/ustream", get, [], 1000)),
+  erlang:exit(Pid,shutdown),
+  ok.
+
+
+
 
 test_server_info() ->
   set_config([api]),
@@ -102,8 +116,35 @@ test_server_info() ->
 
 test_sessions() ->
   set_config([api]),
-  Reply = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/sessions", get, [], 1000),
-  ?assertMatch({ok, {{200,_}, _, _}}, Reply),
+  {ok, {{200,_}, _, Json1}} = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/sessions", get, [], 1000),
+  {struct, Sess1} = mochijson2:decode(Json1),
+  ?assertEqual([], proplists:get_value(<<"sessions">>, Sess1)),
+  ?assertEqual(<<"user.list">>, proplists:get_value(<<"event">>, Sess1)),
+
+
+  set_config([{stream, "ustream", "passive://"}]),
+  {ok,Pid} = flu_stream:autostart(<<"ustream">>),
+  {ok, M} = gen_server:call(Pid, start_monotone),
+  gen_server:call(M, {set_start_at,{0,0,0}}),
+
+  Pid ! flu_test:media_info(),
+  [Pid ! F || F <- flu_test:gop(1)],
+  gen_server:call(Pid, {get, media_info}),
+
+
+  {ok, Sock} = gen_tcp:connect("localhost", 5670, [binary,{packet,http},{active,false}]),
+  gen_tcp:send(Sock, "GET /ustream/mpegts HTTP/1.0\r\n\r\n"),
+  {ok, {http_response, _, 200, _}} = gen_tcp:recv(Sock, 0, 1000),
+
+
+  {ok, {{200,_}, _, Json2}} = lhttpc:request("http://127.0.0.1:5670/erlyvideo/api/sessions", get, [], 1000),
+  {struct, Sess2} = mochijson2:decode(Json2),
+  [{struct,Session2}] = proplists:get_value(<<"sessions">>, Sess2),
+
+  ?assertEqual(<<"mpegts">>, proplists:get_value(<<"type">>,Session2)),
+  ?assertEqual(<<"ustream">>, proplists:get_value(<<"name">>,Session2)),
+
+  erlang:exit(Pid, shutdown),
   ok.
 
 

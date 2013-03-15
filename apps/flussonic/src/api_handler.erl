@@ -284,7 +284,7 @@ health(Name) ->
     is_number(Delay) andalso Delay < Limit ->
       {json, true};
     true ->
-      {json, false}
+      {ok, {424, <<"false\n">>}}
   end.
 
 dvr_status(Year, Month, Day, Path) ->

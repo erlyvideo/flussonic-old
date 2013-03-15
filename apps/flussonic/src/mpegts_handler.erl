@@ -26,7 +26,7 @@
 
 -export([request/3]).
 -export([read_loop/3]).
--export([write_loop/3]).
+-export([write_loop/2]).
 -export([null_packet/1]).
 
 
@@ -40,6 +40,10 @@
   pid,
   name,
   options,
+  session_id,
+  mpegts,
+  bytes = 0,
+  started,
   method
 }).
 
@@ -48,11 +52,12 @@
 request(Req, Name, Options) ->
   {Method, Req1} = cowboy_req:method(Req),
   {Peer, Req2} = cowboy_req:peer_addr(Req1),
+  {SessionId,Req3} = cowboy_req:meta(session_id,Req2),
 
   put(name, {mpegts_play,Name,Peer}),
 
-  try handle0(Req2, #mpegts{name = Name, method = Method, options = Options}) of
-    {ok, Req3, _} -> {done, Req3};
+  try handle0(Req3, #mpegts{name = Name, method = Method, options = Options, session_id = SessionId}) of
+    {ok, Req4, _} -> {done, Req4};
     ok -> done
   catch
     throw:stop -> done;
@@ -64,7 +69,7 @@ request(Req, Name, Options) ->
 
 
 
-handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _State) ->
+handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>, session_id = SessionId} = _State) ->
   [Transport, Socket] = cowboy_req:get([transport, socket], Req),
 
   OurName = iolist_to_binary(io_lib:format("mpegts_client(~s)", [Name])),
@@ -80,7 +85,7 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>} = _Stat
   Mpegts = mpegts:init([{resync_on_keyframe,true}]),
   flu_stream:subscribe(Pid, [{proto,tcp_mpegts},{socket,Socket}|Options]),
   Started = length([S || #stream_info{content = video} = S <- Streams]) == 0,
-  ?MODULE:write_loop(Req, Mpegts, Started);
+  ?MODULE:write_loop(Req, #mpegts{mpegts = Mpegts, started = Started, session_id = SessionId});
 
 handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>}) ->
   proplists:get_value(publish_enabled, Options) == true orelse throw({return,403,<<"publish not enabled">>}),
@@ -148,51 +153,59 @@ read_loop(Recorder, Reader, Req) ->
   end.
     
 
-write_loop(Req, Mpegts, Started) ->
+%
+% All frame handling is now in flu_monotone, because we don't want frame handler to encode it anymore
+% 
+write_loop(Req, #mpegts{mpegts = Mpegts, session_id = SessionId, bytes = Bytes1} = State) ->
   receive
-    #video_frame{} = Frame ->
-      handle_frame(Frame, Req, Mpegts, Started);
+    % #video_frame{} = Frame ->
+    %   handle_frame(Frame, Req, State);
     {'DOWN', _, _, _, _} ->
       ok;
     #media_info{} = MI ->
       {Mpegts1, Data} = mpegts:encode(Mpegts, MI),
       tcp_send(Req, Data),
-      ?MODULE:write_loop(Req, Mpegts1, Started);
+      ?MODULE:write_loop(Req, State#mpegts{mpegts = Mpegts1});
     refresh_auth ->
       % TODO add rechecking session info
-      ?MODULE:write_loop(Req, Mpegts, Started);
+      ?MODULE:write_loop(Req, State);
     Message ->
       ?D(Message)
   after
     1000 ->
       null_packet(Req),
-      ?MODULE:write_loop(Req, Mpegts, Started)
+      Socket = cowboy_req:get(socket, Req),
+      {ok, [{send_oct,Bytes2}]} = inet:getstat(Socket, [send_oct]),
+      flu_session:add_bytes(SessionId, Bytes2 - Bytes1),
+      ?MODULE:write_loop(Req, State#mpegts{bytes = Bytes2})
   end.
   
-handle_frame(#video_frame{} = Frame, Req, Mpegts, Started) ->
-  case Frame of
-    #video_frame{flavor = config} = F ->
-      % ?D({F#video_frame.flavor, F#video_frame.codec, round(F#video_frame.dts)}),
-      {Mpegts1, Data} = mpegts:encode(Mpegts, F),
-      tcp_send(Req, Data),
-      ?MODULE:write_loop(Req, Mpegts1, Started);
-    #video_frame{flavor = keyframe} = F when Started == false ->
-      % ?D({F#video_frame.flavor, F#video_frame.codec, round(F#video_frame.dts)}),
-      {Mpegts1, Data} = mpegts:encode(Mpegts, F),
-      tcp_send(Req, Data),
-      ?MODULE:write_loop(Req, Mpegts1, true);
-    #video_frame{} when Started == false ->
-      ?MODULE:write_loop(Req, Mpegts, Started);    
-    #video_frame{} = F ->
-      % ?D({F#video_frame.flavor, F#video_frame.codec, round(F#video_frame.dts)}),
-      case mpegts:encode(Mpegts, F) of
-        {Mpegts1, <<>>} ->
-          ?MODULE:write_loop(Req, Mpegts1, Started);
-        {Mpegts1, Data} ->
-          tcp_send(Req, Data),
-          ?MODULE:write_loop(Req, Mpegts1, Started)
-      end
-  end.
+% handle_frame(#video_frame{} = Frame, Req, #mpegts{mpegts = Mpegts, started = Started} = State) ->
+%   case Frame of
+%     #video_frame{flavor = config} = F ->
+%       % ?D({F#video_frame.flavor, F#video_frame.codec, round(F#video_frame.dts)}),
+%       {Mpegts1, Data} = mpegts:encode(Mpegts, F),
+%       tcp_send(Req, Data),
+%       ?MODULE:write_loop(Req, Mpegts1, Started, SessionId);
+%     #video_frame{flavor = keyframe} = F when Started == false ->
+%       % ?D({F#video_frame.flavor, F#video_frame.codec, round(F#video_frame.dts)}),
+%       {Mpegts1, Data} = mpegts:encode(Mpegts, F),
+%       flu_session:add_bytes(SessionId, iolist_size(Data)),
+%       tcp_send(Req, Data),
+%       ?MODULE:write_loop(Req, Mpegts1, true, SessionId);
+%     #video_frame{} when Started == false ->
+%       ?MODULE:write_loop(Req, Mpegts, Started, SessionId);    
+%     #video_frame{} = F ->
+%       % ?D({F#video_frame.flavor, F#video_frame.codec, round(F#video_frame.dts)}),
+%       case mpegts:encode(Mpegts, F) of
+%         {Mpegts1, <<>>} ->
+%           ?MODULE:write_loop(Req, Mpegts1, Started, SessionId);
+%         {Mpegts1, Data} ->
+%           flu_session:add_bytes(SessionId, iolist_size(Data)),
+%           tcp_send(Req, Data),
+%           ?MODULE:write_loop(Req, Mpegts1, Started, SessionId)
+%       end
+%   end.
 
 
 null_packet(Req) ->

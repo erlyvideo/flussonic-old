@@ -1,23 +1,29 @@
+flussonic (3.69.10)
+
+  * API handler should return 424 on stream health request
+  * fixing flu_session:json_list: failed on sessions with pid EV:25658
+  * mpegts_handler now knows about session_id and counts bytes
+
 flussonic (3.69.9)
 
   * added aggressive audio/video sync in RTSP reader
   * return 424 on dvr status of not-configured streams
-  * fixed dvr segments writing (no PAT was in mpegts)
+  * fixed dvr segments writing (no PAT was in mpegts) EV:25656 #180 #184
   * fixed 302 redirect on long dvr url
 
 flussonic (3.69.8)
 
-  * fixed authorization for mainpage broken in 3.69.6
+  * fixed authorization for mainpage broken in 3.69.6 #172 EV:25598
   * fixed reading of Last-Modified in http_file
   * added Last-Modified to flu_file segments
   * enabled audio-only HLS segments
-  * fixed bug with playing streams in rtmp
+  * fixed bug with playing streams in rtmp EV:25640
 
 flussonic (3.69.7)
 
   * fixed linux stats
-  * autostarting streams in flu_router
-  * fixed failure in start_stream_helper
+  * autostarting streams in flu_router EV:25619 EV:25593
+  * fixed failure in start_stream_helper #170
   * sessions in rtsp play
   * sessions in rtmp play
   * initscript should read /etc/default/flussonic for ASYNC_THREADS
