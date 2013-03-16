@@ -45,8 +45,11 @@ init(Options) ->
 handle_info(#media_info{} = MediaInfo, #hds{} = State) ->
   {noreply, State#hds{media_info = MediaInfo}};
 
+handle_info(#gop{format = mpegts, frames = Bin} = Gop, #hds{} = HDS) ->
+  {ok, Frames} = mpegts_decoder:decode_file(Bin),
+  handle_info(Gop#gop{format = raw, frames = Frames}, HDS);
 
-handle_info({gop, _OpenedAt,[#video_frame{dts = StartDTS}|_], Duration} = Gop, #hds{} = HDS) ->
+handle_info(#gop{format = raw,frames = [#video_frame{dts = StartDTS}|_], duration = Duration} = Gop, #hds{} = HDS) ->
   HDS1 = create_new_fragment(Gop, HDS),
   HDS2 = delete_old_fragment(HDS1),
   HDS3 = regenerate_bootstrap(HDS2, StartDTS+Duration),
@@ -65,7 +68,7 @@ terminate(_,#hds{name = Name, segment = Segment, fragments = Fragments}) ->
 
 
 
-create_new_fragment({gop, _, [#video_frame{dts = DTS}|_]=Frames, _Duration}, 
+create_new_fragment(#gop{frames = [#video_frame{dts = DTS}|_]=Frames}, 
   #hds{fragment = Fragment, segment = Segment, fragments = Fragments, name = Name} = HDS) ->
   
   Configs = make_config(HDS, DTS),

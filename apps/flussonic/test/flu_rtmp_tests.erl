@@ -18,6 +18,10 @@ play_stream_test_() ->
   [
   % {"test_stream_is_starting_properly", fun test_stream_is_starting_properly/0}
   {"playtest_live_stream", fun playtest_live_stream/0}
+  ,{"playtest_static_stream", fun playtest_static_stream/0}
+  ,{"playtest_autostart_rewrite_stream", fun playtest_autostart_rewrite_stream/0}
+  ,{"test_play_file", fun test_play_file/0}
+  ,{"test_seek_file", fun test_seek_file/0}
   ]}.
 
 
@@ -31,15 +35,6 @@ play_stream_test_() ->
 %   ok.
 
 
-
-play_stream1_test1_() ->
-  {foreach, fun() ->
-    init_all(),
-    ok
-  end, fun teardown_publish/1, [
-    {"playtest_static_stream", fun playtest_static_stream/0}
-    ,{"playtest_autostart_rewrite_stream", fun playtest_autostart_rewrite_stream/0}
-  ]}.
 
 playtest_live_stream() ->
   ?assertEqual([], flu_stream:list()),
@@ -82,6 +77,7 @@ playtest_live_stream() ->
   receive {rtmp,RTMP,#rtmp_message{type=audio,timestamp = 0}} -> ok after 10 -> error(6) end,
 
   % rtmp_socket:close(RTMP),
+  erlang:exit(Pid,shutdown),
   ok.
 
 flush_rtmp_messages(RTMP) ->
@@ -93,22 +89,30 @@ flush_rtmp_messages(RTMP) ->
 
 playtest_static_stream() ->
   ?assertEqual([], flu_stream:list()),
-  set_config([{stream,"mystream", "passive://ok"}]),
+  flu_test:set_config([{rtmp,1938},{stream,"mystream", "passive://ok"}]),
   {ok, Pid} = flu_stream:autostart(<<"mystream">>),
   {ok, M} = gen_server:call(Pid, start_monotone),
+  Pid ! flu_test:media_info(),
+
+  gen_server:call(M, {set_start_at,{0,0,0}}),
+  [Pid ! Frame || Frame <- flu_test:gop(1)],
 
   ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
-
-  spawn(fun() ->
-    timer:sleep(10),
-    gen_server:call(M, {set_start_at,{0,0,0}}),
-    [Pid ! Frame || Frame <- lists:sublist(h264_aac_frames(),1,50)],
-    ok
-  end),
 
   {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/live/mystream"),
+  rtmp_lib:sync_call(RTMP, 0, flu_stats, []),
+
+  [Pid ! Frame || Frame <- flu_test:gop(2)],
+
+  rtmp_socket:setopts(RTMP, [{active,true}]),
+  receive
+    {rtmp, RTMP, #rtmp_message{type = video, body = Body}} when size(Body) > 40 -> ok
+  after
+    100 -> error(no_video)
+  end,
   ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
   rtmp_socket:close(RTMP),
+  erlang:exit(Pid,shutdown),
   ok.
 
 
@@ -121,19 +125,152 @@ wait_for_stream(Stream, Count) ->
 
 playtest_autostart_rewrite_stream() ->
   ?assertEqual([], flu_stream:list()),
-  set_config([{rewrite,"mystream", "passive://ok"}]),
-  spawn(fun() ->
+  flu_test:set_config([{rtmp,1938},{rewrite,"mystream", "passive://ok"}]),
+  W = spawn(fun() ->
     Pid = wait_for_stream(<<"mystream">>, 10),
+    Pid ! flu_test:media_info(),
     {ok, M} = gen_server:call(Pid, start_monotone),
     gen_server:call(M, {set_start_at,{0,0,0}}),
-    [Pid ! Frame || Frame <- lists:sublist(h264_aac_frames(),1,50)],
+    [Pid ! Frame || Frame <- flu_test:gop(1)],
+    [Pid ! Frame || Frame <- flu_test:gop(2)],
+    receive _ -> ok after 100 -> ok end,
+    [Pid ! Frame || Frame <- flu_test:gop(3)],
     ok
   end),
 
   {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/rtmp/mystream"),
+  rtmp_lib:sync_call(RTMP, 0, flu_stats, []),
+  rtmp_socket:setopts(RTMP, [{active,true}]),
+  receive
+    {rtmp, _, #rtmp_message{type = video, body = Body}} when size(Body) > 40 -> ok
+  after
+    500 -> error(no_video)
+  end,
   ?assertMatch([{<<"mystream">>, _}], flu_stream:list()),
+  W ! next,
   rtmp_socket:close(RTMP),
+  {ok, Pid} = flu_stream:find(<<"mystream">>),
+  erlang:exit(Pid, shutdown),
   ok.
+
+
+
+
+
+rtmp_file_test_() ->
+  {foreach,
+  fun setup_file/0,
+  fun teardown_publish/1,[
+    % {"test_play_file", fun test_play_file/0}
+    % ,{"test_seek_file", fun test_seek_file/0}
+  ]}.
+
+
+test_play_file() ->
+  ?assertEqual([], flu_session:list()),
+  flu_test:set_config([{rtmp,1938},{file,"vod","../../../priv"}]),
+
+  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4"),
+  receive
+    {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
+    when size(H264) > 20 andalso D1 > 20 -> ok
+  after 100 -> error(no_h264) end,
+  receive
+    {rtmp, RTMP, #rtmp_message{type = audio, body = AAC, timestamp = D2}} 
+    when size(AAC) > 20 andalso D2 > 20 -> ok
+  after 100 -> error(no_aac) end,
+  % flush_rtmp(),
+  [Session] = flu_session:list(),
+  ?assertEqual(<<"rtmp">>, proplists:get_value(type, Session)),
+  Bytes = proplists:get_value(bytes, Session),
+  ?assertMatch(Bytes when Bytes > 0, Bytes),
+  ok.
+
+test_seek_file() ->
+  {ok, RTMP, Stream} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4"),
+  rtmp_lib:seek(RTMP, Stream, 30000),
+  receive
+    {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
+    when size(H264) > 20 andalso D1 > 30020 -> ok
+  after 100 -> error(havent_seeked_h264) end,
+  receive
+    {rtmp, RTMP, #rtmp_message{type = audio, body = AAC, timestamp = D2}} 
+    when size(AAC) > 20 andalso D2 > 30020 -> ok
+  after 100 -> error(havent_seeked_aac) end,
+  % flush_rtmp(),
+  ok.
+
+
+
+
+% test_clients_count_on_rtmp_file() ->
+%   ?assertEqual([], flu_session:list()),
+%   meck:expect(fake_auth, reply, fun(_Req) ->
+%     {200, [], "ok\n"}
+%   end),
+%   set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6071/"}]}]),
+%   {ok, RTMP, _} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4?token=123",
+%     [{pageUrl, <<"http://ya.ru/">>}]),
+
+%   receive
+%     {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
+%     when size(H264) > 20 andalso D1 > 20 -> ok
+%   after 100 -> error(no_h264) end,
+
+%   ?assertMatch(Sessions when length(Sessions) == 1, flu_session:list()),
+%   [Session] = flu_session:list(),
+%   ?assertEqual(<<"rtmp">>, proplists:get_value(type, Session)),
+%   % ?assertEqual(<<"http://ya.ru">>, proplists:get_value(referer, Session)),
+
+%   ok.
+
+
+
+
+% Everything below is based on old infrastructure, not flu_test
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -495,43 +632,6 @@ test_refuse_non_application_publish() ->
   ok.
 
 
-
-rtmp_file_test_() ->
-  {foreach,
-  fun setup_file/0,
-  fun teardown_publish/1,[
-    {"test_play_file", fun test_play_file/0}
-    ,{"test_seek_file", fun test_seek_file/0}
-  ]}.
-
-
-test_play_file() ->
-  {ok, RTMP, _Stream} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4"),
-  receive
-    {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
-    when size(H264) > 20 andalso D1 > 20 -> ok
-  after 100 -> error(no_h264) end,
-  receive
-    {rtmp, RTMP, #rtmp_message{type = audio, body = AAC, timestamp = D2}} 
-    when size(AAC) > 20 andalso D2 > 20 -> ok
-  after 100 -> error(no_aac) end,
-  % flush_rtmp(),
-  ok.
-
-test_seek_file() ->
-  {ok, RTMP, Stream} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4"),
-  rtmp_lib:seek(RTMP, Stream, 30000),
-  receive
-    {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
-    when size(H264) > 20 andalso D1 > 30020 -> ok
-  after 100 -> error(havent_seeked_h264) end,
-  receive
-    {rtmp, RTMP, #rtmp_message{type = audio, body = AAC, timestamp = D2}} 
-    when size(AAC) > 20 andalso D2 > 30020 -> ok
-  after 100 -> error(havent_seeked_aac) end,
-  % flush_rtmp(),
-  ok.
-
 % flush_rtmp() ->
 %   receive
 %     A -> ?debugFmt("~240p",[A])
@@ -588,30 +688,6 @@ rtmp_session_auth_test_() ->
 %   after 100 -> error(no_h264) end,
 
 %   ok.
-
-
-
-% test_clients_count_on_rtmp_file() ->
-%   ?assertEqual([], flu_session:list()),
-%   meck:expect(fake_auth, reply, fun(_Req) ->
-%     {200, [], "ok\n"}
-%   end),
-%   set_config([{file, "vod", "../../../priv", [{sessions, "http://127.0.0.1:6071/"}]}]),
-%   {ok, RTMP, _} = rtmp_lib:play("rtmp://localhost:1938/vod/bunny.mp4?token=123",
-%     [{pageUrl, <<"http://ya.ru/">>}]),
-
-%   receive
-%     {rtmp, RTMP, #rtmp_message{type = video, timestamp = D1, body = <<23,1,_/binary>> = H264}}
-%     when size(H264) > 20 andalso D1 > 20 -> ok
-%   after 100 -> error(no_h264) end,
-
-%   ?assertMatch(Sessions when length(Sessions) == 1, flu_session:list()),
-%   [Session] = flu_session:list(),
-%   ?assertEqual(<<"rtmp">>, proplists:get_value(type, Session)),
-%   % ?assertEqual(<<"http://ya.ru">>, proplists:get_value(referer, Session)),
-
-%   ok.
-
 
 
 

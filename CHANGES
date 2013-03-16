@@ -1,3 +1,10 @@
+flussonic (3.69.11)
+
+  * flussonic-specific extension for sending segments via RTSP
+  * first_dts notification in RTSP origin-edge to have identical DTS
+  * flussonic-specific extension for PTS in RTSP
+  * added prepush buffer to rtmp and rtsp
+
 flussonic (3.69.10)
 
   * API handler should return 424 on stream health request

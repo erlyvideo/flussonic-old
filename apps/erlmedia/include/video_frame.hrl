@@ -23,5 +23,15 @@
 	next_id        = undefined ::any()
 }).
 
+-record(gop,{
+  opened_at :: float(),
+  format = raw :: raw | mpegts,
+  frames = [],
+  duration :: float()
+}).
+
+
+
+
 -type(video_frame() :: #video_frame{}).
 -endif.

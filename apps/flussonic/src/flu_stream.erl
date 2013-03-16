@@ -200,9 +200,11 @@ autostart(Stream, Options) ->
 
 media_info(Stream) ->
   touch(Stream),
-  case flu_stream_data:get(Stream, media_info, 10) of
+  case flu_stream_data:get(Stream, media_info) of
     {ok, MI} -> MI;
-    undefined -> undefined
+    undefined ->
+      {ok, Pid} = autostart(Stream),
+      gen_server:call(Pid, {get, media_info})
   end.
 
 
@@ -645,6 +647,10 @@ handle_info(#video_frame{} = Frame, #stream{} = Stream) ->
   {noreply, Stream1};
 
 
+handle_info(#gop{} = Gop, #stream{} = Stream) ->
+  Stream1 = pass_message(Gop, Stream),
+  {noreply, Stream1};
+
 % handle_info(next_second, #stream{last_dts = DTS, ts_delta = Delta} = Stream) when DTS =/= undefined andalso Delta =/= undefined ->
 %   {_, _, Microsecond} = Now = erlang:now(),
 %   {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_local_time(Now),
@@ -690,6 +696,7 @@ handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Du
   {noreply, Stream4}.
 
 
+% TODO: move flu_monotone:send_frame here and mark this frame as a gop-starter
 feed_gop(#video_frame{flavor = keyframe, dts = DTS} = F, #stream{gop_flush = OldGopFlush, gop = RGop, gop_open = GopOpen, gop_start_dts = StartDTS} = Stream) 
   when length(RGop) > 0 andalso DTS - StartDTS >= ?SEGMENT_DURATION*1000 ->
   catch erlang:cancel_timer(OldGopFlush),
@@ -712,13 +719,13 @@ feed_gop(#video_frame{} = F, #stream{gop = Gop} = Stream) ->
 
 
 
-start_monotone_if_need(#stream{name = Name, last_dts = DTS, monotone = undefined, media_info = MediaInfo} = Stream) ->
+start_monotone_if_need(#stream{name = Name, last_dts = DTS, monotone = undefined, media_info = MediaInfo, options = Options} = Stream) ->
   put(status, start_monotone),
   case flussonic_sup:find_stream_helper(Name, monotone) of
     {ok, M} ->
       {ok, M, Stream#stream{monotone = M}};
     {error, _} ->
-      {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name]}),
+      {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name, Options]}),
       flu_monotone:send_media_info(M, MediaInfo),
       flu_monotone:set_current_dts(M, DTS),
       {ok, M, Stream#stream{monotone = M}}

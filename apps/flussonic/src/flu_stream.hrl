@@ -29,10 +29,3 @@
 
 -define(SEGMENT_DURATION, 3).
 
--record(gop,{
-  opened_at,
-  frames = [],
-  duration
-}).
-
-

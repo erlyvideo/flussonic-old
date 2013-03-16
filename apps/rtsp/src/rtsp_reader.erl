@@ -27,6 +27,8 @@ media_info(RTSP) ->
   consumer,
   media_info,
   proto,
+  need_refetch = false,
+  prefetch_segments = [],
   options
 }).
 
@@ -44,6 +46,20 @@ init([URL, Options]) ->
 handle_info(work, #rtsp{} = RTSP) ->
   RTSP1 = try_read(RTSP),
   {noreply, RTSP1};
+
+handle_info(#video_frame{} = Frame, #rtsp{need_refetch = true, prefetch_segments = Segments1, consumer = Consumer, proto = Proto} = RTSP) ->
+  {ok, 200, _, Playlist} = rtsp_socket:call(Proto, 'LIST_SEGMENTS', []),
+  Segments = Segments1 ++ [begin
+    {ok, 200, _, Body} = rtsp_socket:call(Proto, 'GET_SEGMENT', [{'X-Segment', Seg}]),
+    {Seg,Body}
+  end || Seg <- prefetch_segments(Playlist), lists:keyfind(Seg,1,Segments1) == false],
+  [begin
+    OpenedAt = dvr_minute:timestamp(Seg),
+    Duration = dvr_minute:duration(Seg),
+    Gop = #gop{opened_at = {OpenedAt div 1000000, OpenedAt rem 1000000, 0}, format = mpegts, duration = Duration, frames = Body},
+    Consumer ! Gop
+  end|| {Seg, Body} <- Segments],
+  handle_info(Frame, RTSP#rtsp{need_refetch = false, prefetch_segments = []});
 
 handle_info(#video_frame{codec = Codec} = Frame, #rtsp{consumer = Consumer, queue = Queue1} = RTSP) when 
   Codec == h264 orelse Codec == aac orelse Codec == mp3 ->
@@ -116,7 +132,9 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
   unlink(Proto),
   Ref = erlang:monitor(process, Proto),
 
-  {ok, 200, _, _} = rtsp_socket:call(Proto, 'OPTIONS', []),
+  {ok, 200, OptionsHeaders, _} = rtsp_socket:call(Proto, 'OPTIONS', []),
+  AllowedMethods = [Meth || Meth <- binary:split(proplists:get_value(<<"Public">>, OptionsHeaders, <<>>), [<<",">>,<<" ">>],[global]), Meth =/= <<>>],
+
   {ok, DescribeCode, DescribeHeaders, SDP} = rtsp_socket:call(Proto, 'DESCRIBE', [{'Accept', <<"application/sdp">>}]),
   DescribeCode == 401 andalso throw({rtsp, denied, 401}),
   DescribeCode == 404 andalso throw({rtsp, not_found, 404}),
@@ -162,7 +180,31 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
 
   [rtsp_socket:sync(Proto, N, Sync) || {N, Sync} <- lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo)],
 
-  RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo, proto = Proto}.
+  NeedRefetch = lists:member(<<"GET_SEGMENT">>, AllowedMethods),
+  % Here we want to fill buffer with all segments but last one,
+  % last one is still preparing and we will fetch it after we get first keyframe
+  PrefetchSegments = case NeedRefetch of
+    true ->
+      {ok, 200, _, Playlist} = rtsp_socket:call(Proto, 'LIST_SEGMENTS', []),
+      Segments = prefetch_segments(Playlist),
+      [begin
+        {ok, 200, _, Body} = rtsp_socket:call(Proto, 'GET_SEGMENT', [{'X-Segment', Seg}]),
+        {Seg,Body}
+      end || Seg <- Segments];
+    false ->
+      []
+  end,
+  RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo, proto = Proto, 
+    need_refetch = NeedRefetch, prefetch_segments = PrefetchSegments}.
+
+prefetch_segments(Playlist) when is_binary(Playlist) ->
+  URLs = [Row || <<C,_/binary>> = Row <- binary:split(Playlist, <<"\n">>,[global]), C =/= $#],
+  Count = length(URLs),
+  if 
+    Count =< 4 -> URLs;
+    true -> lists:sublist(URLs, Count - 4, 4)
+  end.
+
 
 
 % Axis cameras have "rtsp://192.168.0.1:554/axis-media/media.amp/trackID=1" in SDP

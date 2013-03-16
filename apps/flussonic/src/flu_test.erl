@@ -101,11 +101,23 @@ set_config(Config) ->
   wait_for_connect(5671),
   wait_for_connect(5670),
 
+  case whereis(rtmp_sup) of
+    undefined -> ok;
+    _ ->
+      supervisor:terminate_child(rtmp_sup, rtmp_listener1),
+      supervisor:delete_child(rtmp_sup, rtmp_listener1)
+  end,
   case proplists:get_value(rtmp, Compiled) of
     undefined -> ok;
     RTMP ->
       rtmp_socket:start_server(RTMP, rtmp_listener1, flu_rtmp),
       wait_for_connect(RTMP)
+  end,
+
+
+  case proplists:get_value(rtsp, Compiled) of
+    undefined -> rtsp:stop_server(rtsp_listener1);
+    RTSPPort -> rtsp:start_server(RTSPPort, rtsp_listener1, flu_rtsp)
   end,
 
   ok.

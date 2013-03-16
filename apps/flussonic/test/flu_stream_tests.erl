@@ -151,16 +151,13 @@ test_monotone_proper_timestamps_in_middle_of_stream() ->
   {ok, Pid} = flu_stream:autostart(Stream, [{source_timeout, false},{url, "passive://url"}]),
   ?assertEqual({error, no_child}, flussonic_sup:find_stream_helper(Stream, monotone)),
 
-  AllFrames = flu_rtmp_tests:h264_aac_frames(),
-  MI = video_frame:define_media_info(undefined, AllFrames),
-  gen_server:call(Pid, {set,MI}),
-  Frames1 = lists:nthtail(250, AllFrames),
-  [Pid ! F || F <- lists:sublist(Frames1, 1, 20)],
+  gen_server:call(Pid, {set,flu_test:media_info()}),
+  [Pid ! F || F <- flu_test:gop(10)],
   ?assertEqual(ok, flu_stream:subscribe(Stream)),
   {ok, M} = flussonic_sup:find_stream_helper(Stream, monotone),
   gen_server:call(M, {set_start_at,{0,0,0}}),
 
-  [Pid ! F || F <- lists:sublist(Frames1, 21, 500)],
+  [Pid ! F || F <- flu_test:gop(11)],
 
   receive
     #video_frame{content = video, flavor = Flavor1, dts = DTS1} ->

@@ -2,6 +2,7 @@
   path,
   module,
 	socket,    % client socket
+  tcp_socket,
 	addr,      % client address
 	port,
 	session_id,

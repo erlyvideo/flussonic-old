@@ -30,6 +30,8 @@
 -export([read/3, read2/3]).
 -export([record/3, announce/3, describe/3, play/3]).
 
+-export([list_segments/1, get_segment/2]).
+
 
 read(Stream, URL_, Options) ->
   URL = re:replace(URL_, "rtsp1://", "rtsp://", [{return,list}]),
@@ -51,6 +53,22 @@ read2(Stream, URL, Options) ->
   catch
     exit:{normal,Reason} -> {error, Reason}
   end.
+
+
+
+
+
+
+
+
+list_segments(Stream) ->
+  flu_stream:hls_playlist(Stream).
+
+
+get_segment(Stream, Segment) ->
+  flu_stream:hls_segment(undefined, Stream, Segment).
+
+
 
 
 announce(URL, Headers, MediaInfo) ->
@@ -172,7 +190,8 @@ describe_archive(Headers) ->
   % end.
 
 to_b(undefined) -> undefined;
-to_b(List) when is_list(List) -> list_to_binary(List). 
+to_b(List) when is_list(List) -> list_to_binary(List);
+to_b(Bin) when is_binary(Bin) -> Bin.
 
 play(URL, Headers, _Body) ->
   {rtsp, _, _Host, _Port, "/"++Path, _} = http_uri2:parse(URL),

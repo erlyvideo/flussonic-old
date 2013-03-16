@@ -9,7 +9,8 @@
 ----
 
 * добавить auth refresh в mpegts_handler
-* добавить session bytes accounting в rtmp
+* добавить auth refresh в rtsp_socket
+* доделать tag_mp4 для разметки треков
 * добавить правильный супервизор а-ля gproc
 * подумать о динамической переписи урлов на паблише
 * догоняющая реплика архива

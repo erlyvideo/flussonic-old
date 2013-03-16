@@ -12,7 +12,7 @@ api_route_test_() ->
   % {"root", ?_assertMatch({api_handler, mainpage, [],_}, r(<<"/">>))}
   {"root", ?_assertMatch({api_handler, mainpage, [],_}, r(<<"/admin">>))}
 
-  ,{"api_sendlogs", ?_assertMatch({api_handler, sendlogs, [],_}, r(<<"/erlyvideo/api/sendlogs">>))}
+  ,{"api_sendlogs", ?_assertMatch({api_handler, sendlogs, [req],_}, r(<<"/erlyvideo/api/sendlogs">>))}
   ,{"api_reload", ?_assertMatch({api_handler, reload, [],_}, r(<<"/erlyvideo/api/reload">>))}
   ,{"api_events", ?_assertMatch(undefined, r(<<"/erlyvideo/api/events">>))}
   ,{"api_streams", ?_assertMatch({api_handler, streams, [],_}, r(<<"/erlyvideo/api/streams">>))}

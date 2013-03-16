@@ -18,7 +18,7 @@ get(_Name, _Key, 0) -> undefined;
 get(Name, Key, Count) ->
   case ets:lookup(flu_stream_data, {Name,Key}) of
     [{{Name,Key}, Value}] -> {ok, Value};
-    [] -> timer:sleep(1000), get(Name, Key, Count - 1)
+    [] -> timer:sleep(200), get(Name, Key, Count - 1)
   end.
 
 get(Name, Key) when is_binary(Name) ->

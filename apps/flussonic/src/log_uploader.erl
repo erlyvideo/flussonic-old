@@ -1,15 +1,25 @@
 -module(log_uploader).
 
--export([upload/0]).
+-export([upload/0, upload/1]).
 -include("log.hrl").
 -include_lib("kernel/include/file.hrl").
 
+
 upload() ->
-  Files = collect_files(),
+  upload([]).
+
+upload(Options) ->
+  Files = collect_files() ++ add_comment(Options),
   Zip = create_zip(Files),
   {ok, Ticket} = request(Zip),
   {ok, Ticket}.
 
+
+add_comment(Options) ->
+  case proplists:get_value(comment, Options, <<>>) of
+    <<>> -> [];
+    Comment -> [{"comment", Comment, file_info(Comment)}]
+  end.
 
 
 

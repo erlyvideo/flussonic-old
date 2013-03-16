@@ -154,10 +154,11 @@ header0(Header, [{K,V}|Headers]) ->
 
 
 dump({rtsp, response, {Code, Status}, Headers, Body}) ->
+  GoodContentType = header(<<"content-type">>, Headers) == <<"application/sdp">>,
   iolist_to_binary(["RTSP/1.0 ", integer_to_list(Code), " ", Status, "\n",
     [[K, ": ",V,"\n"] || {K,V} <- Headers],
     "\n",
-    case Body of undefined -> ""; _ -> Body end
+    if Body =/= undefined andalso GoodContentType -> Body; true -> "" end
   ]);
 
 dump({rtsp, request, {Request, URL}, Headers, Body}) ->

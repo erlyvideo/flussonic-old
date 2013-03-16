@@ -31,7 +31,7 @@
 
 -export([create_client/1]).
 -export([init/1, handle_control/2, handle_rtmp_call/2, handle_info/2]).
--export([no_function/2, publish/2, play/2, seek/2]).
+-export([no_function/2, publish/2, play/2, seek/2, flu_stats/2]).
 
 -export([play_url/3]).
 -export([lookup_config/3]).
@@ -106,11 +106,10 @@ handle_info({read_burst, StreamId, Fragment, BurstCount}, Session) ->
     {ok, Gop} ->
       {noreply, Session1} = rtmp_session:handle_info({ems_stream, StreamId, burst_start}, Session),
 
-      Acc = [begin
+      Bin = [begin
         FlvFrameGen = flv:rtmp_tag_generator(Frame),
         FlvFrameGen(0, StreamId)
       end || Frame <- Gop],
-      Bin = iolist_to_binary(Acc),
       Duration = (lists:last(Gop))#video_frame.dts - (hd(Gop))#video_frame.dts,
 
       RTMP = rtmp_session:get(Session, socket),
@@ -118,8 +117,16 @@ handle_info({read_burst, StreamId, Fragment, BurstCount}, Session) ->
       catch
         exit:{_, _} -> throw({stop, normal, Session})
       end,
-      put(sent_bytes, get(sent_bytes) + size(Bin)),
-      gen_tcp:send(Socket, Bin),
+
+      case gen_tcp:send(Socket, Bin) of
+        ok -> ok;
+        {error, _} -> throw({stop, normal, Session})
+      end,
+      Size = iolist_size(Bin),
+      put(sent_bytes, get(sent_bytes) + Size),
+      SessionId = rtmp_session:get(Session, session_id),
+      flu_session:add_bytes(SessionId, Size),
+
       {noreply, Session2} = rtmp_session:handle_info({ems_stream, StreamId, burst_stop}, Session1),
       Sleep = if BurstCount > 0 -> 0;
         true -> round(Duration)
@@ -139,6 +146,16 @@ handle_info(#media_info{}, State) ->
 
 handle_info(stop, State) ->
   {stop, normal, State};
+
+handle_info(flush_bytes, State) ->
+  Bytes1 = get(bytes),
+  Socket = rtmp_session:get(State, tcp_socket),
+  SessionId = rtmp_session:get(State, session_id),
+  {ok, [{send_oct,Bytes2}]} = inet:getstat(Socket, [send_oct]),
+  flu_session:add_bytes(SessionId, Bytes2 - Bytes1),
+  erlang:send_after(1000, self(), flush_bytes),
+  {noreply, State};
+
 
 handle_info(refresh_auth, State) ->
   case get(auth_info) of
@@ -201,9 +218,9 @@ call_mfa([Module|Modules], Session, #rtmp_funcall{command = Command} = AMF) ->
       call_mfa(Modules, Session, AMF)
   end.
 
-normalize_path(<<"mp4:", Path/binary>>) -> <<Path/binary, ".mp4">>;
-normalize_path(<<"flv:", Path/binary>>) -> <<Path/binary, ".flv">>;
-normalize_path(<<"f4v:", Path/binary>>) -> <<Path/binary, ".f4v">>;
+normalize_path(<<"mp4:", Path/binary>>) -> Path;
+normalize_path(<<"flv:", Path/binary>>) -> Path;
+normalize_path(<<"f4v:", Path/binary>>) -> Path;
 normalize_path(Path) -> Path.
 
 clear_path(<<"/", Path/binary>>) -> Path;
@@ -225,6 +242,11 @@ seek(Session, #rtmp_funcall{args = [null,DTS], stream_id = StreamId} = _AMF) ->
   % rtmp_lib:reply(RTMP, AMF),
 
   rtmp_lib:seek_notify(RTMP, StreamId, DTS),
+  Session.
+
+
+flu_stats(Session, #rtmp_funcall{} = AMF) ->
+  rtmp_session:reply(Session, AMF#rtmp_funcall{args = [null, true]}),
   Session.
 
 
@@ -259,15 +281,15 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
     {ok, Spec} -> Spec
   end,
   StreamName = case Type of
-    file -> iolist_to_binary(StreamName0);
+    file -> iolist_to_binary([App, "/", StreamName0]);
     stream -> iolist_to_binary(StreamName0);
-    live -> Args
+    live -> iolist_to_binary([App, "/", StreamName0])
   end,
 
   ?D({flu_rtmp,StreamName}),
 
-  case proplists:get_value(sessions, Options, true) of
-    false -> ok;
+  Session1 = case proplists:get_value(sessions, Options, true) of
+    false -> Session;
     URL ->
       Token = iolist_to_binary(proplists:get_value("token", QsVals, uuid:gen())),
       Ip = to_b(rtmp_session:get(Session, addr)),
@@ -276,9 +298,9 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
       Referer = rtmp_session:get_field(Session, pageUrl),
       AuthOptions = [{pid,self()},{referer,Referer},{type,<<"rtmp">>}|Options],
       case flu_session:verify(URL, Identity, AuthOptions) of
-        {ok, _} ->
+        {ok, SessionId} ->
           put(auth_info,{URL,Identity,AuthOptions}),
-          ok;
+          rtmp_session:set(Session, session_id, SessionId);
         {error, Code, Message} ->
           lager:info("auth denied play(~s/~s) with token(~s): ~p:~p", [App, StreamName, Token, Code, Message]),
           throw({fail, [403, Code, to_b(Message), App, StreamName, <<"auth_denied">>]})
@@ -290,9 +312,9 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
 
   case find_or_open_media(Type, StreamName, Args, Options) of
     {ok, Media} when Type == file ->
-      play_file(Session, AMF, StreamName, Media);
+      play_file(Session1, AMF, StreamName, Media);
     {ok, Media} ->
-      play_stream(Session, AMF, StreamName, Media);
+      play_stream(Session1, AMF, StreamName, Media);
     undefined ->
       lager:info("no such file or stream ~s//~s", [App, StreamName]),
       throw({fail, [404, fmt("no such file or stream ~s//~s", [App, StreamName])]});
@@ -361,8 +383,11 @@ play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _St
   Session1 = case StreamId of
     1 ->
       RTMP = rtmp_session:get(Session, socket),
-      {rtmp, Socket} = rtmp_socket:get_socket(RTMP),
-      #media_info{streams = Streams} = flu_stream:media_info(StreamName),
+      Socket = rtmp_session:get(Session, tcp_socket),
+      #media_info{streams = Streams} = case flu_stream:media_info(StreamName) of
+        undefined -> timer:sleep(300), flu_stream:media_info(StreamName);
+        MI -> MI
+      end,
       rtmp_lib:play_start(RTMP, StreamId, 0, live),
       case lists:keyfind(audio, #stream_info.content, Streams) of
         false -> ok;
@@ -373,6 +398,9 @@ play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _St
         _ -> rtmp_socket:notify_video(RTMP, StreamId, 0)
       end,
       flu_stream:subscribe(Media, [{proto,rtmp},{socket,Socket}]),
+      {ok, [{send_oct,Bytes}]} = inet:getstat(Socket, [send_oct]),
+      put(bytes,Bytes),
+      erlang:send_after(1000, self(), flush_bytes),
       rtmp_session:set_stream(rtmp_stream:construct([{pid, Media}, {stream_id, StreamId}, {name, StreamName}, 
         {started, true}, {options, [{media_type,stream}]}]), Session);
     _ ->

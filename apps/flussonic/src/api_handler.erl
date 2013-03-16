@@ -39,7 +39,7 @@
 -include_lib("erlmedia/include/video_frame.hrl").
 -include_lib("erlmedia/include/media_info.hrl").
 
--export([reload/0, sendlogs/0, mainpage/0, streams/0, files/0, sessions/1, server/0, pulse/0]).
+-export([reload/0, sendlogs/1, mainpage/0, streams/0, files/0, sessions/1, server/0, pulse/0]).
 -export([stream_restart/1, health/1, media_info/1, dvr_status/4]).
 
 -export([routes/1]).
@@ -118,7 +118,7 @@ api(Command, Api) ->
 api0(<<"mainpage">>, _) ->
   {api_handler, mainpage, [], [{tag,html}]};
 api0(<<"sendlogs">>, _) ->
-  {api_handler, sendlogs, [], []};
+  {api_handler, sendlogs, [req], []};
 api0(<<"reload">>, _) ->
   {api_handler, reload, [], []};
 api0(<<"streams">>, _) ->
@@ -226,8 +226,10 @@ sessions(Req) ->
   {json, List}.
 
 
-sendlogs() ->
-  case log_uploader:upload() of
+sendlogs(Req) ->
+  {ok, Post, _} = cowboy_req:body_qs(Req),
+  Comment = proplists:get_value(<<"comment">>,Post, <<>>),
+  case log_uploader:upload([{comment,Comment}]) of
     {ok, Ticket} ->
       lager:warning("Logs were uploaded to erlyvideo.org with ticket ~s", [Ticket]),
       {json, [{ticket,Ticket}]};
@@ -262,7 +264,7 @@ media_info(Name) ->
     {ok, {Type, Pid}} ->
       MediaInfo = case Type of
         file -> flu_file:media_info(Pid);
-        stream -> flu_stream:media_info(Pid)
+        stream -> flu_stream:media_info(Name)
       end,
       case MediaInfo of
         #media_info{} ->

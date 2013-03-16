@@ -168,12 +168,13 @@ handle_call({socket_ready, RTMP}, From, State) ->
   gen_server:reply(From, ok),
 
   rtmp_socket:setopts(RTMP, [{active, once}]),
+  {rtmp, Socket} = rtmp_socket:get_socket(RTMP),  
   {address, {IP, Port}} = rtmp_socket:getopts(RTMP, address),
   Addr = case IP of
     undefined -> "0.0.0.0";
     _ -> lists:flatten(io_lib:format("~p.~p.~p.~p", erlang:tuple_to_list(IP)))
   end,
-  {noreply, State#rtmp_session{addr = Addr, port = Port, socket = RTMP}};
+  {noreply, State#rtmp_session{addr = Addr, port = Port, socket = RTMP, tcp_socket = Socket}};
 
 
 handle_call({get_field, Field}, _From, State) ->

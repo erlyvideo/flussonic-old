@@ -237,7 +237,7 @@ Erlyvideo = {
       <div id=\"clients-{{vname}}\" style='display: none'>\
         <a href='#' onclick='Erlyvideo.hide_clients(\"{{vname}}\"); return false;' style='width: auto'>Close</a> \
         <table width=\"100%\">\
-          <thead><tr><th>IP</th><th>UserID</th><th>Type</th><th>Name</th><th>Time</th></tr></thead>\
+          <thead><tr><th>IP</th><th>UserID</th><th>Type</th><th>Name</th><th>Time</th><th>Bytes</th></tr></thead>\
           <tbody id=\"clients-list-{{vname}}\"></tbody>\
         </table>\
       </div>\
@@ -249,7 +249,8 @@ Erlyvideo = {
       <td class='stream-restart'><a href='#' onclick='Erlyvideo.restart_stream(\"{{name}}\");return false;'><span class='restart'></span>restart</a></td> \
     </tr>",
   
-  session_template: "<tr id='session-{{id}}' data-id='{{id}}'><td>{{ip}}</td><td>{{user_id}}</td><td>{{type}}</td><td>{{name}}</td><td class='duration'>{{duration}}</td></tr>",
+  session_template: "<tr id='session-{{id}}' data-id='{{id}}'><td>{{ip}}</td><td>{{user_id}}</td><td>{{type}}</td><td>{{name}}</td>" +
+  "<td class='duration'>{{duration}}</td><td class='bytes'>{{bytes}}</td></tr>",
   
   show_dvr_status: function(name, opts) {
     Erlyvideo.current_opened_dvr = name;
@@ -364,6 +365,7 @@ Erlyvideo = {
         var h = $("#session-"+sessions[i].id);
         if(h.length > 0) {
           h.find(".duration").html(sessions[i].duration);
+          h.find(".bytes").html(sessions[i].bytes);
         } else {
           list.append(Mustache.to_html(Erlyvideo.session_template, sessions[i]));
         }
@@ -406,10 +408,12 @@ Erlyvideo = {
     $("#upload-ticket").show().addClass("loading").html("&nbsp;");
     var text = $("#upload-btn").html();
     $("#upload-btn").html("Uploading logs");
+    var comment = $("#sendlogs-comment").val();
     $.ajax({
       type: 'POST',
       url: "/erlyvideo/api/sendlogs",
       dataType: 'json',
+      data: {comment : comment},
 
       success: function(reply) {
         var ticket = reply.ticket;
