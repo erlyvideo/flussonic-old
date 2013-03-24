@@ -117,9 +117,13 @@ media_info(#mp4_media{additional = Additional, duration = Duration, tracks = Tra
         };
       audio when Track#mp4_track.codec == aac andalso Track#mp4_track.decoder_config =/= undefined -> 
         AudioConfig = #aac_config{channel_count = Channels, sample_rate = SampleRate} = aac:decode_config(Track#mp4_track.decoder_config),
-        #audio_params{channels = Channels, sample_rate = SampleRate, config = AudioConfig};
+        #audio_params{channels = Channels, sample_rate = SampleRate, config = AudioConfig, samples = 1024};
       audio -> #audio_params{};
       _ -> undefined
+    end,
+    Timescale = case Content of 
+      audio when is_number(Params#audio_params.sample_rate) -> Params#audio_params.sample_rate / 1000;
+      _ -> 90.0
     end,
     #stream_info{
       content   = Track#mp4_track.content,
@@ -128,6 +132,7 @@ media_info(#mp4_media{additional = Additional, duration = Duration, tracks = Tra
       config    = Track#mp4_track.decoder_config,
       bitrate   = Track#mp4_track.bitrate,
       language  = Track#mp4_track.language,
+      timescale = Timescale,
       params    = Params
     }
   end, tuple_to_list(Tracks)),

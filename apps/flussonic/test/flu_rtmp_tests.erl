@@ -15,14 +15,16 @@ play_stream_test_() ->
     ok
   end),
   flu_test:teardown_(),
-  [
+  [{foreach, fun() ->
+    [flussonic_sup:stop_stream(Name) || {Name,_} <- flu_stream:list()]
+  end, fun(_) -> ok end,[
   % {"test_stream_is_starting_properly", fun test_stream_is_starting_properly/0}
   {"playtest_live_stream", fun playtest_live_stream/0}
   ,{"playtest_static_stream", fun playtest_static_stream/0}
   ,{"playtest_autostart_rewrite_stream", fun playtest_autostart_rewrite_stream/0}
   ,{"test_play_file", fun test_play_file/0}
   ,{"test_seek_file", fun test_seek_file/0}
-  ]}.
+  ]}]}.
 
 
 % test_stream_is_starting_properly() ->
@@ -62,7 +64,7 @@ playtest_live_stream() ->
   ?assertMatch(#rtmp_message{timestamp = 0}, Start),
 
   receive {rtmp,RTMP,#rtmp_message{type=audio,body = <<>>,timestamp = 0}} -> ok after 10 -> error(3) end,
-  receive {rtmp,RTMP,#rtmp_message{type=video,body = <<87,0>>,timestamp = 0}} -> ok after 10 -> error(4) end,
+  receive {rtmp,RTMP,#rtmp_message{type=video,body = <<87,0>>,timestamp = 0}} -> ok after 100 -> error(4) end,
   flush_rtmp_messages(RTMP),
 
 
@@ -70,7 +72,11 @@ playtest_live_stream() ->
   [Pid ! F || F <- Frames2],
   gen_server:call(Pid, {get, media_info}),
 
-  Meta = receive {rtmp,RTMP,#rtmp_message{type = metadata, stream_id = 1, body = [<<"onMetaData">>|_]} = M2} -> M2 after 10 -> error(4) end,
+  Meta = receive 
+    {rtmp,RTMP,#rtmp_message{type = metadata, stream_id = 1, body = [<<"onMetaData">>|_]} = M2} -> M2 
+  after 
+    100 -> error(4) 
+  end,
   ?assertMatch(#rtmp_message{timestamp = 0}, Meta),
 
   receive {rtmp,RTMP,#rtmp_message{type=video,body = <<23,0,_/binary>>,timestamp = 0}} -> ok after 10 -> error(5) end,
@@ -304,26 +310,21 @@ mp3_frame(DTS) ->
 
 
 init_all() ->
-  stop_all(),
-  ok = application:start(ranch),
-  ok = application:start(gen_tracker),
-  ok = application:start(crypto),
+  application:start(ranch),
+  application:start(crypto),
   ok = application:start(flussonic),
-  ok = application:start(cowboy),
-  ok = application:start(rtmp),
+  application:start(cowboy),
+  application:start(rtmp),
   application:start(public_key),
   application:start(pulse),
   application:start(ssl),
   application:start(lhttpc),
-  gen_tracker_sup:start_tracker(flu_streams),
-  gen_tracker_sup:start_tracker(flu_files),
   rtmp_socket:start_server(1938, test_rtmp_listener1, flu_rtmp),
   ok.  
 
 
 stop_all() ->
   error_logger:delete_report_handler(error_logger_tty_h),
-  application:stop(gen_tracker),
   application:stop(flussonic),
   application:stop(pulse),
   application:stop(rtmp),
@@ -609,10 +610,10 @@ test_publish_catch_dvr() ->
   ok = rtmp_lib:publish(RTMP, Stream, <<"stream0">>),
 
   ?assertMatch({ok, Pid} when is_pid(Pid), flu_stream:find(<<"livedvr/stream0">>)),
-  [{<<"livedvr/stream0">>, Attrs}] = gen_tracker:list(flu_streams),
+  [{<<"livedvr/stream0">>, Attrs}] = flu_stream:list(),
   ?assertEqual(true, proplists:get_value(dvr, Attrs)),
 
-  erlang:exit(RTMP, shutdown),
+  rtmp_socket:close(RTMP),
   ok.
 
 

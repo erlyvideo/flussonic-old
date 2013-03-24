@@ -35,7 +35,6 @@ start_link() ->
 
 init([]) ->
   erlang:send_after(1000, self(), recheck),
-  ?D("start watcher"),
   {ok, state}.
 
 % check if started
@@ -44,18 +43,25 @@ recheck(Stream, URL, StreamOpts) ->
   flu_stream:autostart(Stream, Opts).
 
 handle_info(recheck, State) ->
+  try recheck()
+  catch  
+    _:_ -> ok
+  end,
+  erlang:send_after(3000, self(), recheck),
+  {noreply, State}.
+
+terminate(_,_) -> ok.
+
+
+recheck() ->
   erlang:function_exported(flu_config, get_config, 0) orelse begin
-    erlang:send_after(3000, self(), recheck),
-    throw({noreply, State})
+    throw(noreply)
   end,
   Config = flu_config:get_config(),
   % {http, HTTPPort} = lists:keyfind(http, 1, Env),
   Streams = [Name || {Name, _} <- flu_stream:list()],
   ToRestart = [A || {stream, Stream, _, _} = A <- Config, not lists:member(Stream, Streams)],
-  [recheck(Stream, URL, Opts) || {stream, Stream, URL, Opts} <- ToRestart, proplists:get_bool(static, Opts)],
-  erlang:send_after(3000, self(), recheck),
-  {noreply, State}.
+  [recheck(Stream, URL, Opts) || {stream, Stream, URL, Opts} <- ToRestart, proplists:get_bool(static, Opts)].
 
-terminate(_,_) -> ok.
 
 merge(Opts0, Opts1) -> lists:ukeymerge(1, lists:ukeysort(1, Opts0), lists:ukeysort(1, Opts1)).

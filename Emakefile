@@ -15,4 +15,5 @@
 {"apps/dvr/src/*",         [            {outdir, "apps/dvr/ebin"}, {parse_transform, lager_transform}]}.
 {"apps/dvr/src/*/*",       [            {outdir, "apps/dvr/ebin"}, {parse_transform, lager_transform}]}.
 {"apps/hls/src/*",         [            {outdir, "apps/hls/ebin"}, {parse_transform, lager_transform}]}.
+{"apps/central/src/*",     [            {outdir, "apps/central/ebin"}, {parse_transform, lager_transform}]}.
 {"apps/pulse/src/*",       [            {outdir, "apps/pulse/ebin"}, {parse_transform, lager_transform}]}.

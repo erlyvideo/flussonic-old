@@ -404,6 +404,8 @@ new_pes_packet(eof, _DTS, _PTS, #stream{dts = DTS, codec = aac, es_buffer = Buff
 
 % new_pes_packet(<<>>, _, _, #stream{codec = aac} = Stream) ->
 %   Stream;
+new_pes_packet(<<>>, _DTS, _PTS, #stream{codec = aac, sample_rate = undefined} = Stream) ->
+  Stream#stream{frames = []};
 
 new_pes_packet(Data, DTS, PTS, #stream{codec = aac, sample_rate = undefined} = Stream) ->
   {AudioConfig, SampleRate} = aac_config(DTS, Data),

@@ -24,6 +24,11 @@ expand_entry_test_() ->
     {rewrite, "stream2", "fake://stream1", [{dvr,"root"}]}
   ], undefined)),
 
+  ?_assertEqual({ok, [{central, <<"http://central/">>, []}]},
+      flu_config:parse_config([{central, "http://central/"}], undefined)),
+
+  ?_assertEqual({ok, [{central, <<"http://central/">>, [{opt1,val1}]}]},
+      flu_config:parse_config([{central, "http://central/", [{opt1,val1}]}], undefined)),
 
   ?_assertEqual({ok, [{stream, <<"stream1">>, <<"fake://stream1">>, [{static,true}]}]},
       flu_config:parse_config([{stream, "stream1", "fake://stream1"}], undefined)),

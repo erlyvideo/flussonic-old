@@ -44,6 +44,7 @@
 
 -record(h264_sps, {
   profile,
+  profile_compat = 0,
   level,
   sps_id,
   max_frame_num,

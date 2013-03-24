@@ -28,9 +28,9 @@ test_terminate() ->
 % test_gop_with_empty_media_info() ->
 %   {ok, HDS1} = hds_packetizer:init([{name,<<"stream1">>}]),
 %   {noreply, _HDS2} = hds_packetizer:handle_info({gop, gop(2)}, HDS1),
-%   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, hds_manifest)),
-%   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, {hds_fragment, 1, 1})),
-%   ?assertMatch(undefined, flu_stream_data:get(<<"stream1">>, bootstrap)),
+%   ?assertMatch(undefined, gen_tracker:getattr(flu_streams,<<"stream1">>, hds_manifest)),
+%   ?assertMatch(undefined, gen_tracker:getattr(flu_streams,<<"stream1">>, {hds_fragment, 1, 1})),
+%   ?assertMatch(undefined, gen_tracker:getattr(flu_streams,<<"stream1">>, bootstrap)),
 %   ok.
 
 
@@ -52,7 +52,7 @@ test_full_cycle() ->
 
   ?assertEqual({ok, true}, wait(<<"stream1">>, hds, 10)),
 
-  ?assertEqual(undefined, flu_stream_data:get(<<"stream1">>, hds_manifest)),
+  ?assertEqual(undefined, gen_tracker:getattr(flu_streams,<<"stream1">>, hds_manifest)),
 
   Gop = gop(1),
   [flu_stream:send_frame(S, Frame) || Frame <- Gop],
@@ -62,11 +62,11 @@ test_full_cycle() ->
 
 
   ?assertMatch({ok, Fragment} when is_binary(Fragment),
-    flu_stream_data:get(<<"stream1">>, {hds_fragment, 1, 1})),
+    gen_tracker:getattr(flu_streams,<<"stream1">>, {hds_fragment, 1, 1})),
   ?assertMatch({ok, Manifest} when is_binary(Manifest),
-    flu_stream_data:get(<<"stream1">>, hds_manifest)),
+    gen_tracker:getattr(flu_streams,<<"stream1">>, hds_manifest)),
   ?assertMatch({ok, Bootstrap} when is_binary(Bootstrap),
-    flu_stream_data:get(<<"stream1">>, bootstrap)),
+    gen_tracker:getattr(flu_streams,<<"stream1">>, bootstrap)),
 
   % Now lets check full HTTP cycle
 
@@ -80,7 +80,7 @@ test_full_cycle() ->
 
 
 
-  {ok, <<_:32, "mdat", FLV/binary>>} = flu_stream_data:get(<<"stream1">>, {hds_fragment, 1, 1}),
+  {ok, <<_:32, "mdat", FLV/binary>>} = gen_tracker:getattr(flu_streams,<<"stream1">>, {hds_fragment, 1, 1}),
   [#video_frame{content = metadata}|Frames] = flv:read_all_frames(FLV),
   % ?debugFmt("gop: ",[]),
   % [?debugFmt("~4s ~8s ~B", [Codec, Flavor, round(DTS)]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS} <- Gop],
@@ -101,7 +101,7 @@ test_full_cycle() ->
 
 
 
-  {ok, Bootstrap} = flu_stream_data:get(<<"stream1">>, bootstrap),
+  {ok, Bootstrap} = gen_tracker:getattr(flu_streams,<<"stream1">>, bootstrap),
   Atom = mp4:parse_atom(Bootstrap, state),
   {'Bootstrap', Options, <<>>} = Atom,
   ?assertEqual(1, proplists:get_value(live, Options)),

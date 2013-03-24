@@ -70,7 +70,7 @@ handle_info(tick, #ticker{first_dts = undefined, consumer = Consumer, start_at =
     #ticker{frame = undefined} ->
       {stop, normal, Ticker1};
     #ticker{frame = #video_frame{dts = DTS} = Frame} ->
-      flu_stream:publish(Consumer, Frame),
+      flu_stream:send_frame(Consumer, Frame),
       Ticker2 = #ticker{frame = #video_frame{dts = NextDTS}} = fetch_frame(Ticker1),
       Delay = delay(NextDTS, DTS, os:timestamp(), StartAt),
       erlang:send_after(Delay, self(), tick),
@@ -79,7 +79,7 @@ handle_info(tick, #ticker{first_dts = undefined, consumer = Consumer, start_at =
 
 handle_info(tick, #ticker{consumer = Consumer, frame = #video_frame{} = Frame, 
   first_dts = FirstDTS, start_at = StartAt} = Ticker) ->
-  flu_stream:publish(Consumer, Frame),
+  flu_stream:send_frame(Consumer, Frame),
   Ticker2 = #ticker{frame = #video_frame{dts = NextDTS}} = fetch_frame(Ticker),
   Delay = delay(NextDTS, FirstDTS, os:timestamp(), StartAt),
   erlang:send_after(Delay, self(), tick),

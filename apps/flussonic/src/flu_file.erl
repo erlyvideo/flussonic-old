@@ -87,7 +87,8 @@ autostart(File, _) when is_pid(File) ->
   {ok, File};
 
 autostart(Path, Name) ->
-  gen_tracker:find_or_open(flu_files, Name, fun() -> flussonic_sup:start_flu_file(Name, [{path,Path}]) end).
+  MFA = {flu_file, start_link, [Name, [{path,Path}]]},
+  gen_tracker:find_or_open(flu_files, {Name, MFA, temporary, 200, worker, []}).
 
 start_link(Name, Options) ->
   proc_lib:start_link(?MODULE, init, [[Name, Options]]).
@@ -254,7 +255,7 @@ init([Name, Options]) ->
       put(worker_count, 1),
 
       proc_lib:init_ack({ok, self()}),
-      lager:info("open file \"~s\"",[URL]),
+      lager:notice("open file \"~s\"",[URL]),
       gen_server:enter_loop(?MODULE, [], State, Timeout);
     {error, Error} ->
       Message = case Error of
@@ -262,7 +263,7 @@ init([Name, Options]) ->
         eaccess -> {return, 403, lists:flatten(io_lib:format("Forbidden to open file ~s", [Name]))};
         _ -> {return, 500, lists:flatten(io_lib:format("Error ~p opening file ~s", [Error, Name]))}
       end,
-      lager:info("error opening file \"~s\": ~p",[URL, Error]),
+      lager:notice("error opening file \"~s\": ~p",[URL, Error]),
       proc_lib:init_ack({error, Message}),
       ok
   end.

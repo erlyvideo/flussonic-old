@@ -48,11 +48,8 @@ handle_info(work, #rtsp{} = RTSP) ->
   {noreply, RTSP1};
 
 handle_info(#video_frame{} = Frame, #rtsp{need_refetch = true, prefetch_segments = Segments1, consumer = Consumer, proto = Proto} = RTSP) ->
-  {ok, 200, _, Playlist} = rtsp_socket:call(Proto, 'LIST_SEGMENTS', []),
-  Segments = Segments1 ++ [begin
-    {ok, 200, _, Body} = rtsp_socket:call(Proto, 'GET_SEGMENT', [{'X-Segment', Seg}]),
-    {Seg,Body}
-  end || Seg <- prefetch_segments(Playlist), lists:keyfind(Seg,1,Segments1) == false],
+  Segments = Segments1 ++ 
+  [read_segment(Proto, Seg) || Seg <- list_segments(Proto), lists:keyfind(Seg,1,Segments1) == false],
   [begin
     OpenedAt = dvr_minute:timestamp(Seg),
     Duration = dvr_minute:duration(Seg),
@@ -144,7 +141,11 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
   MI1 = #media_info{streams = Streams1} = sdp:decode(SDP),
   MI2 = MI1#media_info{streams = [S || #stream_info{content = Content, codec = Codec} = S <- Streams1,
     (Content == audio orelse Content == video) andalso Codec =/= undefined]},
-  MediaInfo = MI2,
+  MI3 = case proplists:get_value(tracks, Options) of
+    undefined -> MI2;
+    TrackIds -> MI2#media_info{streams = [lists:nth(N,MI2#media_info.streams) || N <- TrackIds]}
+  end,
+  MediaInfo = MI3,
   lists:foldl(fun(#stream_info{options = Opt, track_id = TrackId} = StreamInfo, N) ->
     Control = proplists:get_value(control, Opt),
     Track = control_url(ContentBase, Control),
@@ -174,36 +175,37 @@ try_read0(#rtsp{url = URL, options = Options, rtp_mode = RTPMode} = RTSP) ->
     N + 2
   end, 0, MediaInfo#media_info.streams),
 
-  {ok, PlayCode, PlayHeaders, _} = rtsp_socket:call(Proto, 'PLAY', [{'Range', <<"npt=0.000-">>}]),
+  {ok, PlayCode, _, _} = rtsp_socket:call(Proto, 'PLAY', [{'Range', <<"npt=0.000-">>}]),
   PlayCode == 200 orelse throw({rtsp, rejected_play, PlayCode}),
-  RtpInfo = parse_rtp_info(PlayHeaders),
-
-  [rtsp_socket:sync(Proto, N, Sync) || {N, Sync} <- lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo)],
 
   NeedRefetch = lists:member(<<"GET_SEGMENT">>, AllowedMethods),
   % Here we want to fill buffer with all segments but last one,
   % last one is still preparing and we will fetch it after we get first keyframe
   PrefetchSegments = case NeedRefetch of
-    true ->
-      {ok, 200, _, Playlist} = rtsp_socket:call(Proto, 'LIST_SEGMENTS', []),
-      Segments = prefetch_segments(Playlist),
-      [begin
-        {ok, 200, _, Body} = rtsp_socket:call(Proto, 'GET_SEGMENT', [{'X-Segment', Seg}]),
-        {Seg,Body}
-      end || Seg <- Segments];
-    false ->
-      []
+    true -> [read_segment(Proto, Seg) || Seg <- list_segments(Proto)];
+    false -> []
   end,
   RTSP#rtsp{content_base = ContentBase, media_info = MediaInfo, proto = Proto, 
     need_refetch = NeedRefetch, prefetch_segments = PrefetchSegments}.
 
-prefetch_segments(Playlist) when is_binary(Playlist) ->
-  URLs = [Row || <<C,_/binary>> = Row <- binary:split(Playlist, <<"\n">>,[global]), C =/= $#],
-  Count = length(URLs),
-  if 
-    Count =< 4 -> URLs;
-    true -> lists:sublist(URLs, Count - 4, 4)
+
+list_segments(Proto) ->
+  case rtsp_socket:call(Proto, 'LIST_SEGMENTS', []) of
+    {ok, 200, _, Playlist} ->
+      URLs = [Row || <<C,_/binary>> = Row <- binary:split(Playlist, <<"\n">>,[global]), C =/= $#],
+      Count = length(URLs),
+      if 
+        Count =< 4 -> URLs;
+        true -> lists:sublist(URLs, Count - 4, 4)
+      end;
+    {ok, 404, _, _} ->
+      []
   end.
+
+read_segment(Proto, Seg) ->
+  {ok, 200, _, Body} = rtsp_socket:call(Proto, 'GET_SEGMENT', [{'X-Segment', Seg}]),
+  {Seg,Body}.
+
 
 
 
@@ -251,29 +253,6 @@ parse_content_base(Headers, URL, OldContentBase) ->
   end.
 
 
-parse_rtp_info(Headers) ->
-  case rtsp:header(<<"Rtp-Info">>, Headers) of
-    undefined -> [];
-    S ->parse_rtp_info_header(S)
-  end. 
-
-
-parse_rtp_info_header(String) when is_binary(String) ->
-  parse_rtp_info_header(binary_to_list(String));
-
-parse_rtp_info_header(String) when is_list(String) ->
-  {ok, Re} = re:compile(" *([^=]+)=([^\\r ]*)"),
-  F = fun(S) ->
-    {match, [_, K, V]} = re:run(S, Re, [{capture, all, list}]),
-    Key = list_to_existing_atom(K),
-    Value = case Key of
-      seq -> list_to_integer(V);
-      rtptime -> list_to_integer(V);
-      _ -> V
-    end,
-    {Key, Value}
-  end,
-  [[F(S1) || S1 <- string:tokens(S, ";")] || S <- string:tokens(String, ",")].
 
 
 parse_content_base_test_() ->
@@ -285,12 +264,6 @@ parse_content_base_test_() ->
     parse_content_base([{'Content-Base', "ipcamera"}],
       "rtsp://admin:admin@75.130.113.168:1025", "rtsp://admin:admin@75.130.113.168:1025"))
  ].
-
-parse_rtp_info_test_() ->
-  [
-    ?_assertEqual([[{url,"rtsp://75.130.113.168:1025/11/trackID=0"},{seq,0},{rtptime,3051549469}]], 
-      parse_rtp_info_header("url=rtsp://75.130.113.168:1025/11/trackID=0;seq=0;rtptime=3051549469 "))
-  ].
 
 
 control_url_test_() ->

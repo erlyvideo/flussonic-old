@@ -7,6 +7,5 @@
                   kernel,
                   stdlib
                  ]},
-  {mod, { gen_tracker_app, []}},
   {env, []}
  ]}.

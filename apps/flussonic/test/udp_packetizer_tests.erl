@@ -10,14 +10,12 @@ udp_packetizer_test_() ->
   {foreach,
   fun() ->
     ok = application:start(ranch),
-    ok = application:start(gen_tracker),
     ok = application:start(flussonic),
-    gen_tracker_sup:start_tracker(flu_streams)
+    ok
   end,
   fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
     application:stop(ranch),
-    application:stop(gen_tracker),
     application:stop(flussonic),
     application:stop(inets),
     error_logger:add_report_handler(error_logger_tty_h),

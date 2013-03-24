@@ -66,6 +66,17 @@ test_badly_parse() ->
   ], undefined}, <<"$">>}, rtsp:read(RTSP)).
 
 
+test_hipcam_bad_response() ->
+  RTSP = <<"RTSP/1.0 200 OK\r\nServer: HiIpcam/V100R003 VodServer/1.0.0\r\nCseq: 5\r\n"
+  "Session: 995884314510045\r\nRTP-Info:url=rtsp://host.ru:1554/12/trackID=0;seq=0;rtptime=4270180888 \r\n\r\n">>,
+  ?assertEqual({ok, {rtsp, response, {200, <<"OK">>}, [
+    {<<"Server">>, <<"HiIpcam/V100R003 VodServer/1.0.0">>},
+    {<<"Cseq">>, <<"5">>},
+    {<<"Session">>, <<"995884314510045">>},
+    {<<"RTP-Info">>, <<"url=rtsp://host.ru:1554/12/trackID=0;seq=0;rtptime=4270180888">>}
+  ], undefined}, <<>>}, rtsp:read(RTSP)).
+
+
 test_interleaved1() ->
   {ok, {rtsp, request, {<<"OPTIONS">>, _}, _, _}, R2} = rtsp:read(iolist_to_binary([options_request(), rtp(), response_no_body()])),
   {ok, {rtsp, rtp, 1, _, <<1,2,3,4,5,6,7,8>>}, R3} = rtsp:read(R2),

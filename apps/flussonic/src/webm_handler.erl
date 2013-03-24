@@ -115,7 +115,7 @@ send_frames(#webm{buffer = Bin, stream = Stream, dts = DTS} = Webm) ->
       S = size(Bin) - size(Rest),
       {Cluster, Rest} = erlang:split_binary(Bin, S),
       Frame = #video_frame{flavor = keyframe, content = video, codec = vp8, track_id = 1, dts = DTS, pts = DTS, body = Cluster},
-      flu_stream:publish(Stream, Frame),
+      flu_stream:send_frame(Stream, Frame),
       % ?D({cluster, size(Cluster), DTS}),
       send_frames(Webm#webm{buffer = Rest, dts = DTS+1});
     more ->

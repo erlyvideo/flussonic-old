@@ -89,3 +89,18 @@ get_state(Server) when is_pid(Server) ->
   Stat3 = fun(Pid) -> proplists:get_value("State", Stat2(Pid)) end,
   Stat3(Server).
   
+
+locked() ->
+  List = [begin
+    Info = process_info(Pid),
+    case proplists:get_value(current_function, Info) of
+      {_,server_loop,_} -> undefined;
+      {_,loop,_} -> undefined;
+      {_,fetch_msg,_} -> undefined;
+      {prim_inet,accept0,_} -> undefined;
+      _ -> [{pid,Pid}|Info]
+    end
+  end || Pid <- processes()],
+  lists:sublist(lists:reverse([L || L <- List, L =/= undefined]), 1,5).
+
+

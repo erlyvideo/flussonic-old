@@ -1,58 +1,20 @@
 (function($) {
-  
-  var draw_hour_thumbnails = function(div, hour, camera, opts) {
-    var i;
-    var minutes = {};
-    var path = camera + "/" + hour;
-    var count = 60;
     
-    for(i = 0; i < 60; i++) {
-    	$.getJSON("/erlyvideo/api/dvr_previews/"+hour +"/" + i + "/"+camera, {}, function(reply) {
-    	  var s = '<div class="line">'+reply.minute;
-    	  var j;
-    	  
-    	  if(reply.keyframes.length > 10) {
-    	    var prev = 0;
-    	    var kf = [];
-    	    for(j = 0; j < reply.keyframes.length; j++) {
-    	      if(reply.keyframes[j].dts - prev > 5000) {
-    	        prev = reply.keyframes[j].dts;
-    	        kf[kf.length] = reply.keyframes[j];
-    	      }
-    	    }
-    	    reply.keyframes = kf;
-    	  }
-    	  for(j = 0; j < reply.keyframes.length; j++) {
-          s += '<img title="' + reply.keyframes[j].path+'" src="'+reply.keyframes[j].path +'"/>'
-    	  }
-  	    s += "</div>";
-    		minutes[reply.minute] = s;
-    		count--;
-    		if(count == 0) {
-    		  var h = '<a href="#" onclick="$(\'.dvr_archive\').toggle(); $(\'.hour_thumbnails\').html(\'\'); return false;">Close</a><br>\n';
-    		  for(j = 0; j < 60; j++) {
-    		    h += minutes[j];
-    		  }
-    		  $(div).find('.dvr_archive').toggle();
-      	  $(div).find('.hour_thumbnails').html(h);
-    		}
-    	});
-      
-    }
-  }
-  
   var draw_dvr_status = function(div, year, month, day, camera, reply, opts) {
   	var i,j;
   	
   	var minutes = {};
+    var jpegs = {};
   	for(j = 0; j < 24; j++) {
   		minutes[j] = {};
+      jpegs[j] = {};
   	}
   	for(i = 0; i < reply.length; i++) {
   		var matches = reply[i].path.match(/\d{4}\/\d+\/\d+\/(\d+)\/(\d+)/);
   		var h = parseInt(matches[1], 10);
   		var m = parseInt(matches[2], 10);
   		minutes[h][m] = true;
+      jpegs[h][m] = "/"+camera+"/"+reply[i].jpeg;
   	}
 
 
@@ -73,11 +35,28 @@
   			if((i + 1) % 10 == 0) klass += " ten";
   			else if((i + 1) % 5 == 0) klass += " five";
   			var d = new Date(year, month - 1, day, j, i, 0);
-  			s += "<div class=\"minute "+klass+"\" time='"+(d.getTime() / 1000 - d.getTimezoneOffset()*60)+"'>&nbsp;</div>";
+  			s += "<div class=\"minute "+klass+"\" time='"+(d.getTime() / 1000 - d.getTimezoneOffset()*60)+"' "+
+        (jpegs[j][i] ? "jpeg='"+jpegs[j][i]+"' " : "") +">&nbsp;</div>";
   		}
   		s += "</div>";
   	}
   	$(div).find(".dvr_archive").html(s);
+
+    // var hover_timer = null;
+    // var hover_jpeg = null;
+    // $(div).find("div.minute").mouseover(function() {
+    //   var jpeg = $(this).attr('jpeg');
+    //   if(hover_timer) clearTimeout(hover_timer);
+    //   if(jpeg) {
+    //     hover_timer = setTimeout(function() {
+          
+    //       console.log("show "+jpeg);
+    //     }, 100);
+    //   }
+    // }).mouseout(function() {
+    //   if(hover_timer) clearTimeout(hover_timer);      
+    // })
+
   	var selection_start = null;
   	$(div).find("div.minute").mousedown(function() {
   		selection_start = parseInt($(this).attr('time'), 10);

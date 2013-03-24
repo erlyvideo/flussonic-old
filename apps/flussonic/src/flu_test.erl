@@ -20,22 +20,12 @@ setup(Fun) when is_function(Fun) ->
   setup([], Fun).
 
 setup(Opts, Fun) ->
-  Apps = [crypto, ranch, gen_tracker, cowboy, public_key, ssl, lhttpc, pulse, http_file, flussonic] ++ proplists:get_value(apps, Opts, []),
-  [application:start(App) || App <- Apps],
-  gen_tracker_sup:start_tracker(flu_files),
-  gen_tracker_sup:start_tracker(flu_streams),
-  case proplists:get_value(log,Opts) of
-    undefined -> ok;
-    Level ->
-      application:load(lager),
-      application:set_env(lager,error_logger_redirect,false),
-      Level1 = case Level of
-        true -> info;
-        _ -> Level
-      end,
-      application:set_env(lager,handlers,[{lager_console_backend,Level1}]),
-      lager:start()
-  end,
+  Apps = [crypto, ranch, cowboy, public_key, ssl, lhttpc, pulse, http_file, flussonic] ++ proplists:get_value(apps, Opts, []),
+  [case application:start(App) of
+    ok -> ok;
+    {error, {already_started,App}} -> ok
+  end || App <- Apps],
+  log(proplists:get_value(log,Opts)),
   Mods = proplists:get_value(meck, Opts, []),
   case Mods of
     [] -> ok;
@@ -46,6 +36,19 @@ setup(Opts, Fun) ->
 
   R = Fun(),
   {Apps, Mods, Opts, R}.
+
+
+log() ->
+  log(true).
+
+log(undefined) -> ok;
+log(true) -> log(info);
+log(Level) ->
+  application:load(lager),
+  application:set_env(lager,error_logger_redirect,false),
+  application:set_env(lager,handlers,[{lager_console_backend,Level}]),
+  lager:start().
+
 
 
 teardown({Apps, Mods, Opts, R}, Fun) ->
@@ -87,19 +90,21 @@ tests(Mod, Prefix) ->
 set_config(Config) ->
   {ok, Compiled} = flu_config:parse_config(Config, undefined),
   application:set_env(flussonic, config, Compiled),
+  
   cowboy:stop_listener(flu_http),
-
-  flu:start_webserver([{http,5670}|Compiled]),
+  wait_for_not_connect(5670, 5),
+  {ok, _} = flu:start_webserver([{http,5670}|Compiled]),
+  wait_for_connect(5670, 5),
 
   AuthDispatch = [{'_', [
     {"/auth/:behaviour", fake_auth, []},
     {"/video/[...]", cowboy_static, [{directory, "../../../priv"},{mimetypes, {fun mimetypes:path_to_mimes/2, default}}]}
   ]}],
   cowboy:stop_listener(fake_auth),
-  cowboy:start_http(fake_auth, 1, [{port, 5671}],
+  wait_for_not_connect(5671, 5),
+  {ok, _} = cowboy:start_http(fake_auth, 1, [{port, 5671}],
     [{env,[{dispatch, cowboy_router:compile(AuthDispatch)}]}]),
-  wait_for_connect(5671),
-  wait_for_connect(5670),
+  wait_for_connect(5671, 5),
 
   case whereis(rtmp_sup) of
     undefined -> ok;
@@ -111,7 +116,7 @@ set_config(Config) ->
     undefined -> ok;
     RTMP ->
       rtmp_socket:start_server(RTMP, rtmp_listener1, flu_rtmp),
-      wait_for_connect(RTMP)
+      wait_for_connect(RTMP, 5)
   end,
 
 
@@ -122,11 +127,21 @@ set_config(Config) ->
 
   ok.
 
+wait_for_not_connect(Port, 0) -> error({still_listening,Port});
+wait_for_not_connect(Port, Count) ->
+  case gen_tcp:connect({127,0,0,1}, Port, [binary], 300) of
+    {ok, S} -> gen_tcp:close(S), timer:sleep(10), wait_for_not_connect(Port, Count - 1);
+    {error, econnrefused} -> ok
+  end.
 
-wait_for_connect(Port) ->
-  case gen_tcp:connect("localhost", Port, [binary]) of
+
+wait_for_connect(Port, 0) ->
+  error({not_listening,Port});
+
+wait_for_connect(Port, Count) ->
+  case gen_tcp:connect({127,0,0,1}, Port, [binary]) of
     {ok, S} -> gen_tcp:close(S);
-    {error, econnrefused} -> timer:sleep(10), wait_for_connect(Port)
+    {error, econnrefused} -> timer:sleep(10), wait_for_connect(Port, Count - 1)
   end.
 
 
@@ -178,25 +193,65 @@ gop(N) ->
 
 
 
+% Here goes _very_ simple http client with lhttpc api
+request(URL, Method, Headers, Timeout) ->
+  try request0(URL, Method, Headers, Timeout)
+  catch
+    throw:Reply -> Reply
+  end.
+
+
+request0(URL, Method, Headers, Timeout) ->
+  {ok, {http, _, Host, Port, Path, Query}} = http_uri:parse(URL),
+  {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {active,false}, {packet, http}, 
+    {send_timeout, Timeout}], Timeout),
+
+  Meth = string:to_upper(lists:flatten(io_lib:format("~s", [Method]))),
+  Request = [Meth, " ", Path, Query, " HTTP/1.1\r\n",
+  "Host: ", Host, "\r\n",
+  "Connection: keepalive\r\n",
+  [[K,": ",V,"\r\n"] || {K,V} <- Headers],
+  "\r\n"],
+  ok = gen_tcp:send(Socket, Request),
+  {ok, {http_response, _HttpVersion, Code, Phrase}} = gen_tcp:recv(Socket, 0, Timeout),
+
+  ReplyHeaders = collect_headers(Socket, Timeout),
+  case proplists:get_value("content-length", ReplyHeaders) of
+    undefined ->
+      {ok, {{Code, Phrase}, ReplyHeaders, fun(R) -> body_fun(R,Socket,ReplyHeaders,Timeout) end}};
+    Length ->
+      inet:setopts(Socket, [{packet,raw}]),
+      {ok, Body} = gen_tcp:recv(Socket, list_to_integer(Length), Timeout),
+      gen_tcp:close(Socket),
+      {ok, {{Code, Phrase}, ReplyHeaders, Body}}
+  end.
+
+body_fun(close, Socket, _Headers, _Timeout) ->
+  gen_tcp:close(Socket);
+body_fun(next, Socket, ReplyHeaders, Timeout) ->
+  case proplists:get_value("transfer-encoding",ReplyHeaders) of
+    "chunked" ->
+      inet:setopts(Socket, [{packet,line}]),
+      {ok, Line} = gen_tcp:recv(Socket, 0, Timeout),
+      ChunkSize = list_to_integer(string:sublist(Line,1,length(Line) - 2), 16),
+      inet:setopts(Socket, [{packet,raw}]),
+      {ok, Chunk} = gen_tcp:recv(Socket, ChunkSize, Timeout),
+      {ok, Chunk};
+    _ ->
+      gen_tcp:recv(Socket, 0, Timeout) 
+  end;
+body_fun(Size, Socket, _, Timeout) when is_number(Size) ->
+  inet:setopts(Socket, [{packet,raw}]),
+  gen_tcp:recv(Socket, Size, Timeout).
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+collect_headers(Socket, Timeout) ->
+  case gen_tcp:recv(Socket, 0, Timeout) of
+    {ok, http_eoh} -> [];
+    {ok, {http_header, _, H, _, Value}} ->
+      Header = string:to_lower(if is_atom(H) -> atom_to_list(H); true -> H end),
+      [{Header, Value}|collect_headers(Socket,Timeout)]
+  end.
 

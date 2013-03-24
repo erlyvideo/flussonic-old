@@ -39,6 +39,8 @@ last_gop_test() ->
   ?assertEqual({error, no_segment}, mp4:read_gop(R,17,[1,2])),
   ok.
 
+
+
 missing_gop_test() ->
   {ok, F} = file:open("../../../priv/bunny.mp4", [read,binary,raw]),
   {ok, R} = mp4:open({file,F}, []),
@@ -68,6 +70,24 @@ read_gop_test() ->
 
   file:close(F),
   ok.
+
+
+proper_keyframes_test() ->
+  {ok, F} = file:open("../../../priv/bunny.mp4", [read,binary,raw]),
+  {ok, R} = mp4:open({file,F}, []),
+
+  {ok, Frames1} = mp4:read_gop(R, 1, [1,2]),
+  ?assertMatch(#video_frame{flavor = keyframe}, lists:keyfind(2000.0, #video_frame.dts, Frames1)),
+  ?assertMatch(#video_frame{flavor = keyframe, dts = 0.0}, hd(Frames1)),
+
+
+  {ok, Frames2} = mp4:read_gop(R, 1, [1]),
+  ?assertMatch(#video_frame{flavor = keyframe}, lists:keyfind(2000.0, #video_frame.dts, Frames2)),
+  ?assertMatch(#video_frame{flavor = keyframe, dts = 0.0}, hd(Frames2)),
+
+  file:close(F),
+  ok.
+
 
 
 read_av_gop_test() ->

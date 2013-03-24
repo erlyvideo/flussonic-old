@@ -86,12 +86,12 @@ load() ->
   AllCodeIsLoaded = code:is_loaded(hls),
   case AllCodeIsLoaded of
     {file, _} ->
-      error_logger:info_msg("Flussonic is booting in full-bundled mode~n"),
+      error_logger:info_msg("Flussonic is booting in full-bundled mode"),
       {ok, []};
     false ->  
       case get_license_key() of
         undefined ->
-          error_logger:error_msg("Can't find license key for flussonic. Booting in non-licensed mode~n"),
+          error_logger:error_msg("Can't find license key for flussonic. Booting in non-licensed mode"),
           {error, no_license_key};
         LicenseKey ->
           license_agent:get(license),
@@ -152,7 +152,7 @@ load_code_from_disk(LicenseKey) ->
   Filename = "licensed_content-"++Version++".pack",
   case file:path_open([".", "/etc/flussonic", "/opt/flussonic"], Filename, [read]) of
     {ok, IO, FullName} ->
-      error_logger:info_msg("Loading licensed code from ~s~n", [FullName]),
+      error_logger:info_msg("Loading licensed code from ~s", [FullName]),
       file:close(IO),
       {ok, Cypher} = file:read_file(FullName),
       Bin = crypto:aes_ctr_decrypt(license_to_key(LicenseKey), <<0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>, Cypher),
@@ -191,7 +191,7 @@ unpack_server_response(Bin) ->
           {error,{unknown_license_version, Version}}
       end;
     {error, Reason} ->
-      error_logger:error_msg("Couldn't load license key: ~p~n", [Reason]),
+      error_logger:error_msg("Couldn't load license key: ~p", [Reason]),
       {error, Reason}
   end.
 

@@ -16,6 +16,9 @@ media_request_test_() ->
   ,{"hls_segment", ?_assertEqual({hls_segment, [<<"ort/recorded">>,<<"2012/09/15/23/15/48-04050.ts">>]}, 
     mr(<<"/ort/recorded/2012/09/15/23/15/48-04050.ts">>))}
 
+  ,{"preview_jpeg", ?_assertEqual({preview_jpeg, [<<"ort/recorded">>,<<"2012/09/15/23/15/48.jpg">>]}, 
+    mr(<<"/ort/recorded/2012/09/15/23/15/48.jpg">>))}
+
   ,{"archive_mp4", ?_assertEqual({archive_mp4, [<<"ort/recorded">>,<<"1362504585">>,<<"3600">>]},
     mr(<<"/ort/recorded/archive-1362504585-3600.mp4">>))}
 
@@ -124,6 +127,14 @@ route_test_() ->
     ,{"hls_stream_segment", ?_assertMatch( {flu_stream, hls_segment, [<<"dvr2:/clients">>, <<"rec/32/ustream">>, <<"2012/09/15/23/15/48-04050.ts">>], mpegts},
       r(<<"/rec/32/ustream/2012/09/15/23/15/48-04050.ts">>))}
 
+
+    ,{"preview_jpeg", ?_assertMatch( {flu_stream, preview_jpeg, [undefined, <<"ort">>, <<"2012/09/15/23/15/48.jpg">>], jpeg},
+      r(<<"/ort/2012/09/15/23/15/48.jpg">>))}
+    ,{"preview_jpeg", ?_assertMatch( {flu_stream, preview_jpeg, [<<"dvr2:/storage">>, <<"ort-rec">>, <<"2012/09/15/23/15/48.jpg">>], jpeg},
+      r(<<"/ort-rec/2012/09/15/23/15/48.jpg">>))}
+    ,{"preview_jpeg", ?_assertMatch( {flu_stream, preview_jpeg, [<<"dvr2:/clients">>, <<"rec/32/ustream">>, <<"2012/09/15/23/15/48.jpg">>], jpeg},
+      r(<<"/rec/32/ustream/2012/09/15/23/15/48.jpg">>))}
+
     ,{"archive-mp4", ?_assertMatch( {dvr_handler, mp4, [req, <<"dvr2:/storage">>, <<"ort-rec">>, 1362504585,3600], [mp4,auth]},
       r(<<"/ort-rec/archive-1362504585-3600.mp4">>))}
     ,{"archive-mp4", ?_assertMatch( {dvr_handler, mp4, [req, <<"dvr2:/clients">>, <<"rec/32/ustream">>, 1362504585,3600], [mp4,auth]},
@@ -176,9 +187,9 @@ route_test_() ->
       r(<<"/rec/32/ustream/timeshift_rel/3600">>))}
 
 
-    ,{"hds_manifest", ?_assertMatch( {flu_stream, hds_manifest, [<<"ort">>], [hds,auth]}, r(<<"/ort/manifest.f4m">>) )}
-    ,{"hds_manifest", ?_assertMatch( {flu_stream, hds_manifest, [<<"ort/good">>], [hds,auth]}, r(<<"/ort/good/manifest.f4m">>) )}
-    ,{"hds_manifest", ?_assertMatch( {flu_stream, hds_manifest, [<<"rec/32/ustream">>], [hds,auth]}, r(<<"/rec/32/ustream/manifest.f4m">>) )}
+    ,{"hds_manifest", ?_assertMatch( {flu_stream, hds_manifest, [<<"ort">>, 10], [hds,auth]}, r(<<"/ort/manifest.f4m">>) )}
+    ,{"hds_manifest", ?_assertMatch( {flu_stream, hds_manifest, [<<"ort/good">>, 10], [hds,auth]}, r(<<"/ort/good/manifest.f4m">>) )}
+    ,{"hds_manifest", ?_assertMatch( {flu_stream, hds_manifest, [<<"rec/32/ustream">>, 10], [hds,auth]}, r(<<"/rec/32/ustream/manifest.f4m">>) )}
     ,{"hds_manifest", ?_assertMatch( {flu_file, hds_manifest, [<<"/movies/hobbyt.mp4">>, <<"vod/hobbyt.mp4">>], [hds,auth]}, 
       r(<<"/vod/hobbyt.mp4/manifest.f4m">>) )}
     ,{"hds_manifest", ?_assertMatch( {flu_file, hds_manifest, [<<"/premium/arrow/s01e05.mp4">>, <<"hd/arrow/s01e05.mp4">>], [hds,auth]},
@@ -200,18 +211,18 @@ route_test_() ->
       r(<<"/vod/hobbyt.mp4/hds/0/Seg1-Frag42">>) )}
 
 
-    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"ort">>], [hls,auth]}, r(<<"/ort/index.m3u8">>))}
-    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"ort/good">>], [hls,auth]}, r(<<"/ort/good/index.m3u8">>))}
-    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"ort-rec">>], [hls,auth]}, 
+    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"ort">>, 10], [hls,auth]}, r(<<"/ort/index.m3u8">>))}
+    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"ort/good">>, 10], [hls,auth]}, r(<<"/ort/good/index.m3u8">>))}
+    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"ort-rec">>, 10], [hls,auth]}, 
       r(<<"/ort-rec/index.m3u8">>))}
 
-    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"ort-rec">>], [hls,auth]}, 
+    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"ort-rec">>, 10], [hls,auth]}, 
       r(<<"/ort-rec/playlist.m3u8">>))}
 
 
-    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"clients/15/ustream1">>], [hls,auth]}, 
+    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"clients/15/ustream1">>, 10], [hls,auth]}, 
       r(<<"/clients/15/ustream1/index.m3u8">>))}
-    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"clients/15/ust/ream1">>], [hls,auth]}, 
+    ,{"hls_playlist", ?_assertMatch( {flu_stream, hls_playlist, [<<"clients/15/ust/ream1">>, 10], [hls,auth]}, 
       r(<<"/clients/15/ust/ream1/index.m3u8">>))}
     ,{"hls_playlist", ?_assertMatch( undefined, r(<<"/clients/15/index.m3u8">>))}
 

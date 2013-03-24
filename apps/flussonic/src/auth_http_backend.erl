@@ -61,7 +61,7 @@ verify(URL, Identity, Options) when is_binary(URL) ->
       UserId = to_i(proplists:get_value("x-userid", Headers)),
       Opts0_ = [{auth_time,AuthDuration},{delete_time,DeleteTime},
         {user_id,UserId}] ++ UniqueUid,
-      lager:warning("Backend auth request \"~s\": ~B code, duration: ~B, user_id: ~p, unique: ~p", 
+      lager:info("Backend auth request \"~s\": ~B code, duration: ~B, user_id: ~p, unique: ~p", 
         [RequestURL, Code, AuthDuration, UserId, proplists:get_value(unique,UniqueUid, false)]),
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
       % Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),

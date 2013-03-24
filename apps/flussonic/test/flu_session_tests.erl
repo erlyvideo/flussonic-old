@@ -8,11 +8,8 @@
 
 
 setup_flu_session() ->
-  Apps = [crypto, ranch, gen_tracker, cowboy, public_key, ssl, lhttpc, flussonic, inets],
+  Apps = [crypto, ranch, cowboy, public_key, ssl, lhttpc, flussonic, inets],
   [application:start(App) || App <- Apps],
-  % cowboy:stop_listener(fake_http),
-  gen_tracker_sup:start_tracker(flu_files),
-  gen_tracker_sup:start_tracker(flu_streams),
 
 
   Modules = [flu_session, flu],

@@ -286,7 +286,7 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
     live -> iolist_to_binary([App, "/", StreamName0])
   end,
 
-  ?D({flu_rtmp,StreamName}),
+  lager:info("RTMP play ~s", [StreamName]),
 
   Session1 = case proplists:get_value(sessions, Options, true) of
     false -> Session;

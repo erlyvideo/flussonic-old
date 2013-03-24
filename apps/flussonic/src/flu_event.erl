@@ -32,8 +32,8 @@
 -export([start_link/0, notify/1, add_handler/2, subscribe_to_events/1, add_sup_handler/2, remove_handler/1]).
 -export([start_handlers/0]).
 
--export([user_connected/2, user_disconnected/2, user_play/3, user_stop/3]).
--export([stream_created/2, stream_stopped/1]).
+-export([session_open/2, session_close/2]).
+-export([stream_started/2, stream_stopped/1]).
 -export([add_dvr_fragment/2, delete_dvr_fragment/2]).
 
 -export([hls_bitrate_down/2, hls_bitrate_up/2]).
@@ -177,10 +177,10 @@ remove_handler(Handler) ->
 %% @doc send event that user has connected
 %% @end
 %%----------------------------------------------------------------------
-user_connected(Stream, Stats) ->
+session_open(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = 'user.connected', stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
+  gen_event:notify(?MODULE, #flu_event{event = 'session.open', stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
 %%--------------------------------------------------------------------
 %% @spec (Stream, Stats) -> ok
@@ -188,28 +188,11 @@ user_connected(Stream, Stats) ->
 %% @doc send event that user has disconnected
 %% @end
 %%----------------------------------------------------------------------
-user_disconnected(Stream, Stats) ->
+session_close(Stream, Stats) ->
   UserId = proplists:get_value(user_id, Stats),
   SessionId = proplists:get_value(session_id, Stats),
-  gen_event:notify(?MODULE, #flu_event{event = 'user.disconnected', stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
+  gen_event:notify(?MODULE, #flu_event{event = 'session.close', stream = Stream, session_id = SessionId, user_id = UserId, options = Stats}).
 
-%%--------------------------------------------------------------------
-%% @spec (User, Name) -> ok
-%%
-%% @doc send event that user has started playing
-%% @end
-%%----------------------------------------------------------------------
-user_play(User, StreamName, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = 'user.play', user = User, stream = StreamName, options = Options}).
-
-%%--------------------------------------------------------------------
-%% @spec (User, Name, Stats) -> ok
-%%
-%% @doc send event that user has finished playing
-%% @end
-%%----------------------------------------------------------------------
-user_stop(User, StreamName, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = 'user.stop', user = User, stream = StreamName, options = Options}).
 
 %%--------------------------------------------------------------------
 %% @spec (Name, Stream, Options) -> ok
@@ -217,8 +200,8 @@ user_stop(User, StreamName, Options) ->
 %% @doc send event that stream has been created
 %% @end
 %%----------------------------------------------------------------------
-stream_created(Name, Options) ->
-  gen_event:notify(?MODULE, #flu_event{event = 'stream.created', stream = Name, options = Options}).
+stream_started(Name, Options) ->
+  gen_event:notify(?MODULE, #flu_event{event = 'stream.started', stream = Name, options = Options}).
 
 %%--------------------------------------------------------------------
 %% @spec (Name, Stream) -> ok

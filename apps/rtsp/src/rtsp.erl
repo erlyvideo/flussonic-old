@@ -129,13 +129,25 @@ read_headers(<<"\n", Rest/binary>>) ->
 read_headers(Data) ->
   case binary:split(Data, [<<"\r\n">>, <<"\n">>]) of
     [Header, After] ->
-      [Key, Value] = binary:split(Header, <<": ">>),
+      [Key, Value1] = binary:split(Header, <<":">>),
+      Value2 = case Value1 of
+        <<" ", V/binary>> -> V;
+        _ -> Value1
+      end,
+      Value = strip_space(Value2),
       {Headers, Rest} = read_headers(After),
       {[{Key,Value}|Headers], Rest};
     [_] ->
       throw(more)
   end.
 
+strip_space(<<>>) -> <<>>;
+strip_space(Value) ->
+  Len = size(Value) - 1,
+  case Value of
+    <<V:Len/binary, " ">> -> strip_space(V);
+    _ -> Value
+  end.
 
 to_lower(Atom) when is_atom(Atom) -> to_lower(atom_to_binary(Atom, latin1) );
 to_lower(Bin) -> << <<(if C >= $A andalso C =< $Z -> C bor 2#00100000; true -> C end)/integer>> || <<C>> <= Bin >>.

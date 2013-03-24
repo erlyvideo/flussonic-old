@@ -6,23 +6,19 @@
 Vagrant::Config.run do |config|
 
 
-  config.vm.define :precise64_deploy do |conf|
-    conf.vm.box = "precise64"
-    conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
-    conf.vm.provision :shell, :path => "contrib/manifests/precise64_deply.sh"
-
-    conf.vm.forward_port 8080, 9080
-    conf.vm.forward_port 6081, 9081
-    conf.vm.forward_port 6082, 9082
+  config.vm.define :aegir do |conf|
+    conf.vm.box = "aegir"
+    conf.vm.box_url = "http://ergonlogic.com/files/boxes/debian-current.box"
     conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
 
-  config.vm.define :precise64 do |conf|
-    conf.vm.box = "precise64"
-    conf.vm.box_url = "http://files.vagrantup.com/precise64.box"
-    conf.vm.provision :shell, :path => "contrib/manifests/precise64.sh"
+
+  config.vm.define :debian2 do |conf|
+    conf.vm.box = "debian2"
+    conf.vm.box_url = "http://f.willianfernandes.com.br/vagrant-boxes/DebianSqueeze64.box"
     conf.vm.share_folder "v-apt", "/var/cache/apt/archives", ".vagrant_aptcache"
   end
+
 
   config.vm.define :squeeze64 do |conf|
     conf.vm.box = "squeeze64"

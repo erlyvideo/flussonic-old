@@ -147,8 +147,8 @@ describe(URL, Headers, _Body) ->
     "archive" -> describe_archive(Headers);
     _ -> 
       case flu_media:find_or_open(list_to_binary(Path)) of
-        {ok, {file, File}} -> lager:info("RTSP DESCRIBE file ~p", [Path]), {ok, flu_file:media_info(File)};
-        {ok, {stream, Stream}} -> lager:info("RTSP DESCRIBE stream ~p", [Path]), media_info(Stream);
+        {ok, {file, File}} -> {ok, flu_file:media_info(File)};
+        {ok, {stream, Stream}} -> media_info(Stream);
         {error, enoent} -> lager:info("RTSP DESCRIBE 404 ~p", [Path]), {error, enoent}
       end
   end.
@@ -170,6 +170,7 @@ dvr_session(Headers) ->
   From = parse_time(From_),
   {_, To_} = lists:keyfind("to", 1, Headers),
   To = parse_time(To_),
+  lager:info("RTSP play ~s/~p/~p", [Name, From, To]),
   {ok, Session} = dvr_session:autostart(Name, From, To - From, [{root,Root}]),
   {ok, Session}.
 
@@ -202,6 +203,7 @@ play(URL, Headers, _Body) ->
 
 play_media(Path, Headers) ->
   Name = to_b(Path),
+  lager:info("RTSP play ~s", [Name]),
   Ip = to_b(proplists:get_value(ip,Headers)),
   Token = to_b(proplists:get_value("token",Headers, uuid:gen())),
   Identity = [{name,Name},{ip, Ip},{token,Token}],

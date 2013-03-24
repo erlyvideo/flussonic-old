@@ -57,7 +57,8 @@ to_fmtp(h264, Config) -> h264:to_fmtp(Config);
 to_fmtp(aac, Config) -> aac:to_fmtp(Config);
 to_fmtp(_, _) -> undefined.
 
-encode(#stream_info{content = Content, codec = Codec, track_id = Id, options = Options, config = Config, timescale = Timescale, params = Params} = Stream) 
+encode(#stream_info{content = Content, codec = Codec, track_id = Id, options = Options, config = Config, language = Lang,
+  bitrate = Bitrate, timescale = Timescale, params = Params} = Stream) 
   when Content == video orelse Content == audio ->
   FMTP = case to_fmtp(Codec, Config) of
     undefined -> "";
@@ -73,12 +74,23 @@ encode(#stream_info{content = Content, codec = Codec, track_id = Id, options = O
          _ -> round(Timescale*1000)
        end,
   Control = proplists:get_value(control, Options, io_lib:format("trackID=~p", [Id])),
+
+  Language = case Lang of 
+    undefined -> "";
+    _ -> ["a=lang:",Lang,"\r\n"]
+  end,
+  Bandwidth = case Bitrate of
+    undefined -> "";
+    _ -> io_lib:format("b=AS:~B\r\n", [round(Bitrate)])
+  end,
   SDP = [
     io_lib:format("m=~s ~p RTP/AVP ~p", [Content, proplists:get_value(port, Options, 0), payload_type(Codec)]), ?LSEP,
     "a=control:", Control, ?LSEP,
     io_lib:format("a=rtpmap:~p ~s/~p", [payload_type(Codec), sdp:codec_to_sdp(Codec), SR]), additional_codec_params(Stream), ?LSEP,
     Cliprect,
-    FMTP
+    FMTP,
+    Language,
+    Bandwidth
   ],
   iolist_to_binary(SDP);
 

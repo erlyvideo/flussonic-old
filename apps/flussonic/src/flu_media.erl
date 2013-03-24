@@ -83,7 +83,7 @@ find_or_open0(Path, Headers) ->
 
 
 find(Path) ->
-  case gen_tracker:find(flu_streams, Path) of
+  case flu_stream:find(Path) of
     {ok, Pid} -> 
       {stream, Pid};
     undefined ->
@@ -103,7 +103,7 @@ find_or_open(Path) when is_list(Path) ->
   find_or_open(list_to_binary(Path));
 
 find_or_open(Path) ->
-  case gen_tracker:find(flu_streams, Path) of
+  case flu_stream:find(Path) of
     undefined ->
       case lookup(Path) of
         {ok, {Type, Name, Opts}} ->

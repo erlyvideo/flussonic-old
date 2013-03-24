@@ -121,6 +121,7 @@ headers(f4f) -> [{<<"Content-Type">>, <<"video/f4f">>}];
 headers(hls) -> [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()];
 headers(mpegts) -> [{<<"Content-Type">>, <<"video/MP2T">>}];
 headers(json) -> [{<<"Content-Type">>,<<"application/json">>}];
+headers(jpeg) -> [{<<"Content-Type">>,<<"image/jpeg">>}];
 headers(_) -> [].
 
 

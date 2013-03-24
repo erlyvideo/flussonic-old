@@ -117,7 +117,7 @@ handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>})
 
 
 await_media_info(Name, Req) ->
-  case flu_stream_data:get(Name, media_info) of
+  case gen_tracker:getattr(flu_streams, Name, media_info) of
     undefined ->
       null_packet(Req),
       Socket = cowboy_req:get(socket, Req),

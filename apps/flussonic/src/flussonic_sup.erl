@@ -27,7 +27,7 @@
 
 %% API
 -export([start_link/0]).
--export([start_flu_file/2, start_flu_stream/2, stop_stream/1]).
+-export([stop_stream/1]).
 
 -export([start_stream_helper/3, stop_stream_helper/2, find_stream_helper/2]).
 
@@ -44,29 +44,13 @@
 start_link() ->
   supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_flu_file(Name, Options) when is_binary(Name) ->
-  supervisor:start_child(flu_file_sup, [Name, Options]).
-
-start_flu_stream(Name, Options) when is_binary(Name) ->
-  StreamSup = {Name, {supervisor, start_link, [?MODULE, [flu_stream,Name, Options]]}, temporary, infinity, supervisor, []},
-  {ok, Sup} = supervisor:start_child(flu_streams_sup, StreamSup),
-  {stream, Pid, _, _} = lists:keyfind(stream, 1, supervisor:which_children(Sup)),
-  {ok, Pid}.
-
 
 stop_stream(Stream) when is_binary(Stream) ->
-  case lists:keyfind(Stream, 1, supervisor:which_children(flu_streams_sup)) of
-    {Stream, _Sup, _, _} ->
-      supervisor:terminate_child(flu_streams_sup, Stream),
-      supervisor:delete_child(flu_streams_sup, Stream),
-      ok;
-    false ->
-      {error, no_stream}
-  end.
+  supervisor:delete_child(flu_streams, Stream).
 
 start_stream_helper(Stream, Id, {M,F,A}) when is_binary(Stream) ->
-  case lists:keyfind(Stream, 1, supervisor:which_children(flu_streams_sup)) of
-    {Stream, Sup, _, _} ->
+  case gen_tracker:find(flu_streams, Stream) of
+    {ok, Sup} ->
       {helper, Helper, _, _} = lists:keyfind(helper, 1, supervisor:which_children(Sup)),
       ChildSpec = {Id, {M, F, A}, transient, 200, worker, []},
       case supervisor:start_child(Helper, ChildSpec) of
@@ -80,13 +64,13 @@ start_stream_helper(Stream, Id, {M,F,A}) when is_binary(Stream) ->
           start_stream_helper(Stream, Id, {M,F,A});          
         {error, Error} -> error(Error)
       end;
-    false ->
+    undefined ->
       undefined
   end.
 
 stop_stream_helper(Stream, Id) ->
-  case lists:keyfind(Stream, 1, supervisor:which_children(flu_streams_sup)) of
-    {Stream, Sup, _, _} ->
+  case gen_tracker:find(flu_streams, Stream) of
+    {ok, Sup} ->
       {helper, Helper, _, _} = lists:keyfind(helper, 1, supervisor:which_children(Sup)),
       case lists:keyfind(Id, 1, supervisor:which_children(Helper)) of
         false -> 
@@ -96,14 +80,14 @@ stop_stream_helper(Stream, Id) ->
           supervisor:delete_child(Helper, Id),
           ok
       end;
-    false ->
+    undefined ->
       undefined
   end.
 
 
 find_stream_helper(Stream, Id) ->
-  case lists:keyfind(Stream, 1, supervisor:which_children(flu_streams_sup)) of
-    {Stream, Sup, _, _} ->
+  case gen_tracker:find(flu_streams, Stream) of
+    {ok, Sup} ->
       {helper, Helper, _, _} = lists:keyfind(helper, 1, supervisor:which_children(Sup)),
       case lists:keyfind(Id, 1, supervisor:which_children(Helper)) of
         false ->
@@ -111,26 +95,14 @@ find_stream_helper(Stream, Id) ->
         {Id, Pid, _, _} ->
           {ok, Pid}
       end;
-    false ->
+    undefined ->
       {error, no_stream}
   end.
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
-init([flu_file]) ->
-  {ok, {{simple_one_for_one, 1000, 1000}, [
-    {   undefined,                               % Id       = internal id
-    {flu_file,start_link,[]},                  % StartFun = {M, F, A}
-    temporary,                               % Restart  = permanent | transient | temporary
-    2000,                                    % Shutdown = brutal_kill | int() >= 0 | infinity
-    worker,                                  % Type     = worker | supervisor
-    []                                       % Modules  = [Module] | dynamic
-    }
-  ]}};
 
-init([flu_streams]) ->
-  {ok, {{one_for_one, 1000, 1000}, []}};
 
 init([flu_stream, Name, Options]) ->
   {ok, {{one_for_all, 0, 10}, [
@@ -148,13 +120,6 @@ init([flu_http]) ->
 init([]) ->
   Supervisors = [ 
   {flu_router_sup, {flu_router, start_link, []}, permanent, 100, worker, []},
-  {   flu_file_sup,
-      {supervisor,start_link,[{local, flu_file_sup}, ?MODULE, [flu_file]]},
-      permanent,                               % Restart  = permanent | transient | temporary
-      infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
-      supervisor,                              % Type     = worker | supervisor
-      []                                       % Modules  = [Module] | dynamic
-  },
   {   static_stream_watcher_sup,
       {static_stream_watcher, start_link, []},
       permanent,
@@ -168,13 +133,6 @@ init([]) ->
       1000,
       worker,
       [flu_session]
-  },
-  {   flu_stream_data_sup,
-      {flu_stream_data, start_link, []},
-      permanent,
-      1000,
-      worker,
-      [flu_stream_data]
   },
   {rate_limiter, {rate_limiter, start_link, []}, permanent, 100, worker, [rate_limiter]},
   {   flu_event_sup,
@@ -191,13 +149,8 @@ init([]) ->
       worker,
       [flu_health]
   },
-  {   flu_streams_sup,
-      {supervisor,start_link,[{local, flu_streams_sup}, ?MODULE, [flu_streams]]},
-      permanent,                               % Restart  = permanent | transient | temporary
-      infinity,                                % Shutdown = brutal_kill | int() >= 0 | infinity
-      supervisor,                              % Type     = worker | supervisor
-      []                                       % Modules  = [Module] | dynamic
-  }
+  {flu_streams, {gen_tracker, start_link, [flu_streams]}, permanent, infinity, supervisor, []},
+  {flu_files, {gen_tracker, start_link, [flu_files]}, permanent, infinity, supervisor, []}
   ],
   {ok, { {one_for_one, 5, 10}, Supervisors} }.
 

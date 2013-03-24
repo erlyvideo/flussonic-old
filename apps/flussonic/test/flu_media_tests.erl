@@ -17,20 +17,15 @@ find_or_open_test_() ->
 
 setup() ->
   application:stop(ranch),
-  application:stop(gen_tracker),
   application:stop(flussonic),
   ok = application:start(ranch),
-  ok = application:start(gen_tracker),
   ok = application:start(flussonic),
-  gen_tracker_sup:start_tracker(flu_streams),
-  gen_tracker_sup:start_tracker(flu_files),
   ok.
 
 
 teardown(_) ->
   error_logger:delete_report_handler(error_logger_tty_h),
   application:stop(ranch),
-  application:stop(gen_tracker),
   application:stop(flussonic),
   error_logger:add_report_handler(error_logger_tty_h),
   ok.

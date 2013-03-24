@@ -15,6 +15,8 @@ install:
 	cp priv/sample/flussonic.conf $(DESTDIR)/etc/flussonic/flussonic.conf
 
 
+ct:
+	ct_run -pa `pwd`/apps/*/ebin -pa `pwd`/deps/*/ebin -dir apps/*/test -logdir logs/
 
 test:
 	./rebar eunit skip_deps=true

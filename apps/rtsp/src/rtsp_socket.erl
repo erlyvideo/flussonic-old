@@ -26,7 +26,7 @@
 %% Input API (client mode)
 -export([start_link/1]).
 -export([call/3]).
--export([add_channel/4, connect_channel/4, sync/3]).
+-export([add_channel/4, connect_channel/4]).
 
 -export([to_hex/1, digest_auth/5]).
 
@@ -67,11 +67,6 @@ add_channel(Proto, Channel, StreamInfo, Transport) ->
 
 connect_channel(Proto, Channel, RTP, RTCP) ->
   gen_server:call(Proto, {connect_channel, Channel, RTP, RTCP}).
-
-sync(Proto, Channel, Sync) ->
-  Seq = proplists:get_value(seq, Sync),
-  Time = proplists:get_value(rtptime, Sync),
-  gen_server:call(Proto, {sync, Channel, Seq, Time}).
 
 
 
@@ -203,16 +198,6 @@ init([Options]) ->
 
 
 
-handle_call({sync, Channel, Seq, Timecode}, _From, #rtsp{} = RTSP) ->
-  case element(#rtsp.chan1 + Channel, RTSP) of
-    Chan = #rtp{decoder = Decoder} ->
-      Decoder1 = rtp_decoder:sync(Decoder, [{seq,Seq},{rtptime,Timecode}]),
-      Chan1 = Chan#rtp{decoder = Decoder1, seq = Seq, timecode = Timecode, wall_clock = 0},
-      {reply, ok, setelement(#rtsp.chan1 + Channel, RTSP, Chan1)};
-    undefined ->
-      {reply, {error, no_channel}, RTSP}
-  end;
-
 handle_call(stop, _From, #rtsp{} = RTSP) ->
   {stop, normal, ok, RTSP};
 
@@ -281,7 +266,8 @@ handle_info(#video_frame{content = video, dts = DTS, pts = PTS, track_id = Track
   #rtsp{v_s_rtp = SRTP, v_s_rtcp = SRTCP, v_seq = Seq, first_dts = FDTS} = RTSP) when is_integer(SRTP) ->
   case Frame#video_frame.flavor of
     keyframe ->
-      RTCP = <<2:2, 0:1, 1:5, 204, 4:16, "FlFD", TrackId:32, (round(DTS*90)):64>>,
+      % FIXME: detect here that FDTS + DTS will be an overlap. It is about 49 days
+      RTCP = <<2:2, 0:1, 1:5, 204, 4:16, "FlFD", TrackId:32, (round(FDTS*90)):64>>,
       tcp_send(RTSP, [$$, SRTCP, <<(size(RTCP)):16>>, RTCP]);
     _ ->
       ok
@@ -426,7 +412,6 @@ handle_info({udp, S, _, _, RTP}, #rtsp{rtcp_chan1 = S1, rtcp_chan2 = S2} = RTSP)
   {noreply, RTSP1};
 
 handle_info({udp,S, _, _, _RTCP}, #rtsp{} = RTSP) ->
-  % ?debugFmt("udp ~p, ~p", [S, RTCP]),
   inet:setopts(S, [{active,once}]),
   {noreply, RTSP};
 
@@ -510,7 +495,6 @@ decode_rtcp0(<<_:8, 204, 4:16, "FlFD", _SSRC:32, FirstDTS90:64, RTCP/binary>>, #
   decode_rtcp0(RTCP, RTSP#rtsp{first_dts = FirstDTS}, ChannelId);
 
 decode_rtcp0(<<_, _Code, Len:16, _P1:Len/binary, _P2:Len/binary, _P3:Len/binary, _P4:Len/binary, RTCP/binary>>, #rtsp{} = RTSP, ChannelId) ->
-  % ?debugFmt("unknown RTCP ~p", [Code]),
   decode_rtcp0(RTCP, RTSP, ChannelId);
 
 decode_rtcp0(_, RTSP, _ChannelId) ->
@@ -537,8 +521,8 @@ handle_input_rtp(ChannelId, RTP, #rtsp{first_dts = Shift} = RTSP) ->
         undefined -> Frames1;
         _ -> [F#video_frame{dts = DTS + Shift, pts = PTS + Shift} || #video_frame{dts = DTS, pts = PTS} = F <- Frames1]
       end,
-      % if length(Frames) > 0 andalso ChannelId =/= 0 -> ?D({ChannelId, size(RTP), length(Frames), 
-      %   [{C,round(T)} || #video_frame{codec = C, dts = T} <- Frames]}); true -> ok end,
+      % if length(Frames2) > 0 -> ?debugFmt("~p", [{ChannelId, size(RTP), length(Frames2), 
+      %   [{C,round(T)} || #video_frame{codec = C, dts = T} <- Frames2]}]); true -> ok end,
       send_frames(Frames2, setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan2))
       % <<_:32, TC:32, _/binary>> = RTP,
       % [lager:info("~4s ~8s ~B ~B", [Codec, Flavor, round(DTS), TC]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS, body = Body} <- Frames],
@@ -580,12 +564,9 @@ tcp_send(#rtsp{socket = Socket} = RTSP, IOList) ->
 
 
 
-rtp_packets(#video_frame{codec = h264, dts = DTS, pts = PTS, body = Data, track_id = TrackID}, 
+rtp_packets(#video_frame{codec = h264, dts = DTS, pts = PTS, body = Data, track_id = TrackID, flavor = _Flavor}, 
   #rtsp{v_seq = Seq, v_scale = Scale, length_size = LengthSize}) ->
-  FUA_NALS = lists:flatmap(fun(NAL) -> h264:fua_split(NAL, 1387) end, split_h264_frame(Data, LengthSize)),
-
-  Nals = FUA_NALS,
-
+  Nals = lists:flatmap(fun(NAL) -> h264:fua_split(NAL, 1387) end, split_h264_frame(Data, LengthSize)),
   Packets = pack_h264(Nals, round(DTS*Scale), round((PTS - DTS)*Scale), TrackID, Seq),
   Packets;
 
@@ -616,7 +597,6 @@ pack_h264([NAL|Nals], Timecode, CTime, TrackID, Seq) ->
     [] -> 1;
     _ -> 0
   end,
-  % TODO: add extension for composition time
   {ExtFlag,Extension} = case CTime of
     0 -> {0,<<>>};
     _ -> {1,<<7:16, 1:16, CTime:32>>}
@@ -973,22 +953,67 @@ handle_response(401 = Code, Headers, Body, #rtsp{auth_type = Auth, auth_info = A
       RTSP1
   end;
 
-handle_response(Code, Headers, Body, #rtsp{consumer = Pid, last_request = {Ref,_,_}, get_parameter = GP1} = RTSP) ->
+handle_response(Code, Headers, Body, #rtsp{consumer = Pid, last_request = {Ref,_,_}} = RTSP) ->
   RTSP2 = case proplists:get_value(<<"Session">>, Headers) of
     undefined -> RTSP;
     SessToken -> RTSP#rtsp{session = hd(binary:split(SessToken, <<";">>))}
   end,
-  GP2 = case rtsp:header(public, Headers) of
-    undefined -> GP1;
+  RTSP3 = case rtsp:header(public, Headers) of
+    undefined -> RTSP2;
     Methods_ ->
       Methods = [M || M <- binary:split(Methods_, [<<",">>,<<" ">>], [global]), M =/= <<>>],
-      case lists:member(<<"GET_PARAMETER">>, Methods) of
+      GP2 = case lists:member(<<"GET_PARAMETER">>, Methods) of
         true -> get_parameter;
         false -> false
-      end
+      end,
+      RTSP2#rtsp{get_parameter = GP2}
   end,
+
+  RTSP4 = case rtsp:header(<<"Rtp-Info">>, Headers) of
+    undefined -> RTSP3;
+    S -> 
+      RtpInfo = parse_rtp_info_header(S),
+
+      lists:foldl(fun({Channel, Sync}, RTSP3_) ->
+        Seq = proplists:get_value(seq, Sync),
+        Timecode = proplists:get_value(rtptime, Sync),
+        case element(#rtsp.chan1 + Channel, RTSP) of
+          Chan = #rtp{decoder = Decoder} ->
+            Decoder1 = rtp_decoder:sync(Decoder, [{seq,Seq},{rtptime,Timecode}]),
+            Chan1 = Chan#rtp{decoder = Decoder1, seq = Seq, timecode = Timecode, wall_clock = 0},
+            setelement(#rtsp.chan1 + Channel, RTSP3_, Chan1);
+          undefined ->
+            RTSP3_
+        end
+      end, RTSP3, lists:zip(lists:seq(0,length(RtpInfo)-1),RtpInfo))
+  end,
+
   Pid ! {response, Ref, Code, Headers, Body},
-  RTSP2#rtsp{last_request = undefined, get_parameter = GP2}.
+  RTSP4#rtsp{last_request = undefined}.
+
+
+
+parse_rtp_info_header(String) when is_binary(String) ->
+  parse_rtp_info_header(binary_to_list(String));
+
+parse_rtp_info_header(String) when is_list(String) ->
+  {ok, Re} = re:compile(" *([^=]+)=([^\\r ]*)"),
+  F = fun(S) ->
+    {match, [_, K, V]} = re:run(S, Re, [{capture, all, list}]),
+    Key = list_to_existing_atom(K),
+    Value = case Key of
+      seq -> list_to_integer(V);
+      rtptime -> list_to_integer(V);
+      _ -> V
+    end,
+    {Key, Value}
+  end,
+  [[F(S1) || S1 <- string:tokens(S, ";")] || S <- string:tokens(String, ",")].
+
+
+
+
+
 
 
 
@@ -1010,6 +1035,8 @@ decode_rtp(<<_RTPHeader:8, _Marker:1, _:7, Seq:16, _Timecode:32, SSRC1:32, _/bin
   end,
   % lager:info("rtp channel:~B, marker:~B, seq:~B, tc:~B, ssrc:~B, dts:~w",
   %   [Chan1#rtp.channel, _Marker,Seq,_Timecode, _SSRC, [round(D) || #video_frame{dts = D} <- Frames]]),
+  % if Frames == [] -> ok;
+  % true -> ?debugFmt("~p", [[{Codec,Fl,round(DTS),round(PTS)} || #video_frame{codec = Codec, flavor = Fl, dts = DTS, pts = PTS} <- Frames]]) end,
   SSRC = case SSRC2 of
     undefined -> SSRC1;
     _ -> SSRC2
@@ -1118,6 +1145,11 @@ parse_auth_headers_test() ->
 
 
 
+parse_rtp_info_test_() ->
+  [
+    ?_assertEqual([[{url,"rtsp://75.130.113.168:1025/11/trackID=0"},{seq,0},{rtptime,3051549469}]], 
+      parse_rtp_info_header("url=rtsp://75.130.113.168:1025/11/trackID=0;seq=0;rtptime=3051549469 "))
+  ].
 
 
 

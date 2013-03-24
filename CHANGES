@@ -1,3 +1,23 @@
+flussonic (3.69.12)
+
+  * don't fail RTSP LIST_SEGMENTS on non-HLS streams
+  * bitrate and language support in sdp
+  * dont loose profile compat in h264
+  * fill properly audio timescale in mp4
+  * dont mark I single nals as keyframes
+  * fill properly all keyframes while reading mp4
+  * flu_monotone should start feeding only on gop boundaries
+  * move DVR to common_test
+  * thumbnailer is working
+  * DVR and DVR2 can save and give back JPEG thumbnails
+  * hls_dvr_writer is storing jpeg thumbnails
+  * remove limit of RTMP connections
+  * remove flu_session_log, going to have disk log
+  * added {loglevel, notice}. to config file
+  * added new gen_tracker which is a supervisor now
+  * moved flu_streams, flu_files, dvr_sessions to gen_tracker
+  * added bytes_in and bytes_out accounting to flu_stream
+
 flussonic (3.69.11)
 
   * flussonic-specific extension for sending segments via RTSP

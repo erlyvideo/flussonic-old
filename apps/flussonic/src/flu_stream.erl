@@ -32,19 +32,23 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/2,hds_fragment/2,hls_segment/3,hds_manifest/1,bootstrap/1,hls_playlist/1, hls_key/2]).
+-export([start_link/2]).
 -export([media_info/1]).
--export([hds_manifest/2, rewrite_manifest/2]).
+
+-export([hds_manifest/1, hds_manifest/2, hds_fragment/2, bootstrap/1]).
+-export([hds_manifest/3, rewrite_manifest/2]).
+-export([hls_playlist/1, hls_playlist/2, hls_segment/3, hls_key/2, preview_jpeg/3]).
 
 -export([subscribe/2, subscribe/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([after_terminate/2]).
 
--export([autostart/1]).
--export([autostart/2, list/0, json_list/0, publish/2]).
+-export([autostart/1, restart/1]).
+-export([autostart/2, start_sup/2, list/0, json_list/0]).
 
--export([get/2, get/3, pass_message/2, find/1]).
+-export([pass_message/2, find/1]).
 -export([non_static/1, static/1, update_options/2]).
 -export([set_source/2]).
 
@@ -53,6 +57,15 @@
 -define(RETRY_LIMIT, 10).
 -define(TIMEOUT, 70000).
 -define(SOURCE_TIMEOUT, 20000).
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Query stream list
+%
 
 list() ->
   lists:sort([{Name, stream_info(Name, Attrs)} || {Name, Attrs} <- gen_tracker:list(flu_streams)]).
@@ -66,21 +79,31 @@ json_list() ->
   [{streams,Streams},{event,'stream.list'}].
 
 white_keys() ->
-  [dvr, hls, hds, last_dts, lifetime, name, type, ts_delay, client_count, play_prefix, retry_count].
+  [dvr, hls, hds, last_dts, lifetime, name, type, ts_delay, client_count, play_prefix, retry_count,
+  bytes_in, bytes_out, bitrate].
 
 parse_attr(Attr) ->
   [{K,V} || {K,V} <- Attr, (is_binary(V) orelse is_number(V) orelse V == true orelse V == false) andalso lists:member(K,white_keys())].
 
 
 stream_info(_Name, Attrs) ->
-  add_ts_delay(filter_list(Attrs)).
+  {pid,Sup} = lists:keyfind(pid,1,Attrs),
+  {stream, Pid, _, _} = lists:keyfind(stream, 1, supervisor:which_children(Sup)),
+  add_ts_delay(filter_list(lists:keystore(pid,1,Attrs,{pid,Pid}))).
 
 filter_list(Attrs) ->
   [{K,V} || {K,V} <- Attrs, is_atom(K)].
 
 find(Pid) when is_pid(Pid) -> {ok, Pid};
 find(Name) when is_list(Name) -> find(list_to_binary(Name));
-find(Name) -> gen_tracker:find(flu_streams, Name).
+find(Name) -> 
+  case gen_tracker:find(flu_streams, Name) of
+    undefined -> undefined;
+    {ok, Sup} ->
+      {stream, Pid, _, _} = lists:keyfind(stream, 1, supervisor:which_children(Sup)),
+      {ok, Pid}
+  end.
+
   
 add_ts_delay(Attrs) ->
   Now = os:timestamp(),
@@ -93,6 +116,149 @@ add_ts_delay(Attrs) ->
     LastAccessAt -> [{client_delay,timer:now_diff(Now, LastAccessAt) div 1000}|Attr1]
   end,
   Attr2.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Lookup, autostart stream
+
+
+autostart(Stream) ->
+  case lookup_in_config(Stream, flu_config:get_config()) of
+    undefined -> find(Stream);
+    {ok, Stream1, Options} -> autostart(Stream1, Options)
+  end.
+
+
+restart(Name) ->
+  case find(Name) of
+    {ok, Pid} ->
+      erlang:monitor(process,Pid),
+      erlang:exit(Pid, kill),
+      receive
+        {'DOWN',_,_,Pid,_} -> ok
+      after 
+        1000 -> {error,failed}
+      end;
+    _ ->
+      {error, unknown}
+  end.
+
+
+lookup_in_config(Path, [{live, Prefix, Options}|Config]) ->
+  PrefixLen = size(Prefix),
+  case Path of
+    <<Prefix:PrefixLen/binary, "/", _Stream/binary>> -> {ok, Path, Options};
+    _ -> lookup_in_config(Path, Config)
+  end;
+
+lookup_in_config(Path, [{stream, Path, URL, Opts}|_Config]) ->
+  {ok, Path, [{url,URL}|Opts]};
+
+lookup_in_config(Path, [_|Config]) ->
+  lookup_in_config(Path, Config);
+
+lookup_in_config(_, []) ->
+  undefined.
+
+
+autostart(Name, Options) when is_binary(Name) ->
+  StreamSup = {Name, {flu_stream, start_sup, [Name, Options]}, temporary, infinity, supervisor, []},
+  {ok, Sup} = gen_tracker:find_or_open(flu_streams, StreamSup),
+  {stream, Pid, _, _} = lists:keyfind(stream, 1, supervisor:which_children(Sup)),
+  {ok, Pid}.
+
+start_sup(Name, Options) ->
+  supervisor:start_link(flussonic_sup, [flu_stream, Name, Options]).
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Query one stream data
+%
+
+media_info(Stream) ->
+  touch(Stream),
+  case gen_tracker:getattr(flu_streams, Stream, media_info) of
+    {ok, MI} -> MI;
+    undefined ->
+      {ok, Pid} = autostart(Stream),
+      gen_server:call(Pid, {get, media_info})
+  end.
+
+% HDS
+hds_manifest(Stream) ->
+  touch(Stream),
+  gen_tracker:getattr(flu_streams, Stream, hds_manifest).
+
+hds_manifest(_Stream, 0) -> undefined;
+hds_manifest(Stream, Retries) ->
+  case hds_manifest(Stream) of
+    undefined -> timer:sleep(100), hds_manifest(Stream, Retries - 1);
+    Else -> Else
+  end.
+
+hds_manifest(Stream, Retries, Token) ->
+  case hds_manifest(Stream, Retries) of
+    {ok, Manifest} -> rewrite_manifest(Manifest, Token);
+    Else -> Else
+  end.
+
+rewrite_manifest(Manifest, Token) when is_binary(Manifest) andalso is_binary(Token) ->
+  Manifest1 = binary:replace(Manifest, <<"url=\"bootstrap\"">>, 
+    <<"url=\"bootstrap?token=",Token/binary, "\"">>),
+  {ok, Manifest1}.
+
+bootstrap(Stream) ->
+  touch(Stream),
+  gen_tracker:getattr(flu_streams, Stream, bootstrap, 10).
+
+hds_fragment(Stream,Fragment) ->
+  touch(Stream),
+  case gen_tracker:getattr(flu_streams, Stream, {hds_fragment, 1, Fragment}) of
+    {ok, Bin} ->
+      gen_tracker:increment(flu_streams, Stream, bytes_out, iolist_size(Bin)),
+      {ok, Bin};
+    Else ->
+      Else
+  end.
+
+% HLS
+hls_playlist(Stream) ->
+  touch(Stream),
+  gen_tracker:getattr(flu_streams, Stream, hls_playlist).
+
+hls_playlist(_, 0) -> undefined;
+hls_playlist(Stream, Retries) ->
+  case hls_playlist(Stream) of
+    undefined -> timer:sleep(100), hls_playlist(Stream, Retries - 1);
+    Else -> Else
+  end.
+
+hls_segment(Root, Stream, Segment) ->
+  touch(Stream),
+  hls_dvr_packetizer:segment(Root, Stream, Segment).
+
+preview_jpeg(Root, Stream, Segment) ->
+  hls_dvr_packetizer:preview_jpeg(Root, Stream, Segment).
+
+hls_key(Stream, Number) ->
+  touch(Stream),
+  gen_tracker:getattr(flu_streams, Stream, {hls_key, Number}).
+  
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Publish to stream and change options
+%
+
+
+
 
 
 send_frame(Stream, #video_frame{} = Frame) when is_pid(Stream) ->
@@ -121,136 +287,6 @@ send_frame(Stream, #video_frame{} = Frame) when is_pid(Stream) ->
 
 
 
-get(Stream, Key) ->
-  get(Stream, Key, 0).
-
-get(_Stream, _Key, Timeout) when Timeout < 0 ->
-  undefined;
-
-get(Stream, Key, Timeout) when is_pid(Stream) ->
-  case gen_server:call(Stream, {get, Key}) of
-    undefined when Timeout > 0 ->
-      timer:sleep(1000),
-      get(Stream, Key, Timeout - 1000);
-    Reply ->
-      Reply
-  end;
-
-get(Stream, Key, Timeout) when is_list(Stream) ->
-  get(list_to_binary(Stream), Key, Timeout);
-
-get(Stream, Key, Timeout) ->
-  case flu_stream_data:get(Stream, Key) of
-    undefined ->
-      case gen_tracker:find(flu_streams, Stream) of
-        {ok, Pid} -> get(Pid, Key, Timeout);
-        undefined -> undefined
-      end;
-    Value ->
-      % gen_tracker:setattr(flu_streams, Stream, [{last_access_at, os:timestamp()}]),
-      Value
-  end.
-
-
-
-non_static(Stream) ->
-  case find(Stream) of
-    {ok, Pid} -> Pid ! non_static;
-    _ -> false
-  end.
-
-static(Stream) ->
-  case find(Stream) of
-    {ok, Pid} -> Pid ! static;
-    _ -> false
-  end.
-
-update_options(Stream, Options) ->
-  case find(Stream) of
-    {ok, Pid} -> gen_server:call(Pid, {update_options, Options}, 1000);
-    _ -> false
-  end.
-
-autostart(Stream) ->
-  case lookup_in_config(Stream, flu_config:get_config()) of
-    undefined -> gen_tracker:find(flu_streams, Stream);
-    {ok, Stream1, Options} -> autostart(Stream1, Options)
-  end.
-
-
-lookup_in_config(Path, [{live, Prefix, Options}|Config]) ->
-  PrefixLen = size(Prefix),
-  case Path of
-    <<Prefix:PrefixLen/binary, "/", _Stream/binary>> -> {ok, Path, Options};
-    _ -> lookup_in_config(Path, Config)
-  end;
-
-lookup_in_config(Path, [{stream, Path, URL, Opts}|_Config]) ->
-  {ok, Path, [{url,URL}|Opts]};
-
-lookup_in_config(Path, [_|Config]) ->
-  lookup_in_config(Path, Config);
-
-lookup_in_config(_, []) ->
-  undefined.
-
-
-autostart(Stream, Options) ->
-  gen_tracker:find_or_open(flu_streams, Stream, fun() -> flussonic_sup:start_flu_stream(Stream,Options) end).
-
-media_info(Stream) ->
-  touch(Stream),
-  case flu_stream_data:get(Stream, media_info) of
-    {ok, MI} -> MI;
-    undefined ->
-      {ok, Pid} = autostart(Stream),
-      gen_server:call(Pid, {get, media_info})
-  end.
-
-
-hds_fragment(Stream,Fragment) ->
-  touch(Stream),
-  flu_stream_data:get(Stream, {hds_fragment, 1, Fragment}, 5).
-
-hls_segment(Root, Stream, Segment) ->
-  touch(Stream),
-  hls_dvr_packetizer:segment(Root, Stream, Segment).
-
-hls_key(Stream, Number) ->
-  touch(Stream),
-  flu_stream_data:get(Stream, {hls_key, Number}, 5).
-  
-
-hds_manifest(Stream) ->
-  touch(Stream),
-  flu_stream_data:get(Stream, hds_manifest, 10).
-
-hds_manifest(Stream, Token) ->
-  case hds_manifest(Stream) of
-    {ok, Manifest} -> rewrite_manifest(Manifest, Token);
-    Else -> Else
-  end.
-
-
-rewrite_manifest(Manifest, Token) when is_binary(Manifest) andalso is_binary(Token) ->
-  Manifest1 = binary:replace(Manifest, <<"url=\"bootstrap\"">>, 
-    <<"url=\"bootstrap?token=",Token/binary, "\"">>),
-  {ok, Manifest1}.
-
-
-
-bootstrap(Stream) ->
-  touch(Stream),
-  flu_stream_data:get(Stream, bootstrap, 10).
-
-hls_playlist(Stream) ->
-  touch(Stream),
-  flu_stream_data:get(Stream, hls_playlist, 10).
-
-
-publish(Stream,Frame) ->
-  gen_server:call(Stream, Frame).
-
 subscribe(Stream) when is_binary(Stream) ->
   {ok, {stream, Pid}} = flu_media:find_or_open(Stream),
   subscribe(Pid, []).
@@ -276,6 +312,23 @@ set_last_dts(DTS, Now) ->
   Lifetime = DTS - FirstDTS,
   gen_tracker:setattr(flu_streams, get(name), [{last_dts, DTS},{last_dts_at,Now},{lifetime,Lifetime}]).
 
+non_static(Stream) ->
+  case find(Stream) of
+    {ok, Pid} -> Pid ! non_static;
+    _ -> false
+  end.
+
+static(Stream) ->
+  case find(Stream) of
+    {ok, Pid} -> Pid ! static;
+    _ -> false
+  end.
+
+update_options(Stream, Options) ->
+  case find(Stream) of
+    {ok, Pid} -> gen_server:call(Pid, {update_options, Options}, 1000);
+    _ -> false
+  end.
 
 touch(Stream) ->
   gen_tracker:setattr(flu_streams, Stream, [{last_access_at, os:timestamp()}]).
@@ -299,18 +352,18 @@ init([Name,Options1]) ->
   if is_pid(Source) -> erlang:monitor(process, Source); true -> ok end,
   CheckTimer = erlang:send_after(3000, self(), check_timeout),
   Now = os:timestamp(),
-  gen_tracker:setattr(flu_streams, Name, [{last_access_at,Now},{client_count,0}]),
+  ClientCount = flu_session:client_count(Name),
+  gen_tracker:setattr(flu_streams, Name, [{last_access_at,Now},{client_count,ClientCount},{bytes_in,0},{bytes_out,0}]),
   Stream1 = #stream{last_dts_at=Now,
     name = Name, options = Options, source = Source,
     check_timer = CheckTimer},
   % timer:send_interval(1000, next_second),
-  
-  lager:warning("Initializing stream \"~s\"", [Name]),
   proc_lib:init_ack({ok, self()}),
 
   Stream2 = set_options(Stream1),
   
-  lager:warning("Start stream \"~s\" with url ~p and options: ~p", [Name, Stream2#stream.url, Options]),
+  lager:notice("Start stream \"~s\" with url ~p and options: ~p", [Name, Stream2#stream.url, Options]),
+  flu_event:stream_started(Name, Options),
 
   {noreply, Stream3} = ?MODULE:handle_info(reconnect_source, Stream2),
   GopFlush = erlang:send_after(4*?SEGMENT_DURATION*1000, self(), gop_flush),
@@ -481,8 +534,9 @@ handle_call({get, Key}, _From, #stream{name = Name} = Stream) ->
   touch(Name),
   {reply, Reply, Stream};
 
-handle_call(#video_frame{} = Frame, _From, #stream{} = Stream) ->
+handle_call(#video_frame{} = Frame, _From, #stream{name = Name} = Stream) ->
   put(status, handle_input_frame),
+  gen_tracker:increment(flu_streams, Name, bytes_in, erlang:external_size(Frame)),
   {noreply, Stream1} = handle_input_frame(Frame, Stream),
   {reply, ok, Stream1};
 
@@ -574,7 +628,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
   end;
 
 handle_info(#media_info{} = MediaInfo, #stream{name = Name, monotone = Monotone} = Stream) ->
-  flu_stream_data:set(Name, media_info, MediaInfo),
+  gen_tracker:setattr(flu_streams, Name, [{media_info, MediaInfo}]),
   Stream1 = pass_message(MediaInfo, Stream#stream{media_info = MediaInfo}),
   flu_monotone:send_media_info(Monotone, MediaInfo),
   {noreply, Stream1};
@@ -642,12 +696,14 @@ handle_info(reload_playlist, #stream{source = Source} = Stream) ->
 handle_info({'DOWN', _, _, _, _} = Message, #stream{} = Stream) ->
   {noreply, pass_message(Message, Stream)};
 
-handle_info(#video_frame{} = Frame, #stream{} = Stream) ->
+handle_info(#video_frame{} = Frame, #stream{name = Name} = Stream) ->
+  gen_tracker:increment(flu_streams, Name, bytes_in, erlang:external_size(Frame)),
   {noreply, Stream1} = handle_input_frame(Frame, Stream),
   {noreply, Stream1};
 
 
-handle_info(#gop{} = Gop, #stream{} = Stream) ->
+handle_info(#gop{} = Gop, #stream{name = Name} = Stream) ->
+  gen_tracker:increment(flu_streams, Name, bytes_in, erlang:external_size(Gop)),
   Stream1 = pass_message(Gop, Stream),
   {noreply, Stream1};
 
@@ -680,7 +736,7 @@ handle_input_frame(#video_frame{} = Frame, #stream{retry_count = Count, name = N
   gen_tracker:setattr(flu_streams, Name, [{retry_count,0}]),
   handle_input_frame(Frame, Stream#stream{retry_count = 0});
   
-handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump, monotone = Monotone} = Stream) ->
+handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Dump} = Stream) ->
   case Dump of
     true -> ?D({frame, Name, Frame#video_frame.codec, Frame#video_frame.flavor, Frame#video_frame.track_id, round(Frame#video_frame.dts), round(Frame#video_frame.pts)});
     _ -> ok
@@ -688,8 +744,6 @@ handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Du
   {reply, Frame1, Stream2} = flu_stream_frame:handle_frame(Frame, Stream),
   put(status, {pass,message}),
   Stream3 = pass_message(Frame1, Stream2),
-  put(status, {monotone,send_frame}),
-  flu_monotone:send_frame(Monotone, Frame1),
   
   set_last_dts(Stream3#stream.last_dts, Stream3#stream.last_dts_at),
   Stream4 = feed_gop(Frame1, Stream3),
@@ -697,20 +751,24 @@ handle_input_frame(#video_frame{} = Frame, #stream{name = Name, dump_frames = Du
 
 
 % TODO: move flu_monotone:send_frame here and mark this frame as a gop-starter
-feed_gop(#video_frame{flavor = keyframe, dts = DTS} = F, #stream{gop_flush = OldGopFlush, gop = RGop, gop_open = GopOpen, gop_start_dts = StartDTS} = Stream) 
+feed_gop(#video_frame{flavor = keyframe, dts = DTS} = F, #stream{gop_flush = OldGopFlush, gop = RGop, monotone = M,
+  gop_open = GopOpen, gop_start_dts = StartDTS} = Stream) 
   when length(RGop) > 0 andalso DTS - StartDTS >= ?SEGMENT_DURATION*1000 ->
   catch erlang:cancel_timer(OldGopFlush),
   Stream1 = case lists:reverse(RGop) of
     [] -> Stream;
     [#video_frame{dts = StartDTS}|_] = Gop -> pass_message(#gop{opened_at = GopOpen, frames = Gop, duration = DTS - StartDTS}, Stream)
   end,
+  flu_monotone:send_frame(M, F#video_frame{next_id = gop}),
   GopFlush = erlang:send_after(4*?SEGMENT_DURATION*1000, self(), gop_flush),
   Stream1#stream{gop_flush = GopFlush, gop_open = os:timestamp(), gop_start_dts = DTS, gop = [F]};
 
-feed_gop(#video_frame{dts = DTS} = F, #stream{gop = []} = Stream) ->
+feed_gop(#video_frame{dts = DTS} = F, #stream{gop = [], monotone = M} = Stream) ->
+  flu_monotone:send_frame(M, F#video_frame{next_id = undefined}),
   Stream#stream{gop = [F], gop_open = os:timestamp(), gop_start_dts = DTS};
 
-feed_gop(#video_frame{} = F, #stream{gop = Gop} = Stream) ->
+feed_gop(#video_frame{} = F, #stream{gop = Gop, monotone = M} = Stream) ->
+  flu_monotone:send_frame(M, F#video_frame{next_id = undefined}),
   Stream#stream{gop = [F|Gop]}.
 
 
@@ -780,7 +838,11 @@ detect_proto(URL) ->
 terminate(_Reason, _State) ->
   ok.
 
-  
+
+% TODO send stream.stopped event
+after_terminate(_Name, _Attrs) ->
+  ok.
+
 
 %%--------------------------------------------------------------------
 %% @private

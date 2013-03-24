@@ -396,7 +396,7 @@ new_or_update(Identity, Opts) ->
   ets:insert(flu_session:table(), Session2),
 
   case New of
-    true -> flu_event:user_connected(Name, info(Session2));
+    true -> flu_event:session_open(Name, info(Session2));
     false -> ok
   end,
   Session2.
@@ -414,7 +414,7 @@ delete_session(#session{name = Name} = Session) ->
   ets:delete_object(flu_session:table(), Session),
   catch gen_tracker:increment(flu_streams, Name, client_count, -1),
   catch gen_tracker:increment(flu_files, Name, client_count, -1),
-  flu_event:user_disconnected(Session#session.name, info(Session)).
+  flu_event:session_close(Session#session.name, info(Session)).
 
 
 table() ->

@@ -905,8 +905,8 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_]) when 
     [K1,K2|_] -> {K1,K2};
     [K1] -> {K1,{undefined, VideoCount}}
   end,
-  [Frame|VideoFrames1] = load_frames(V, VStart, VEnd-1),
-  VideoFrames2 = [Frame#video_frame{flavor = keyframe}|VideoFrames1],
+  VideoFrames1 = load_frames(V, VStart, VEnd-1),
+  VideoFrames2 = mark_keyframes(VideoFrames1, VStart, Keyframes1),
   VideoFrames3 = read_disk_frames(Module, Device, VideoFrames2),
   VideoFrames = VideoFrames3,
 
@@ -929,8 +929,8 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
     [K1,K2|_] -> {K1,K2};
     [K1] -> {K1,{Duration*1000/AScale, VideoCount}}
   end,
-  [Frame|VideoFrames1] = load_frames(V, VStart, VEnd-1),
-  VideoFrames2 = [Frame#video_frame{flavor = keyframe}|VideoFrames1],
+  VideoFrames1 = load_frames(V, VStart, VEnd-1),
+  VideoFrames2 = mark_keyframes(VideoFrames1, VStart, Keyframes1),
 
   VideoFrames3 = read_disk_frames(Module, Device, VideoFrames2),
   VideoFrames = VideoFrames3,
@@ -943,6 +943,16 @@ read_gop0(#mp4_media{tracks = Tracks, reader = {Module, Device}}, N, [V_,A_]) wh
   AFrames1 = collect_frames(TSList, undefined, AOffsets, audio, ACodec, A_, AScale),
   AFrames = read_disk_frames(Module, Device, AFrames1),
   {ok, video_frame:sort(VideoFrames ++ AFrames)}.
+
+mark_keyframes([], _, _) -> [];
+mark_keyframes(Frames, _, []) -> Frames;
+mark_keyframes([#video_frame{} = Frame|Frames], N, [{_,N}|Keyframes]) ->
+  [Frame#video_frame{flavor = keyframe}|mark_keyframes(Frames,N+1,Keyframes)];
+mark_keyframes([#video_frame{} = Frame|Frames], N1, [{_,N2}|_] = Keyframes) when N1 < N2 ->
+  [Frame|mark_keyframes(Frames,N1+1, Keyframes)];
+mark_keyframes(Frames, N1, [{_,N2}|Keyframes]) when N1 > N2 ->
+  mark_keyframes(Frames, N1, Keyframes).
+
 
 unok({ok, Bin}) -> Bin.
 

@@ -158,6 +158,9 @@ parse_value(a, "fmtp:" ++ String) ->
   end, string:tokens(FMTP, ";")),
   {fmtp, list_to_integer(PayloadNum), Opts};
 
+parse_value(a, "lang:" ++Lang) ->
+  {lang, list_to_binary(Lang) };
+
 parse_value(a, "rtpmap:" ++ String) ->
   [PayloadNum, CodecInfo] = string:tokens(String, " "),
   {rtpmap, list_to_integer(PayloadNum), string:tokens(CodecInfo, "/")};
@@ -177,6 +180,9 @@ parse_value(c, String) ->
   end,
   {N, Addr};
   
+parse_value(b, "AS:"++Bitrate) ->
+  list_to_integer(Bitrate);
+
 parse_value(m, String) ->
   [TypeS, PortS, "RTP/AVP" | PayloadTypes] = string:tokens(String, " "), % TODO: add support of multiple payload
   Type = erlang:list_to_existing_atom(TypeS),
@@ -230,7 +236,16 @@ parse_media_sdp([{a, {fmtp, PayloadNum, Opts}} | SDP], Streams) ->
   end,
   parse_media_sdp(SDP, lists:keystore(PayloadNum, 1, Streams, {PayloadNum, Stream1}));
 
-parse_media_sdp([_|SDP], Streams) ->
+parse_media_sdp([{a, {lang, Lang}} | SDP], Streams) ->
+  Streams1 = [{PN, Stream#stream_info{language = Lang}} || {PN, Stream} <- Streams],
+  parse_media_sdp(SDP, Streams1);
+
+parse_media_sdp([{b, Bitrate} | SDP], Streams) ->
+  Streams1 = [{PN, Stream#stream_info{bitrate = Bitrate}} || {PN, Stream} <- Streams],
+  parse_media_sdp(SDP, Streams1);
+
+parse_media_sdp([_R|SDP], Streams) ->
+  % ?debugFmt("bad ~p", [_R]),
   parse_media_sdp(SDP, Streams).
 
 %%
@@ -283,19 +298,19 @@ parse_audio_fmtp(#stream_info{codec = Codec, options = Options} = Stream, Opts) 
 parse_video_fmtp(#stream_info{codec = Codec} = Stream, Opts) ->
   case proplists:get_value("sprop-parameter-sets", Opts) of
     undefined -> Stream;
-    Sprop when is_list(Sprop) ->
-      {Profile, Level} = case proplists:get_value("profile-level-id", Opts) of
-        undefined -> {16#42, 16#1E};
-        ProfileLevelId -> 
-          {erlang:list_to_integer(string:sub_string(ProfileLevelId, 1, 2), 16),
-          erlang:list_to_integer(string:sub_string(ProfileLevelId, 5, 6), 16)}
-      end,
+    Sprop when is_list(Sprop) andalso Codec == h264 ->
+      % {Profile, Level} = case proplists:get_value("profile-level-id", Opts) of
+      %   undefined -> {16#42, 16#1E};
+      %   ProfileLevelId -> 
+      %     {erlang:list_to_integer(string:sub_string(ProfileLevelId, 1, 2), 16),
+      %     erlang:list_to_integer(string:sub_string(ProfileLevelId, 5, 6), 16)}
+      % end,
 
       NALS = [base64:decode(S) || S <- string:tokens(Sprop, ",")],
-      [SPS|_] = [NAL || NAL <- NALS, h264:type(NAL) == sps],
+      #h264{sps = [SPS]} = H264 = lists:foldl(fun(N,H) -> {H1,_} = h264:decode_nal(N,H), H1 end, #h264{}, NALS),      
       #h264_sps{width = Width, height = Height} = h264:parse_sps(SPS),
 
-      H264 = #h264{profile = Profile, level = Level, sps = [NAL || NAL <- NALS, h264:type(NAL) == sps], pps = [NAL || NAL <- NALS, h264:type(NAL) == pps]},
+      % H264 = #h264{profile = Profile, level = Level, sps = [NAL || NAL <- NALS, h264:type(NAL) == sps], pps = [NAL || NAL <- NALS, h264:type(NAL) == pps]},
       Stream#stream_info{config = h264:decoder_config(H264), params = #video_params{width = Width, height = Height}};
     _ ->
       Stream

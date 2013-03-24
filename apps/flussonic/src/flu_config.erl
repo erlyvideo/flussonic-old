@@ -116,6 +116,8 @@ expand_options(Env) ->
 
   [expand_entry(Entry,GlobalOptions) || Entry <- Env].
 
+expand_entry({central, URL},GlobalOptions) -> {central, to_b(URL), GlobalOptions};
+expand_entry({central, URL, Options},GlobalOptions) -> {central, to_b(URL), merge(Options,GlobalOptions)};
 expand_entry({rewrite, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,false}],GlobalOptions)};
 expand_entry({rewrite, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,false}],Options,GlobalOptions)};
 expand_entry({stream, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}],GlobalOptions)};

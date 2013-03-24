@@ -65,8 +65,7 @@ calculate_new_stream_shift(#video_frame{dts = DTS} = Frame,
     undefined -> Now = DTS, {Now, Now - DTS};
     _ -> {LDTS, LDTS - DTS + GlueDelta}
   end,
-  lager:warning("Stream \"~s\" resynchronized time. last DTS: ~B, new DTS: ~B, new delta: ~B", [Name, round(LastDTS), round(DTS), round(TSDelta)]),
-  % ems_event:stream_started(proplists:get_value(host,Media#stream.options), Media#stream.name, self(), Media#stream.options),
+  lager:notice("Stream \"~s\" resynchronized time. last DTS: ~B, new DTS: ~B, new delta: ~B", [Name, round(LastDTS), round(DTS), round(TSDelta)]),
   {Frame, Media#stream{ts_delta = TSDelta, last_dts_at = undefined}}; %% Lets glue new instance of stream to old one plus small glue time
 
 calculate_new_stream_shift(Frame, Media) ->
@@ -81,11 +80,11 @@ shift_dts_delta(#video_frame{dts = DTS, pts = PTS} = Frame, #stream{ts_delta = D
 -define(GLUE_DELTA, 25). %% 25 milliseconds is an average time shift between frames
 
 fix_large_dts_jump(#video_frame{dts = DTS} = Frame, #stream{last_dts = LastDTS, ts_delta = Delta} = Media) when DTS + Delta - LastDTS > ?DTS_THRESHOLD ->
-  lager:warning("DTS forward jump on ~s: dts: ~B with delta ~B, next_dts: ~B, new delta: ~B", [Media#stream.name,round(DTS),round(Delta),round(LastDTS),round(DTS+Delta - LastDTS)]),
+  lager:notice("DTS forward jump on ~s: dts: ~B with delta ~B, next_dts: ~B, new delta: ~B", [Media#stream.name,round(DTS),round(Delta),round(LastDTS),round(DTS+Delta - LastDTS)]),
   {Frame, Media#stream{ts_delta = undefined}};
 
 fix_large_dts_jump(#video_frame{dts = DTS} = Frame, #stream{last_dts = LastDTS, ts_delta = Delta} = Media) when LastDTS - DTS - Delta > ?DTS_THRESHOLD ->
-  lager:warning("DTS backward jump on ~s: dts: ~B with delta ~B, next_dts: ~B, new delta: ~B", [Media#stream.name,round(DTS),round(Delta),round(LastDTS),round(LastDTS - DTS - Delta)]),
+  lager:notice("DTS backward jump on ~s: dts: ~B with delta ~B, next_dts: ~B, new delta: ~B", [Media#stream.name,round(DTS),round(Delta),round(LastDTS),round(LastDTS - DTS - Delta)]),
   {Frame, Media#stream{ts_delta = undefined}};
 
 % fix_large_dts_jump(#video_frame{dts = DTS, pts = PTS} = Frame, #stream{last_dts = LastDTS} = Media) when is_number(LastDTS) andalso LastDTS > DTS ->

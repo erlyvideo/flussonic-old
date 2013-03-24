@@ -56,11 +56,12 @@ init(#stream_info{codec = Codec, timescale = Scale} = Stream) ->
 sync(#rtp_channel{} = RTP, Headers) ->
   Seq = proplists:get_value(seq, Headers),
   Time = proplists:get_value(rtptime, Headers),
-  % ?D({sync, Headers}),
   RTP#rtp_channel{wall_clock = 0, timecode = Time, sequence = Seq}.
 
+
+
+
 decode(_, #rtp_channel{timecode = TC, wall_clock = Clock} = RTP) when TC == undefined orelse Clock == undefined ->
-  %% ?D({unsynced, RTP}),
   {ok, RTP#rtp_channel{timecode = 0, wall_clock = 0, sequence = 0}, []};
 
 decode(<<_:16, Sequence:16, _/binary>> = Data, #rtp_channel{sequence = undefined} = RTP) ->
@@ -70,10 +71,10 @@ decode(<<_:16, OldSeq:16, _/binary>> = Data, #rtp_channel{sequence = Sequence, w
   if WarningCount < 10 -> ?D({drop_sequence, OldSeq, Sequence});
   true -> ok end,
   decode(Data, RTP#rtp_channel{sequence = undefined, warning_count = WarningCount + 1});
-  % {ok, RTP, []};
 
 decode(<<2:2, 0:1, Extension:1, 0:4, _Marker:1, _PayloadType:7, Sequence:16, Timecode:32, _StreamId:32, Data1/binary>>, #rtp_channel{} = RTP) ->
   {Data, CTime} = ctime(Data1, Extension),
+  % ?debugFmt("ext: ~p, ~p, ~p, ~p", [RTP#rtp_channel.codec, Extension, CTime, Timecode]),
   decode(Data, RTP#rtp_channel{sequence = (Sequence + 1) rem 65536}, Timecode, CTime);
 
 decode(<<2:2, 1:1, Extension:1, 0:4, _Marker:1, _PayloadType:7, Sequence:16, Timecode:32, _StreamId:32, BigData/binary>>, #rtp_channel{} = RTP) ->
@@ -83,6 +84,9 @@ decode(<<2:2, 1:1, Extension:1, 0:4, _Marker:1, _PayloadType:7, Sequence:16, Tim
   <<Data1:DataLen/binary, _:PaddingSize/binary>> = BigData,
   {Data, CTime} = ctime(Data1, Extension),
   decode(Data, RTP#rtp_channel{sequence = (Sequence + 1) rem 65536}, Timecode, CTime).
+
+
+
 
 
 decode(<<AULength:16, AUHeaders:AULength/bitstring, AudioData/binary>>, #rtp_channel{codec = aac, 
@@ -122,21 +126,6 @@ ctime(Data, 0) -> {Data,0};
 ctime(<<7:16, 1:16, CTime:32, Data/binary>>, 1) -> {Data, CTime}.
 
 
-% FIXME:
-% Тут надо по-другому. 
-% Надо аккумулировать все RTP-пейлоады с одним Timecode
-% Потом проходить по ним депакетизатором FUA. Отрефакторить это в h264 в depacketize
-% Потом взять результирующие NAL-юниты, склеить их в один или два кадра.
-% SPS, PPS оформить в конфиг, остальное положить в один кадр. Бевард зачем-то шлет два полукадра.
-%
-% decode_h264(Body, OldDts, OldDts) -> accumulate
-% decode_h264(NewBody, OldDts, NewDts) ->
-%   depacketize(Accum)
-%   split_into_frames(NALS)
-%   flush_buffer
-%   accumulate(Body, NewDts)
-%   return_frames_and_new_buffer
-%
 
 decode_h264(Body, undefined, DTS, CTime) ->
   {ok, #h264_buffer{dts = DTS, ctime = CTime, buffer = [Body]}, []};

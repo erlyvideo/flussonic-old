@@ -163,7 +163,7 @@ quicktime_broadcaster_test() ->
       content = video,
       track_id = 2,
       codec = h264,
-      config = <<1,77,0,12,255,225,0,20,39,77,64,12,169,24,80,143,203,128,53,6,1,6,182,194,
+      config = <<1,77,64,12,255,225,0,20,39,77,64,12,169,24,80,143,203,128,53,6,1,6,182,194,
         181,239,124,4,1,0,5,40,222,9,23,160>>, 
       params = #video_params{width = 160, height = 120},
       timescale = 90.0,
@@ -218,6 +218,7 @@ a=control:rtsp://10.10.11.48:554/axis-media/media.amp?videocodec=h264
 a=range:npt=0.000000-
 m=video 0 RTP/AVP 96
 b=AS:50000
+a=lang:eng
 a=framerate:30.0
 a=control:rtsp://10.10.11.48:554/axis-media/media.amp/trackID=1?videocodec=h264
 a=rtpmap:96 H264/90000
@@ -234,6 +235,7 @@ axis_p1311_test() ->
     streams = [#stream_info{
       content = video,
       track_id = 1,
+      language = <<"eng">>,
       codec = h264,
       config = <<1,66,0,41,255,225,0,18,103,66,0,41,227,80,20,7,182,2,220,4,4,6,144,120,145,
         21,1,0,4,104,206,60,128>>, 
@@ -276,6 +278,7 @@ axis_server_test() ->
       content = video,
       track_id = 1,
       codec = h264,
+      bitrate = 50000,
       config = <<1,66,0,41,255,225,0,18,103,66,0,41,227,80,20,7,182,2,220,4,4,6,144,120,145,
         21,1,0,4,104,206,60,128>>, 
       params = #video_params{width = 640, height = 480},
@@ -468,6 +471,8 @@ a=cliprect:0,0,640,480\r
 a=framesize:96 640-480\r
 a=x-dimensions:640,480\r
 a=fmtp:96 packetization-mode=1;profile-level-id=42E029;sprop-parameter-sets=Z0IAKeNQFAe2AtwEBAaQeJEV,aM48gA==\r
+a=lang:eng\r
+b=AS:2000\r
 ">>.
 
 h264_stream_info() ->
@@ -475,6 +480,8 @@ h264_stream_info() ->
     content = video,
     track_id = 1,
     codec = h264,
+    bitrate = 2000,
+    language = <<"eng">>,
     config = <<1,66,0,41,255,225,0,18,103,66,0,41,227,80,20,7,182,2,220,4,4,6,144,120,145,
       21,1,0,4,104,206,60,128>>, 
     params = #video_params{width = 640, height = 480},
@@ -584,6 +591,8 @@ a=cliprect:0,0,640,480\r
 a=framesize:96 640-480\r
 a=x-dimensions:640,480\r
 a=fmtp:96 packetization-mode=1;profile-level-id=42E029;sprop-parameter-sets=Z0IAKeNQFAe2AtwEBAaQeJEV,aM48gA==\r
+a=lang:eng\r
+b=AS:2000\r
 m=audio 0 RTP/AVP 97\r
 a=control:trackID=2\r
 a=rtpmap:97 mpeg4-generic/44100/2\r
@@ -764,6 +773,8 @@ a=rtpmap:107 vnd.onvif.metadata/90000
 a=Media_header:MEDIAINFO=494D4B48010100000400010010710110401F000000FA000000000000000000000000000000000000;
 a=appversion:1.0
 ">>.
+
+
 
 
 

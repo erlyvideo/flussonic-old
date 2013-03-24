@@ -35,10 +35,7 @@
 %% Application callbacks
 %% ===================================================================
 
-start(_StartType, _StartArgs) ->
-	gen_tracker_sup:start_tracker(flu_files),
-	gen_tracker_sup:start_tracker(flu_streams),
-  
+start(_StartType, _StartArgs) ->  
   {ok, Pid} = flussonic_sup:start_link(),
   {ok, Pid}.
   
@@ -92,39 +89,25 @@ read_config() ->
 
 load_config() ->
   Env = read_config(),
+  LogLevel = proplists:get_value(loglevel, Env, info),
+  lager:set_loglevel(lager_console_backend, LogLevel),
+  lager:set_loglevel(lager_file_backend, LogLevel),
 
   flu:start_webserver(Env),
 
-
-  % (catch cowboy:stop_listener(http)),
-  % TODO move from cowboy supervisor tree to flussonic supervisor tree
-  % cowboy:start_listener(http, 100, 
-  %   cowboy_tcp_transport, [{port,HTTPPort},{backlog,4096},{max_connections,8192}],
-  %   cowboy_http_protocol, ProtoOpts
-  % ),
-  % end,
-  
   
   case proplists:get_value(rtmp, Env) of
     undefined -> rtmp_socket:stop_server(rtmp_listener1);
     RTMPPort ->
-	  	?D({"Start RTMP server at port", RTMPPort}),
+	  	lager:notice("Start RTMP server at port ~B", [RTMPPort]),
   	  rtmp_socket:start_server(RTMPPort, rtmp_listener1, flu_rtmp)
   end,
   case proplists:get_value(rtsp, Env) of
 	  undefined -> rtsp:stop_server(rtsp_listener1);
 	  RTSPPort ->
-	    ?D({"Start RTSP server at port", RTSPPort}),
+	    lager:notice("Start RTSP server at port ~B", [RTSPPort]),
 	    rtsp:start_server(RTSPPort, rtsp_listener1, flu_rtsp)
 	end,
-
-  case proplists:get_value(sessions_log, Env) of
-    undefined -> ok;
-    SessionLog -> case lists:member(flu_session_log, gen_event:which_handlers(flu_event)) of
-      true -> ok;
-      false -> flu_event:add_handler(flu_session_log, SessionLog)
-    end
-  end,
 
   [begin
     (catch Plugin:module_info()),

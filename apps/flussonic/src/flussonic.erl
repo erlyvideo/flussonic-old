@@ -94,10 +94,12 @@ start0(_Options) ->
   ],
   FileFormat = [date, " "] ++ ConsoleFormat,
 
-  {FileLogger, CrashLogger} = case os:getenv("LOGDIR") of
+  LogDir = os:getenv("LOGDIR"),
+
+  {FileLogger, CrashLogger} = case LogDir of
     false ->
       {[], undefined};
-    LogDir ->
+    _ ->
       {[{lager_file_backend, [[{LogDir++"/flussonic.log", info, 10485760, "$D04", 40},{lager_default_formatter, FileFormat}]]}], LogDir++"/crash.log"}
   end,
 
@@ -111,14 +113,14 @@ start0(_Options) ->
 
 
   lager:start(),
-  lager:warning("Flussonic version ~s is booting", [flu:version()]),
+  lager:notice("Flussonic version ~s is booting", [flu:version()]),
 
-  case os:getenv("LOGDIR") of
+  case LogDir of
     false ->
       ok;
-    LogDir_ ->
-      {ok,Trace} = lager_util:validate_trace({[{request,web}], debug, {lager_file_backend,LogDir_ ++ "/access.log"}}),
-      gen_event:add_handler(lager_event, {lager_file_backend,LogDir_ ++ "/access.log"}, [{LogDir_ ++ "/access.log",debug,10485760,"$D04", 40},{lager_default_formatter,[date," ",time," ",message,"\n"]}]),
+    _ ->
+      {ok,Trace} = lager_util:validate_trace({[{request,web}], debug, {lager_file_backend,LogDir ++ "/access.log"}}),
+      gen_event:add_handler(lager_event, {lager_file_backend,LogDir ++ "/access.log"}, [{LogDir ++ "/access.log",debug,10485760,"$D04", 40},{lager_default_formatter,[date," ",time," ",message,"\n"]}]),
       {MinLogLevel, Traces} = lager_config:get(loglevel),
       lager_config:set(loglevel, {MinLogLevel, [Trace|Traces]})
   end,
@@ -138,10 +140,10 @@ start0(_Options) ->
   start_app(cowboy),
   start_app(rtmp),
   start_app(rtsp),
-  start_app(gen_tracker),
   start_app(os_mon),
   try_start_app(dvr),
   try_start_app(hls),
+  try_start_app(central),
   start_app(amf),
   start_app(erlmedia),
   try_start_app(http_file),
@@ -150,6 +152,12 @@ start0(_Options) ->
   start_app(mpegts),
   start_app(flussonic),
   flussonic_app:load_config(),
+  EventLogDir = case LogDir of
+    false -> "log";
+    _ -> LogDir
+  end,
+  flu_event:add_handler(flu_event_log, [EventLogDir]),
+
   write_pid(),
   ok.
 

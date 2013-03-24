@@ -80,7 +80,7 @@ start_server(Port, Name, Callback) ->
 
 start_server(Port, Name, Callback, Args) ->
   application:start(ranch),
-  Spec = ranch:child_spec(Name, 10, ranch_tcp, [{port, Port}], rtmp_socket, [Callback, Args]),
+  Spec = ranch:child_spec(Name, 10, ranch_tcp, [{port, Port},{backlog,4096},{max_connections,32768}], rtmp_socket, [Callback, Args]),
   case supervisor:start_child(rtmp_sup, Spec) of
     {ok, Pid} -> {ok, Pid};
     {error, {already_started, Pid}} -> {ok, Pid}

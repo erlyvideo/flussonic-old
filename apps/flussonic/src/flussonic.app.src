@@ -1,12 +1,11 @@
 {application, flussonic,
  [
   {description, ""},
-  {vsn, "3.69.11"},
+  {vsn, "3.69.12"},
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib,
-                  gen_tracker
+                  stdlib
                  ]},
   {mod, { flussonic_app, []}},
   {env, [

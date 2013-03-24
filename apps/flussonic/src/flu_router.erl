@@ -16,6 +16,7 @@
 -record(routes, {
   media = [],
   prefixes = [],
+  central,
   segments_auth
 }).
 
@@ -43,14 +44,16 @@ execute(Req, Env) ->
 % 4) когда token получен, проверяем есть ли сессия в кеше
 % 5) 
 
-authorize({M,_F,_A,Opts} = R, Req) ->
+authorize({M,F,_A,Opts} = R, Req) ->
   Auth = proplists:get_value(auth,Opts),
   AuthURL = proplists:get_value(sessions,Opts,true),
 
   {Method, Req1} = cowboy_req:method(Req),
 
   % We need to make this hack here, because MPEG-TS POST requires other way of authorization
-  if Auth =/= true orelse AuthURL == false orelse (M == mpegts_handler andalso Method == <<"POST">>) ->
+  if Auth =/= true orelse AuthURL == false orelse 
+    (M == mpegts_handler andalso Method == <<"POST">>) orelse
+    (M == flu_stream andalso F == preview_jpeg) ->
     {R, Req1};
   true ->
     check_token_authorization(R, AuthURL, Req1)
@@ -153,6 +156,7 @@ autostart_stream(R, Req) ->
 % archive-1362504585-3600.mp4
 % archive-1362504585-3600.ts
 % 2012/09/15/18/43/57-03956.ts
+% 2012/09/15/18/43/57.jpg
 % 2012%2F09%2F15%2F18%2F43%2F57-03956.ts
 % timeshift_abs/1362504585
 % archive/1362504585/3600/mpegts
@@ -173,6 +177,7 @@ compile(Config) ->
      {"/(?<name>.+)/tracks-(?<tracks>[\\d,]+)/index.m3u8", {hls_track_playlist, [name,tracks]}}
     ,{"/(?<name>.+)/tracks-(?<tracks>[\\d,]+)/hls/segment(?<segment>\\d+)\\.ts", {hls_track_segment, [name,tracks,segment]}}
     ,{"/(?<name>.+)/(?<path>\\d{4}/\\d{2}/\\d{2}/\\d{2}/\\d{2}/\\d{2}-\\d+\\.ts)", {hls_segment, [name,path]}}
+    ,{"/(?<name>.+)/(?<path>\\d{4}/\\d{2}/\\d{2}/\\d{2}/\\d{2}/\\d{2}.jpg)", {preview_jpeg, [name,path]}}
     ,{"/(?<name>.+)/archive-(?<from>\\d+)-(?<duration>\\d+)\\.mp4", {archive_mp4,[name,from,duration]}} % require Req
     ,{"/(?<name>.+)/archive-(?<from>\\d+)-(?<duration>\\d+)\\.ts", {archive_ts,[name,from,duration]}} % require Req
     ,{"/(?<name>.+)/archive/(?<from>\\d+)/(?<duration>\\d+)/mpegts", {archive_mpegts,[name,from,duration]}} % require Req
@@ -205,12 +210,26 @@ compile(Config) ->
     (_) -> []
   end, Config),
 
+  Central = case lists:keyfind(central, 1, Config) of
+    {central, CentralUrl, CentralOpts} -> central:load_conf(CentralUrl, CentralOpts), true;
+    false -> false
+  end,
+
   SegmentsAuth = proplists:get_value(segments_auth, Config, true),
-  #routes{media = MediaRequests2, prefixes = Prefixes, segments_auth = SegmentsAuth}.
+  #routes{media = MediaRequests2, prefixes = Prefixes, segments_auth = SegmentsAuth, central = Central}.
 
 binarize([]) -> [];
 binarize([{dvr,Root}|Options]) -> [{dvr,to_b(Root)}|binarize(Options)];
 binarize([Opt|Options]) -> [Opt|binarize(Options)].
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%
+%%%    CDN clients
+%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
 
@@ -295,10 +314,10 @@ handler([{Prefix,PrefixLen,IsPrefixed,Spec}|Prefixes], Name, Request, Matches) -
 
 
 mfa(hls_playlist, {stream, _URL, Options}, Name, []) ->
-  {flu_stream, hls_playlist, [Name], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
+  {flu_stream, hls_playlist, [Name, 10], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
 
 mfa(hls_playlist, {live, Options}, Name, _) ->
-  {flu_stream, hls_playlist, [Name], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
+  {flu_stream, hls_playlist, [Name, 10], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
 
 mfa(hls_playlist, {file, Directory, Options}, Name, [PathInfo|_]) ->
   {flu_file, hls_playlist, [<<Directory/binary, "/", PathInfo/binary>>, Name], [auth,{tag,hls},{type,<<"hls">>},{name,Name}|Options]};
@@ -326,6 +345,14 @@ mfa(hls_segment, {stream, _URL, Options}, Name, [Path]) ->
 
 mfa(hls_segment, {live, Options}, Name, [_PathInfo, Path]) ->
   {flu_stream, hls_segment, [dvr(Options), Name, Path], [{tag,mpegts},{type,<<"hls">>},{name,Name}|Options]};
+
+
+mfa(preview_jpeg, {stream, _URL, Options}, Name, [Path]) ->
+  {flu_stream, preview_jpeg, [dvr(Options), Name, Path], [{tag,jpeg},{name,Name}|Options]};
+
+mfa(preview_jpeg, {live, Options}, Name, [_PathInfo, Path]) ->
+  {flu_stream, preview_jpeg, [dvr(Options), Name, Path], [{tag,jpeg},{name,Name}|Options]};
+
 
 
 
@@ -384,9 +411,9 @@ mfa(timeshift_rel, {live, Options}, Name, [_PathInfo, From]) ->
 
 
 mfa(hds_manifest, {stream, _, Options}, Name, []) ->
-  {flu_stream, hds_manifest, [Name], [auth,{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
+  {flu_stream, hds_manifest, [Name, 10], [auth,{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
 mfa(hds_manifest, {live, Options}, Name, [_PathInfo]) ->
-  {flu_stream, hds_manifest, [Name], [auth,{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
+  {flu_stream, hds_manifest, [Name, 10], [auth,{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
 mfa(hds_manifest, {file, Directory, Options}, Name, [PathInfo]) ->
   {flu_file, hds_manifest, [<<Directory/binary, "/", PathInfo/binary>>, Name], [auth,{tag,hds},{type,<<"hds">>},{name,Name}|Options]};
 

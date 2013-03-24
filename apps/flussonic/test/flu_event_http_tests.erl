@@ -28,15 +28,12 @@ start_http() ->
 
 http_test_() ->
   {foreach, fun() ->
-    gen_event:start_link({local, flu_event}),
     Apps = [crypto,ranch,cowboy,public_key,ssl,lhttpc, flussonic],
     [application:start(App) || App <- Apps],
     Apps
   end, fun(Apps) ->
     error_logger:delete_report_handler(error_logger_tty_h),
     [application:stop(App) || App <- lists:reverse(Apps)],
-    gen_event:stop(flu_event),
-    % application:stop(flussonic),
     error_logger:add_report_handler(error_logger_tty_h)
   end, 
     [{atom_to_list(F), fun ?MODULE:F/0} || {F,0} <- ?MODULE:module_info(exports),
@@ -47,11 +44,11 @@ test_send_event() ->
   start_http(),
   flu_config:set_config([{flu_event, flu_event_http, [<<"http://127.0.0.1:6070/evt">> ,[]]}]),
   flu_event:start_handlers(),
-  flu_event:stream_created(<<"stream1">>, []),
+  flu_event:stream_started(<<"stream1">>, []),
   Event = receive
     Msg_ -> Msg_
     after 100 -> error(http_not_working)
   end,
-  ?assertEqual(<<"stream.created">>, proplists:get_value(<<"event">>,Event)),
+  ?assertEqual(<<"stream.started">>, proplists:get_value(<<"event">>,Event)),
   ?assertEqual(<<"stream1">>, proplists:get_value(<<"stream">>,Event)),
   ok.

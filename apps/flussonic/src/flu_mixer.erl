@@ -101,7 +101,7 @@ handle_info(#video_frame{content = video, stream_id = Video, dts = DTS} = Frame,
   {F, Buf1} = frame_queue:push(Frame#video_frame{stream_id = 1, track_id = 1}, Buf),
   case F of
     undefined -> ok;
-    _ -> flu_stream:publish(Consumer, F)
+    _ -> flu_stream:send_frame(Consumer, F)
   end,
   % if LastDTS > DTS ->
   %   ?DBG("delayed frame video ~B/~B", [round_(DTS), round_(LastDTS)]);
@@ -131,7 +131,7 @@ handle_info(#video_frame{content = audio, stream_id = Audio, dts = DTS, pts = PT
   {F, Buf1} = frame_queue:push(Frame#video_frame{dts = DTS + Delta, pts = PTS + Delta, stream_id = 1, track_id = 2}, Buf),
   case F of
     undefined -> ok;
-    _ -> flu_stream:publish(Consumer, F)
+    _ -> flu_stream:send_frame(Consumer, F)
   end,
   % ?D({audio, round(DTS+Delta)}),
   {noreply, Mixer#mixer{last_dts = max_(DTS, LastDTS), queue = Buf1}};

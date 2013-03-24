@@ -252,7 +252,7 @@ handle_frame(#monotone{frames = Frames, queue_len = QueueLen, name = Name} = M) 
     Prepush2 = if
       Prepush1 == undefined -> undefined;
       F == undefined -> Prepush1;
-      F#video_frame.flavor == keyframe -> [F];
+      F#video_frame.flavor == keyframe andalso F#video_frame.next_id == gop -> [F];
       length(Prepush1) > 500 -> [F];
       true -> [F|Prepush1]
     end,
@@ -279,12 +279,13 @@ deliver_frame(#media_info{} = MI, #monotone{raw = S, mpegts = Mpegts1, send_mpeg
   Mpegts2 = send_mpegts(MI, MI, Mpegts1, TCP),
   M#monotone{mpegts = Mpegts2};
 
-deliver_frame(#video_frame{flavor = keyframe, dts = DTS} = Frame, #monotone{waiting = W} = Monotone) when W =/= [] ->
+deliver_frame(#video_frame{flavor = keyframe, dts = DTS, next_id = gop} = Frame, #monotone{waiting = W} = Monotone) when W =/= [] ->
   Monotone1 = start_waiting_clients(Monotone, DTS),
   deliver_frame(Frame, Monotone1);
 
-deliver_frame(#video_frame{} = Frame, #monotone{raw  = S, rtmp = RTMP, send_mpegts = TCP,
+deliver_frame(#video_frame{} = Frame, #monotone{raw  = S, rtmp = RTMP, send_mpegts = TCP, name = Name,
   mpegts = Mpegts1, media_info = MI} = M) ->
+  catch gen_tracker:increment(flu_streams, Name, bytes_out, erlang:external_size(Frame)*get(clients_count)),
   % ?debugFmt("deliver ~p ~p to ~p", [M#monotone.name, round(Frame#video_frame.dts), S]),
   [Pid ! Frame || #client{pid = Pid} <- S],
 

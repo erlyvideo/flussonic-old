@@ -251,12 +251,9 @@ files() ->
 
 
 stream_restart(Name) ->
-  case flu_stream:find(Name) of
-    {ok, Pid} ->
-      erlang:exit(Pid, shutdown),
-      {json, true};
-    _ ->
-      {json, false}
+  case flu_stream:restart(Name) of
+    ok -> {json, true};
+    _ -> {json, false}
   end.
 
 media_info(Name) ->

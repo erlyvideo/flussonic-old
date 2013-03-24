@@ -39,14 +39,11 @@ no_rewrite_stream_manifest_test() ->
 stop_stream_test_() ->
   {foreach,
   fun() ->
-    application:start(gen_tracker),
     application:start(flussonic),
-    gen_tracker_sup:start_tracker(flu_streams),
     ok
   end,
   fun(_) ->
     error_logger:delete_report_handler(error_logger_tty_h),
-    application:stop(gen_tracker),
     application:stop(flussonic),
     error_logger:add_report_handler(error_logger_tty_h),
     ok
