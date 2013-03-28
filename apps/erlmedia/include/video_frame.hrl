@@ -25,8 +25,9 @@
 
 -record(gop,{
   opened_at :: float(),
-  format = raw :: raw | mpegts,
-  frames = [],
+  dts :: float(),
+  frames,
+  mpegts,
   duration :: float()
 }).
 

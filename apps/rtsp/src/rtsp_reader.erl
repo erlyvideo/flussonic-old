@@ -53,7 +53,7 @@ handle_info(#video_frame{} = Frame, #rtsp{need_refetch = true, prefetch_segments
   [begin
     OpenedAt = dvr_minute:timestamp(Seg),
     Duration = dvr_minute:duration(Seg),
-    Gop = #gop{opened_at = {OpenedAt div 1000000, OpenedAt rem 1000000, 0}, format = mpegts, duration = Duration, frames = Body},
+    Gop = #gop{opened_at = OpenedAt, mpegts = Body, duration = Duration},
     Consumer ! Gop
   end|| {Seg, Body} <- Segments],
   handle_info(Frame, RTSP#rtsp{need_refetch = false, prefetch_segments = []});

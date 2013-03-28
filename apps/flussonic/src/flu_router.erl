@@ -78,7 +78,11 @@ check_token_authorization({M,F,A,Opts}, AuthURL, Req) ->
         true -> A
       end,
       Req3 = cowboy_req:set_meta(session_id,SessionId,Req2),
-      {{M,F,A1,[{session_id,SessionId}|Opts]}, updatecookie(Token, Req3)};
+      Req4 = case Type of
+        ios -> Req3;
+        _ -> updatecookie(Token, Req3)
+      end,
+      {{M,F,A1,[{session_id,SessionId}|Opts]}, Req4};
     {error, Code, Reply} ->
       {{flu_www, reply, [{ok,{Code,[], [Reply,"\n"]}}], []}, Req1}
   end.

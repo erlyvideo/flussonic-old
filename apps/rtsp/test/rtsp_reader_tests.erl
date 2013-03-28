@@ -38,9 +38,9 @@ test_start_new_stream() ->
   {messages, []} = process_info(self(),messages),
   [S1 ! F || F <- gop(6)],
 
-  ?assertMatch(#gop{format = mpegts}, receive M1 -> M1 end),
-  ?assertMatch(#gop{format = mpegts}, receive M2 -> M2 end),
-  ?assertMatch(#gop{format = mpegts}, receive M3 -> M3 end),
+  ?assertMatch(#gop{mpegts = <<_/binary>>}, receive M1 -> M1 end),
+  ?assertMatch(#gop{mpegts = <<_/binary>>}, receive M2 -> M2 end),
+  ?assertMatch(#gop{mpegts = <<_/binary>>}, receive M3 -> M3 end),
 
   Frame = receive {'$gen_call', From, #video_frame{} = F} -> gen_server:reply(From, ok), F end,
   #video_frame{codec = h264, dts = DTS, pts = PTS} = Frame,

@@ -701,7 +701,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
     rtsp -> flu_rtsp:read2(Name, URL, [{log_error,LogError}|Options]);
     rtsp2 -> flu_rtsp:read2(Name, URL, [{log_error,LogError}|Options]);
     rtsp1 -> flu_rtsp:read(Name, URL, Options);
-    hls -> hls:read(URL, Options);
+    hls -> hls:read(Name, URL, Options);
     file -> file_source:read(URL, Options);
     rtmp -> flu_rtmp:play_url(Name, URL, Options);
     playlist -> playlist:read(Name, URL, Options);
@@ -815,11 +815,25 @@ handle_info(#video_frame{} = Frame, #stream{name = Name} = Stream) ->
   {noreply, Stream1} = handle_input_frame(Frame, Stream),
   {noreply, Stream1};
 
+handle_info(#gop{mpegts = Mpegts, frames = undefined} = Gop, #stream{} = Stream) when Mpegts =/= undefined ->
+  {ok, Frames} = mpegts_decoder:decode_file(Mpegts),
+  Gop1 = case Frames of
+    [] -> Gop#gop{frames = Frames};
+    [#video_frame{dts = DTS}|_] -> Gop#gop{frames = Frames, dts = DTS}
+  end,
+  handle_info(Gop1, Stream);
 
-handle_info(#gop{} = Gop, #stream{name = Name} = Stream) ->
+handle_info(#gop{frames = [_|_] = Frames} = Gop, #stream{media_info = undefined} = Stream) ->
+  #media_info{} = MediaInfo = video_frame:define_media_info(undefined, Frames),
+  {noreply, Stream1} = handle_info(MediaInfo, Stream),
+  handle_info(Gop, Stream1);
+
+handle_info(#gop{frames = [Frame|_]} = Gop, #stream{name = Name} = Stream) ->
+  {_,Stream1} = flu_stream_frame:save_last_dts(Frame, Stream),
+  set_last_dts(Stream1#stream.last_dts, Stream1#stream.last_dts_at),
   gen_tracker:increment(flu_streams, Name, bytes_in, erlang:external_size(Gop)),
-  Stream1 = pass_message(Gop, Stream),
-  {noreply, Stream1};
+  Stream2 = pass_message(Gop, Stream1),
+  {noreply, Stream2};
 
 % handle_info(next_second, #stream{last_dts = DTS, ts_delta = Delta} = Stream) when DTS =/= undefined andalso Delta =/= undefined ->
 %   {_, _, Microsecond} = Now = erlang:now(),

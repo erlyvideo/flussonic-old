@@ -1,3 +1,9 @@
+flussonic (3.69.14)
+
+  * flussonic refreshes expiring cookies 
+  * hls_reader detects flussonic on other side and passing gops as is
+  * protection from duplicated segments in DVR
+
 flussonic (3.69.13)
 
   * fix stale cache in dvr2 when segments were deleted
