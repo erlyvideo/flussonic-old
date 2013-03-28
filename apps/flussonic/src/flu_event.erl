@@ -33,11 +33,14 @@
 -export([start_handlers/0]).
 
 -export([session_open/2, session_close/2]).
--export([stream_started/2, stream_stopped/1]).
+-export([stream_started/2, stream_stopped/2]).
+-export([file_opened/2, file_closed/2]).
 -export([add_dvr_fragment/2, delete_dvr_fragment/2]).
 
 -export([hls_bitrate_down/2, hls_bitrate_up/2]).
 -export([hls_segment_drop/2]).
+
+-export([publish_started/2, publish_stopped/2]).
 
 -export([to_json/1, to_xml/1, to_proplist/1]).
 
@@ -209,8 +212,8 @@ stream_started(Name, Options) ->
 %% @doc send event that stream was completely stopped
 %% @end
 %%----------------------------------------------------------------------
-stream_stopped(Name) ->
-  gen_event:notify(?MODULE, #flu_event{event = 'stream.stopped', stream = Name}).
+stream_stopped(Name, Stats) ->
+  gen_event:notify(?MODULE, #flu_event{event = 'stream.stopped', stream = Name, options = Stats}).
 
 %%--------------------------------------------------------------------
 %%
@@ -228,6 +231,52 @@ add_dvr_fragment(Name, Time) ->
 %%----------------------------------------------------------------------
 delete_dvr_fragment(Name, Time) ->
   gen_event:notify(?MODULE, #flu_event{event = 'stream.delete_dvr_fragment', stream = Name, options = [{time,Time}]}).
+
+
+
+
+
+
+%%--------------------------------------------------------------------
+%% @spec (Name, Stream, Options) -> ok
+%%
+%% @doc send event that file has been opened
+%% @end
+%%----------------------------------------------------------------------
+file_opened(Name, Options) ->
+  gen_event:notify(?MODULE, #flu_event{event = 'file.opened', stream = Name, options = Options}).
+
+%%--------------------------------------------------------------------
+%% @spec (Name, Stream) -> ok
+%%
+%% @doc send event that stream was completely stopped
+%% @end
+%%----------------------------------------------------------------------
+file_closed(Name, Stats) ->
+  gen_event:notify(?MODULE, #flu_event{event = 'file.closed', stream = Name, options = Stats}).
+
+
+
+
+
+
+
+%%--------------------------------------------------------------------
+%%
+%% @doc send event that stream publishing has started
+%% @end
+%%----------------------------------------------------------------------
+publish_started(Stream, Info) ->
+  gen_event:notify(?MODULE, #flu_event{event = 'stream.publish.started', stream = Stream, options = Info}).
+
+%%--------------------------------------------------------------------
+%%
+%% @doc send event that stream publishing has stopped
+%% @end
+%%----------------------------------------------------------------------
+publish_stopped(Stream, Stats) ->
+  gen_event:notify(?MODULE, #flu_event{event = 'stream.publish.stopped', stream = Stream, options = Stats}).
+
 
 
 %%--------------------------------------------------------------------

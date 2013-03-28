@@ -24,7 +24,7 @@
 -module(flu_file).
 -author('Max Lapshin <max@maxidoors.ru>').
 
--export([init/1, handle_call/3, handle_info/2, terminate/2]).
+-export([init/1, handle_call/3, handle_info/2, terminate/2, after_terminate/2]).
 -export([start_link/2, autostart/2, media_info/1]).
 
 -export([hds_manifest/2, hds_fragment/3, hds_fragment/4]).
@@ -229,6 +229,8 @@ init([Name, Options]) ->
   
   Timeout = proplists:get_value(timeout, Options, 60000),
   gen_tracker:setattr(flu_files, Name, [{client_count,ClientCount}]),
+
+  flu_event:file_opened(Name, [{url,URL},{client_count,ClientCount}]),
 
   case proc_lib:start(?MODULE, init_reader, [self(), URL]) of
     {ok, Pid, MediaInfo, Keyframes} ->
@@ -531,6 +533,11 @@ handle_call(Call, _From, State) ->
 
 
 terminate(_,_) ->
+  ok.
+
+
+after_terminate(Name, _Attrs) ->
+  flu_event:file_closed(Name, []),
   ok.
 
 

@@ -11,6 +11,7 @@
   delete_time :: non_neg_integer(),
   last_access_time :: non_neg_integer(),
   last_verify_time :: non_neg_integer(),
+  cookie_set_at :: erlang:timestamp(),
   bytes_sent = 0 :: non_neg_integer(),
   pid = undefined :: undefined | pid(),
   ref = undefined :: undefined | reference(),

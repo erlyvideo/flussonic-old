@@ -18,8 +18,10 @@ install:
 ct:
 	ct_run -pa `pwd`/apps/*/ebin -pa `pwd`/deps/*/ebin -dir apps/*/test -logdir logs/
 
-test:
+eunit:
 	./rebar eunit skip_deps=true
+
+test: ct eunit
 
 app: deps/cowboy deps/lager/ebin/lager_transform.beam
 	./rebar compile skip_deps=true

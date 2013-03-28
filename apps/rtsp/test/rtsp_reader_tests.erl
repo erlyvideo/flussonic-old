@@ -10,6 +10,11 @@
 
 play_stream_test_() ->
   {setup, flu_test:setup_([{apps,[rtsp]}], fun() ->
+    flu_test:set_config([{rtsp,1556},
+      {stream,"stream1","passive://",[{clients_timeout,false},{source_timeout,false}]},
+      {stream,"stream2","passive://",[{clients_timeout,false},{source_timeout,false},{hls,false}]},
+      {stream,"stream3","passive://",[{clients_timeout,false},{source_timeout,false}]}
+    ]),
     ok
   end),
   flu_test:teardown_(),
@@ -20,12 +25,12 @@ gop(N) ->
   [F#video_frame{pts = DTS + case Content of video -> 40; _ -> 0 end} || #video_frame{dts = DTS, content = Content} = F <- flu_test:gop(N)].
 
 test_start_new_stream() ->
-  flu_test:set_config([{rtsp,1556},{stream,"stream1","passive://"}]),
   {ok,S1} = flu_stream:autostart(<<"stream1">>),
   S1 ! flu_test:media_info(),
   [S1 ! F || F <- gop(1)],
   [S1 ! F || F <- gop(2)],
   [S1 ! F || F <- gop(3)],
+  gen_server:call(S1, {get, media_info}),
 
   {ok,R} = rtsp_reader:start_link("rtsp://localhost:1556/stream1", [{consumer,self()}]),
   {ok, #media_info{streams = Streams}} = rtsp_reader:media_info(R),
@@ -40,24 +45,23 @@ test_start_new_stream() ->
   Frame = receive {'$gen_call', From, #video_frame{} = F} -> gen_server:reply(From, ok), F end,
   #video_frame{codec = h264, dts = DTS, pts = PTS} = Frame,
   ?assertEqual(DTS + 40, PTS),
+  flu_stream:stop(<<"stream1">>),
   flush_frames(),
-  erlang:exit(S1,shutdown),
   ok.
 
 test_start_stream_no_hls() ->
-  flu_test:set_config([{rtsp,1556},{stream,"stream1","passive://", [{hls,false}]}]),
-  {ok,S1} = flu_stream:autostart(<<"stream1">>),
+  {ok,S1} = flu_stream:autostart(<<"stream2">>),
   S1 ! flu_test:media_info(),
   [S1 ! F || F <- gop(1)],
   [S1 ! F || F <- gop(2)],
-  ?assertEqual(undefined, gen_tracker:getattr(flu_streams,<<"stream1">>,hls_playlist)),
+  ?assertEqual(undefined, gen_tracker:getattr(flu_streams,<<"stream2">>,hls_playlist)),
 
-  {ok,R} = rtsp_reader:start_link("rtsp://localhost:1556/stream1", [{consumer,self()}]),
+  {ok,R} = rtsp_reader:start_link("rtsp://localhost:1556/stream2", [{consumer,self()}]),
   {ok, #media_info{streams = Streams}} = rtsp_reader:media_info(R),
   2 = length(Streams),
   receive #gop{} -> error(gop_send) after 0 -> ok end,
+  flu_stream:stop(<<"stream2">>),
   flush_frames(),
-  erlang:exit(S1,shutdown),
   ok.
 
 flush_frames() ->
@@ -78,8 +82,7 @@ read_frames() ->
 
 
 test_frames_are_equal() ->
-  flu_test:set_config([{rtsp,1556},{stream,"stream1","passive://"}]),
-  {ok,S1} = flu_stream:autostart(<<"stream1">>),
+  {ok,S1} = flu_stream:autostart(<<"stream3">>),
   {ok, M} = gen_server:call(S1, start_monotone),
   gen_server:call(M, {set_start_at,{0,0,0}}),
 
@@ -87,7 +90,7 @@ test_frames_are_equal() ->
   S1 ! MediaInfo1,
   Gop = gop(1),
   [S1 ! F || F <- Gop],
-  {ok,R} = rtsp_reader:start_link("rtsp://localhost:1556/stream1", [{consumer,self()}]),
+  {ok,R} = rtsp_reader:start_link("rtsp://localhost:1556/stream3", [{consumer,self()}]),
   {ok, #media_info{streams = Streams2_} = MediaInfo2_} = rtsp_reader:media_info(R),
   MediaInfo2 = MediaInfo2_#media_info{options = [], streams = [S#stream_info{options = []} || S <- Streams2_]},
   ?assertEqual(MediaInfo1, MediaInfo2),
@@ -103,7 +106,8 @@ test_frames_are_equal() ->
   lists:zipwith3(fun(N,G1,F1) ->
     ?assertEqual({N,G1},{N,F1})
   end, lists:seq(1,length(Frames)),lists:sublist(Gop, 1, length(Frames)), Frames),
-  erlang:exit(S1,shutdown),
+  flu_stream:stop(<<"stream3">>),
+  flush_frames(),
   ok.
 
 

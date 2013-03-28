@@ -25,7 +25,7 @@
 -author('Max Lapshin <max@maxidoors.ru>').
 
 -export([request/3]).
--export([read_loop/3]).
+-export([recorder_loop/4]).
 -export([write_loop/2]).
 -export([null_packet/1]).
 
@@ -76,7 +76,7 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>, session
   erlang:put(name, OurName),
 
   {ok, Pid} = flu_stream:autostart(Name, Options),
-  ?D({mpegts_play,Name}),
+  lager:info("MPEGTS PLAY ~s", [Name]),
   inet:setopts(Socket, [{send_timeout,10000},{sndbuf,1200000}]),
   Transport:send(Socket, "HTTP/1.0 200 OK\r\nContent-Type: video/mpeg2\r\nConnection: close\r\n\r\n"),
 
@@ -84,8 +84,10 @@ handle0(Req, #mpegts{name = Name, options = Options, method = <<"GET">>, session
 
   Mpegts = mpegts:init([{resync_on_keyframe,true}]),
   flu_stream:subscribe(Pid, [{proto,tcp_mpegts},{socket,Socket}|Options]),
+  erlang:monitor(process, Pid),
   Started = length([S || #stream_info{content = video} = S <- Streams]) == 0,
-  ?MODULE:write_loop(Req, #mpegts{mpegts = Mpegts, started = Started, session_id = SessionId});
+  ?MODULE:write_loop(Req, #mpegts{mpegts = Mpegts, started = Started, session_id = SessionId}),
+  Transport:close(Socket);
 
 handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>}) ->
   proplists:get_value(publish_enabled, Options) == true orelse throw({return,403,<<"publish not enabled">>}),
@@ -104,16 +106,25 @@ handle0(Req, #mpegts{name = StreamName, options = Options, method = <<"POST">>})
   end,
 
   {TE, Req1} = cowboy_req:header(<<"transfer-encoding">>, Req),
-  TE == <<"chunked">> orelse throw({return, 401, <<"need body">>}),
+  TE == <<"chunked">> orelse throw({return, 400, <<"need body">>}),
 
   {ok, Req2} = cowboy_req:reply(200, [], <<>>, Req1),
 
+  {IP_, Req3} = cowboy_req:peer_addr(Req2),
+  IP = iolist_to_binary(inet_parse:ntoa(IP_)),
+  lager:notice("PUBLISH MPEGTS ~s from IP ~s", [StreamName, IP]),
+
   {ok, Recorder} = flu_stream:autostart(StreamName, Options),
   flu_stream:set_source(Recorder, self()),
-  {ok, Req3} = ?MODULE:read_loop(Recorder, mpegts_decoder:init(), Req2),
+  flu_event:publish_started(StreamName, [{proto,mpegts},{ip,IP}]),
+  T1 = os:timestamp(),
+  {ok, Req4, Bytes} = ?MODULE:recorder_loop(Recorder, mpegts_decoder:init(), Req3, 0),
+  T2 = os:timestamp(),
+  Time = timer:now_diff(T2,T1) div 1000,
+  flu_event:publish_stopped(StreamName, [{proto,mpegts},{ip,IP},{time,Time},{bytes,Bytes}]),
   flu_stream:set_source(Recorder, undefined),
-  ?D({exit,mpegts_reader}),
-  {ok, Req3, undefined}.
+  lager:notice("STOP PUBLISH MPEGTS ~s with ~B bytes", [StreamName, Bytes]),
+  {ok, Req4, undefined}.
 
 
 await_media_info(Name, Req) ->
@@ -133,23 +144,52 @@ await_media_info(Name, Req) ->
   end.
 
 
-
 read_chunk(Req) ->
-  cowboy_req:stream_body(Req).
+  % cowboy_req:stream_body(Req).
+  <<>> = cowboy_req:get(buffer, Req),
+  [ranch_tcp, Socket] = cowboy_req:get([transport, socket], Req),
+  inet:setopts(Socket, [{packet,line},{active,false}]),
+  case gen_tcp:recv(Socket, 0, 3000) of
+    {ok, Line} ->
+      {match, [Len]} = re:run(Line, "([\\da-fA-F]+)", [{capture,all_but_first,list}]),
+      Length = list_to_integer(Len,16),
+      inet:setopts(Socket, [{packet,raw},{active,false}]),
+      case Length of
+        0 ->
+          {ok, <<"\r\n">>} = gen_tcp:recv(Socket, 2, 3000),
+          {done, Req};
+        _ ->
+          case gen_tcp:recv(Socket, Length, 3000) of
+            {ok, Chunk} ->
+              {ok, <<"\r\n">>} = gen_tcp:recv(Socket, 2, 3000),
+              {ok, Chunk, Req};
+            {error, _} = Error ->
+              Error
+          end
+      end;
+    {error, _} = Error ->
+      Error
+  end.
 
-  
-read_loop(Recorder, Reader, Req) ->
+
+
+
+
+
+    
+
+recorder_loop(Recorder, Reader, Req, Bytes) ->
   case read_chunk(Req) of
     {ok, Chunk, Req1} ->
       {ok, Reader1, Frames} = mpegts_decoder:decode(Chunk, Reader),
       [flu_stream:send_frame(Recorder, Frame) || Frame <- Frames],
       % {ok, <<"\r\n">>} = gen_tcp:recv(Socket, 2),
-      ?MODULE:read_loop(Recorder, Reader1, Req1);
+      ?MODULE:recorder_loop(Recorder, Reader1, Req1, Bytes + iolist_size(Chunk));
     {done, Req1} ->
-      {ok, Req1};
+      {ok, Req1, Bytes};
     {error, Error} ->
-      lager:error("http error capturing mpegts over http: ~p", [Error]),
-      {ok, Req}
+      lager:info("http error capturing mpegts over http: ~p", [Error]),
+      {ok, Req, Bytes}
   end.
     
 

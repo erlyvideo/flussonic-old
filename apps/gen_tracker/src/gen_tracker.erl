@@ -283,7 +283,11 @@ delete_entry(Zone, #entry{name = Name, mfa = {M,_,_}}) ->
   case erlang:function_exported(M, after_terminate, 2) of
     true ->
       Attrs = ets:select(attr_table(Zone), ets:fun2ms(fun({{N, K}, V}) when N == Name -> {K,V} end)),
-      catch M:after_terminate(Name, Attrs);
+      try M:after_terminate(Name, Attrs)
+      catch
+        Class:Error ->
+          error_logger:info_msg("Error calling ~p:after_terminate(~p,attrs): ~p:~p\n~p\n", [M, Name, Class, Error, erlang:get_stacktrace()])
+      end;
     false -> ok
   end,
   ets:select_delete(Zone, ets:fun2ms(fun(#entry{name = N}) when N == Name -> true end)),

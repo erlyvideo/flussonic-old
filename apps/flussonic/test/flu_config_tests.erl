@@ -24,6 +24,15 @@ expand_entry_test_() ->
     {rewrite, "stream2", "fake://stream1", [{dvr,"root"}]}
   ], undefined)),
 
+  ?_assertEqual({ok, [
+    {sessions, "http://1/"},
+    {stream, <<"stream1">>, <<"passive">>, [{sessions, "http://2/"},{static,true}]}
+  ]}, 
+  flu_config:parse_config([
+    {sessions, "http://1/"},
+    {stream, <<"stream1">>, <<"passive">>, [{sessions, "http://2/"}]}
+  ], undefined)),
+
   ?_assertEqual({ok, [{central, <<"http://central/">>, []}]},
       flu_config:parse_config([{central, "http://central/"}], undefined)),
 
@@ -45,7 +54,7 @@ expand_entry_test_() ->
   ?_assertEqual({ok, [{live, <<"live">>, [{clients_timeout,false},{sessions, "http://host"}]}]},
       flu_config:parse_config([{live, "live", [{sessions, "http://host"}]}], undefined)),
 
-  ?_assertEqual({ok, [{live, <<"live">>, [publish_enabled, {clients_timeout,false}, {push, "http://a"},{push, "http://b"}] }]},
+  ?_assertEqual({ok, [{live, <<"live">>, [{clients_timeout,false}, publish_enabled, {push, "http://a"},{push, "http://b"}] }]},
     flu_config:parse_config([{live, "live", [{push, "http://b"},{push,"http://a"},publish_enabled]}], undefined)),
 
 

@@ -35,18 +35,18 @@
 
 read(Stream, URL_, Options) ->
   URL = re:replace(URL_, "rtsp1://", "rtsp://", [{return,list}]),
-  {ok, Proxy} = flussonic_sup:start_stream_helper(Stream, publish_proxy, {flu_publish_proxy, start_link, [undefined, self()]}),
+  {ok, Proxy} = flu_stream:start_helper(Stream, publish_proxy, {flu_publish_proxy, start_link, [undefined, self()]}),
   {ok, RTSP, #media_info{streams = Streams} = MediaInfo} = old_rtsp_socket:read(URL, [{consumer,Proxy}|Options]),
   Proxy ! {set_source, RTSP},
   Streams1 = [Info#stream_info{track_id = TrackId + 199} || #stream_info{track_id = TrackId} = Info <- Streams],
   {ok, RTSP, MediaInfo#media_info{streams = Streams1}}.
   
 read2(Stream, URL, Options) ->
-  % {ok, Proxy} = flussonic_sup:start_stream_helper(Stream, publish_proxy, {flu_publish_proxy, start_link, [undefined, self()]}),
+  % {ok, Proxy} = flu_stream:start_helper(Stream, publish_proxy, {flu_publish_proxy, start_link, [undefined, self()]}),
   URL1 = re:replace(URL, "rtsp2://", "rtsp://", [{return,list}]),
   % {ok, RTSP} = rtsp_reader:start_link(URL1, [{consumer,self()}|Options]),
   % Proxy ! {set_source, RTSP},
-  {ok, RTSP} = flussonic_sup:start_stream_helper(Stream, rtsp_reader, {rtsp_reader, start_link, [URL1, [{consumer,self()}|Options]]}),
+  {ok, RTSP} = flu_stream:start_helper(Stream, rtsp_reader, {rtsp_reader, start_link, [URL1, [{consumer,self()}|Options]]}),
   try rtsp_reader:media_info(RTSP) of
     {ok, #media_info{streams = Streams} = MediaInfo} -> 
       {ok, RTSP, MediaInfo#media_info{streams = [S || #stream_info{codec = Codec} = S <- Streams, lists:member(Codec,[h264,mp3,aac])]}}
@@ -116,7 +116,7 @@ announce0(URL, Headers, #media_info{} = MediaInfo) ->
   gen_tracker:setattr(flu_streams, StreamName, [{play_prefix,Prefix}]),
   flu_stream:set_source(Recorder, self()),
   
-  {ok, Proxy} = flussonic_sup:start_stream_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder]}),
+  {ok, Proxy} = flu_stream:start_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder]}),
   erlang:monitor(process, Recorder),
   {ok, Proxy}.
   

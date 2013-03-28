@@ -1,3 +1,14 @@
+flussonic (3.69.13)
+
+  * fix stale cache in dvr2 when segments were deleted
+  * mp4 exporters are now launched under supervisor and can be monitored
+  * fixed broken long mp4 exporter: process was died by refresh_auth message
+  * updated mpegts_handler: stop on dying stream and better publish
+  * changed flu_event format for files and streams
+  * now dvr2 is storage by default. Need to write dvr1 for old streams
+  * fix HDS bitrate in manifest
+  * HTTP auth cookie now is refreshed soon to expiration and is 10 hours by default
+
 flussonic (3.69.12)
 
   * don't fail RTSP LIST_SEGMENTS on non-HLS streams

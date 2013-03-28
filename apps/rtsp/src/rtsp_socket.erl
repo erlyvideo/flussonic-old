@@ -250,6 +250,7 @@ handle_info(#video_frame{}, #rtsp{paused = true} = RTSP) ->
   {noreply, RTSP};
 
 handle_info(#video_frame{dts = DTS} = Frame, #rtsp{first_dts = undefined} = RTSP) ->
+  % ?debugFmt("setoutput fdts: ~p", [Frame]),
   handle_info(Frame, RTSP#rtsp{first_dts = DTS});
 
 handle_info(#video_frame{content = metadata}, #rtsp{} = RTSP) ->
@@ -492,6 +493,7 @@ decode_rtcp0(<<2:2, _:6, ?RTCP_SR, _Length:16, SSRC:32, NTP:64, Timecode:32, _Pk
 
 decode_rtcp0(<<_:8, 204, 4:16, "FlFD", _SSRC:32, FirstDTS90:64, RTCP/binary>>, #rtsp{} = RTSP, ChannelId) ->
   FirstDTS = FirstDTS90 / 90.0,
+  % ?debugFmt("first dts on channel ~p: ~p", [ChannelId, round(FirstDTS)]),
   decode_rtcp0(RTCP, RTSP#rtsp{first_dts = FirstDTS}, ChannelId);
 
 decode_rtcp0(<<_, _Code, Len:16, _P1:Len/binary, _P2:Len/binary, _P3:Len/binary, _P4:Len/binary, RTCP/binary>>, #rtsp{} = RTSP, ChannelId) ->
@@ -521,11 +523,9 @@ handle_input_rtp(ChannelId, RTP, #rtsp{first_dts = Shift} = RTSP) ->
         undefined -> Frames1;
         _ -> [F#video_frame{dts = DTS + Shift, pts = PTS + Shift} || #video_frame{dts = DTS, pts = PTS} = F <- Frames1]
       end,
-      % if length(Frames2) > 0 -> ?debugFmt("~p", [{ChannelId, size(RTP), length(Frames2), 
+      % if length(Frames2) > 0 -> ?debugFmt("~p", [{ChannelId, size(RTP), round(Shift), length(Frames2), 
       %   [{C,round(T)} || #video_frame{codec = C, dts = T} <- Frames2]}]); true -> ok end,
       send_frames(Frames2, setelement(#rtsp.chan1 + ChannelId_, RTSP, Chan2))
-      % <<_:32, TC:32, _/binary>> = RTP,
-      % [lager:info("~4s ~8s ~B ~B", [Codec, Flavor, round(DTS), TC]) || #video_frame{codec = Codec, flavor = Flavor, dts = DTS, body = Body} <- Frames],
   end,
   RTSP1.
 
@@ -563,17 +563,18 @@ tcp_send(#rtsp{socket = Socket} = RTSP, IOList) ->
   end.
 
 
-
 rtp_packets(#video_frame{codec = h264, dts = DTS, pts = PTS, body = Data, track_id = TrackID, flavor = _Flavor}, 
-  #rtsp{v_seq = Seq, v_scale = Scale, length_size = LengthSize}) ->
+  #rtsp{v_seq = Seq, v_scale = Scale, length_size = LengthSize}) when DTS >= 0, PTS >= 0 ->
   Nals = lists:flatmap(fun(NAL) -> h264:fua_split(NAL, 1387) end, split_h264_frame(Data, LengthSize)),
+  % ?debugFmt("h264 ~p: ~p, ~p", [DTS, Scale, round(DTS*Scale)]),
   Packets = pack_h264(Nals, round(DTS*Scale), round((PTS - DTS)*Scale), TrackID, Seq),
   Packets;
 
 
 rtp_packets(#video_frame{codec = aac, dts = DTS, body = Body1, track_id = TrackID}, 
-  #rtsp{a_seq = Seq, a_scale = Scale}) ->
+  #rtsp{a_seq = Seq, a_scale = Scale}) when DTS >= 0 ->
   
+  % ?debugFmt("aac ~p: ~p, ~p", [DTS, Scale, round(DTS*Scale)]),
   Bodies = [Body1|receive_aac(3)],
   AUHeader = [<<(size(Body)):13, 0:3>> || Body <- Bodies],
   AULength = iolist_size(AUHeader)*8,

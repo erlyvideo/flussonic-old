@@ -115,13 +115,13 @@ return_req(_, Req) ->
   {halt, Req}.
 
 
-headers(html) -> [{<<"Content-Type">>, <<"text/html">>}];
-headers(hds) -> [{<<"Content-Type">>, <<"text/xml">>}|no_cache()];
-headers(f4f) -> [{<<"Content-Type">>, <<"video/f4f">>}];
-headers(hls) -> [{<<"Content-Type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()];
-headers(mpegts) -> [{<<"Content-Type">>, <<"video/MP2T">>}];
-headers(json) -> [{<<"Content-Type">>,<<"application/json">>}];
-headers(jpeg) -> [{<<"Content-Type">>,<<"image/jpeg">>}];
+headers(html) -> [{<<"content-type">>, <<"text/html">>}];
+headers(hds) -> [{<<"content-type">>, <<"text/xml">>}|no_cache()];
+headers(f4f) -> [{<<"content-type">>, <<"video/f4f">>}];
+headers(hls) -> [{<<"content-type">>, <<"application/vnd.apple.mpegurl">>}|no_cache()];
+headers(mpegts) -> [{<<"content-type">>, <<"video/MP2T">>}];
+headers(json) -> [{<<"content-type">>,<<"application/json">>}];
+headers(jpeg) -> [{<<"content-type">>,<<"image/jpeg">>}];
 headers(_) -> [].
 
 

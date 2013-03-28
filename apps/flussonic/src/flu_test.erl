@@ -130,8 +130,9 @@ set_config(Config) ->
 wait_for_not_connect(Port, 0) -> error({still_listening,Port});
 wait_for_not_connect(Port, Count) ->
   case gen_tcp:connect({127,0,0,1}, Port, [binary], 300) of
+    {error, econnrefused} -> ok;
     {ok, S} -> gen_tcp:close(S), timer:sleep(10), wait_for_not_connect(Port, Count - 1);
-    {error, econnrefused} -> ok
+    _ -> timer:sleep(10), wait_for_not_connect(Port, Count - 1)
   end.
 
 
@@ -141,7 +142,7 @@ wait_for_connect(Port, 0) ->
 wait_for_connect(Port, Count) ->
   case gen_tcp:connect({127,0,0,1}, Port, [binary]) of
     {ok, S} -> gen_tcp:close(S);
-    {error, econnrefused} -> timer:sleep(10), wait_for_connect(Port, Count - 1)
+    {error, _} -> timer:sleep(10), wait_for_connect(Port, Count - 1)
   end.
 
 
@@ -173,8 +174,14 @@ peername(_) ->
 
 
 
+bunny() ->
+  case file:open("../../priv/bunny.mp4", [read,binary,raw]) of
+    {error, _} -> file:open("../../../priv/bunny.mp4",[read,binary,raw]);
+    {ok, F_} -> {ok, F_}
+  end.
+
 media_info() ->
-  {ok, F} = file:open("../../../priv/bunny.mp4",[read,binary,raw]),
+  {ok, F} = bunny(),
   {ok, R} = mp4_reader:init({file,F},[]),
   MediaInfo = mp4_reader:media_info(R),
   file:close(F),
@@ -185,7 +192,7 @@ gop() ->
   gop(undefined).
 
 gop(N) ->
-  {ok, F} = file:open("../../../priv/bunny.mp4",[read,binary,raw]),
+  {ok, F} = bunny(),
   {ok, R} = mp4_reader:init({file,F},[]),
   {ok, Gop} = mp4_reader:read_gop(R, N),
   file:close(F),
@@ -202,14 +209,19 @@ request(URL, Method, Headers, Timeout) ->
 
 
 request0(URL, Method, Headers, Timeout) ->
-  {ok, {http, _, Host, Port, Path, Query}} = http_uri:parse(URL),
+  {ok, {http, Auth, Host, Port, Path, Query}} = http_uri:parse(URL),
   {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {active,false}, {packet, http}, 
     {send_timeout, Timeout}], Timeout),
 
+  AuthHeader = case Auth of
+    "" -> "";
+    _ -> ["Authorization: Basic ",base64:encode_to_string(Auth),"\r\n"]
+  end,
   Meth = string:to_upper(lists:flatten(io_lib:format("~s", [Method]))),
   Request = [Meth, " ", Path, Query, " HTTP/1.1\r\n",
   "Host: ", Host, "\r\n",
   "Connection: keepalive\r\n",
+  AuthHeader,
   [[K,": ",V,"\r\n"] || {K,V} <- Headers],
   "\r\n"],
   ok = gen_tcp:send(Socket, Request),

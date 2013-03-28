@@ -36,6 +36,7 @@
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_info/2, terminate/2]).
 -export([find_session/1, new_or_update/2, id/1, ref/1, add_bytes/2]).
+-export([is_refreshing/1, cookie_age/0]).
 -export([info/1]).
 -export([table/0]).
 -export([stats/0]).
@@ -116,6 +117,12 @@ backend_request(URL, Identity, Options) ->
   end.
 
 
+backend_request0(mocked, Identity, Options) ->
+  case get(mock_backend) of
+    undefined -> error(not_mocked_backend);
+    Fun when is_function(Fun, 2) -> Fun(Identity, Options)
+  end;
+
 backend_request0(true, _Identity, _Options) ->
   {ok, []};
 
@@ -142,6 +149,33 @@ client_count(Name) when is_binary(Name) ->
   ets:select_count(flu_session:table(), ets:fun2ms(fun(#session{name = N}) when N == Name -> true end)).
 
 
+
+cookie_age() ->
+  36000.
+
+% @doc Tells whether need to refresh cookie
+is_refreshing(Id) ->
+  T2 = os:timestamp(),
+  case ets:lookup(flu_session:table(), Id) of
+    [#session{cookie_set_at = undefined}] -> 
+      ets:update_element(flu_session:table(), Id, {#session.cookie_set_at, T2}),
+      true;
+    [#session{cookie_set_at = T1}] ->
+      Age = 2*cookie_age() div 3,
+      case timer:now_diff(T2,T1) div 1000000 of
+        Delta when Delta > Age -> 
+          ets:update_element(flu_session:table(), Id, {#session.cookie_set_at, T2}),
+          true;
+        _ -> 
+          false
+      end;
+    [] -> true
+  end.
+
+
+
+
+
 add_bytes(undefined, _) -> ok;
 
 add_bytes(SessionId, Bytes) when is_integer(SessionId), is_integer(Bytes) ->
@@ -162,7 +196,7 @@ global_limit() -> 1000000.
 
 
 validate_url(URL) ->
-  is_binary(URL) orelse URL == true orelse throw({error, bad_auth_url}),
+  is_binary(URL) orelse URL == true orelse URL == mocked orelse throw({error, bad_auth_url}),
   ok.
 
 

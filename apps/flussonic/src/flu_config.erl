@@ -110,8 +110,10 @@ to_b(Binary) when is_binary(Binary) -> Binary;
 to_b(undefined) -> undefined;
 to_b(Atom) when is_atom(Atom) -> binary_to_atom(Atom, latin1).
 
+global_keys() -> [sessions,http_auth].
+
 expand_options(Env) ->
-  GlobalKeys = [sessions,http_auth],
+  GlobalKeys = global_keys(),
   GlobalOptions = [Entry || Entry <- Env, is_tuple(Entry) andalso lists:member(element(1,Entry),GlobalKeys)],
 
   [expand_entry(Entry,GlobalOptions) || Entry <- Env].
@@ -119,15 +121,15 @@ expand_options(Env) ->
 expand_entry({central, URL},GlobalOptions) -> {central, to_b(URL), GlobalOptions};
 expand_entry({central, URL, Options},GlobalOptions) -> {central, to_b(URL), merge(Options,GlobalOptions)};
 expand_entry({rewrite, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,false}],GlobalOptions)};
-expand_entry({rewrite, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,false}],Options,GlobalOptions)};
+expand_entry({rewrite, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,false}]++Options,GlobalOptions)};
 expand_entry({stream, Path, URL},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}],GlobalOptions)};
-expand_entry({stream, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}],Options,GlobalOptions)};
+expand_entry({stream, Path, URL, Options},GlobalOptions) -> {stream, to_b(Path), to_b(URL), merge([{static,true}]++Options,GlobalOptions)};
 expand_entry({mpegts, Prefix},GlobalOptions) -> {mpegts, to_b(Prefix), merge([{clients_timeout,false}],GlobalOptions)};
-expand_entry({mpegts, Prefix, Options},GlobalOptions) -> {mpegts, to_b(Prefix), merge(Options,[{clients_timeout,false}|GlobalOptions])};
+expand_entry({mpegts, Prefix, Options},GlobalOptions) -> {mpegts, to_b(Prefix), merge(Options ++ [{clients_timeout,false}],GlobalOptions)};
 expand_entry({webm, Prefix},GlobalOptions) -> {webm, to_b(Prefix), merge([{clients_timeout,false}],GlobalOptions)};
-expand_entry({webm, Prefix, Options},GlobalOptions) -> {webm, to_b(Prefix), merge(Options,[{clients_timeout,false}|GlobalOptions])};
-expand_entry({live, Prefix},GlobalOptions) -> {live, to_b(Prefix), merge(GlobalOptions, [{clients_timeout,false}])};
-expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merge(Options,GlobalOptions, [{clients_timeout,false}])};
+expand_entry({webm, Prefix, Options},GlobalOptions) -> {webm, to_b(Prefix), merge(Options ++ [{clients_timeout,false}],GlobalOptions)};
+expand_entry({live, Prefix},GlobalOptions) -> {live, to_b(Prefix), merge([{clients_timeout,false}], GlobalOptions)};
+expand_entry({live, Prefix, Options},GlobalOptions) -> {live, to_b(Prefix), merge(Options ++ [{clients_timeout,false}],GlobalOptions)};
 expand_entry({file, Prefix, Root},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), GlobalOptions};
 expand_entry({file, Prefix, Root, Options},GlobalOptions) -> {file, to_b(Prefix), to_b(Root), merge(Options,GlobalOptions)};
 expand_entry(api, GlobalOptions) -> {api, GlobalOptions};
@@ -136,11 +138,26 @@ expand_entry({http_events, URL},_GlobalOptions) -> {flu_event, flu_event_http, [
 expand_entry({plugin, Plugin},_GlobalOptions) -> {plugin, Plugin, []};
 expand_entry(Entry,_GlobalOptions) -> Entry.
 
-merge(Opts1, Opts2) ->
-  lists:umerge(lists:usort(Opts1), lists:usort(Opts2)).
+merge(Opts, Global) ->
+  Global1 = lists:foldl(fun(Key,G) ->
+    case lists:keyfind(Key,1,Opts) of
+      false -> G;
+      _ -> lists:keydelete(Key,1,G)
+    end
+  end, Global, global_keys()),
+  optsort(Opts ++ Global1).
 
-merge(Opts1, Opts2, Opts3) ->
-  merge(Opts1, merge(Opts2, Opts3)).
+
+optsort(Opts) ->
+  lists:usort(fun
+    (T1,T2) when is_tuple(T1), is_tuple(T2) -> tuple_to_list(T1) =< tuple_to_list(T2);
+    (T1,A2) when is_tuple(T1) -> element(1,T1) =< A2;
+    (A1,T2) when is_tuple(T2) -> A1 =< element(1,T2);
+    (A1,A2) -> A1 =< A2
+  end, Opts).
+
+
+
 
 
 parse_routes([]) -> [];

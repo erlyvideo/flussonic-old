@@ -62,7 +62,8 @@ authorize({M,F,_A,Opts} = R, Req) ->
 % iPhone sends: {<<"x-playback-session-id">>,<<"3099F04D-B9CA-444F-ACD2-BED3C6439D07">>}
 
 check_token_authorization({M,F,A,Opts}, AuthURL, Req) ->
-  {Type, Token, Req1} = retrieve_token(Req, Opts),
+  {name, Name} = lists:keyfind(name,1,Opts),
+  {Type, Token, Req1} = retrieve_token(cowboy_req:set_meta(name,Name,Req)),
 
   % {Path,_} = cowboy_req:path(Req),
   % ?D({Type,Path, Token}),
@@ -76,24 +77,22 @@ check_token_authorization({M,F,A,Opts}, AuthURL, Req) ->
         M == dvr_session andalso F == hds_manifest andalso Token =/= undefined andalso Type == token -> A ++ [Token];
         true -> A
       end,
-      {{M,F,A1,[{session_id,SessionId}|Opts]}, cowboy_req:set_meta(session_id,SessionId,Req2)};
+      Req3 = cowboy_req:set_meta(session_id,SessionId,Req2),
+      {{M,F,A1,[{session_id,SessionId}|Opts]}, updatecookie(Token, Req3)};
     {error, Code, Reply} ->
       {{flu_www, reply, [{ok,{Code,[], [Reply,"\n"]}}], []}, Req1}
   end.
 
 
 
-retrieve_token(Req, Opts) ->
-  {name,Name} = lists:keyfind(name,1,Opts),
+retrieve_token(Req) ->
   case cowboy_req:qs_val(<<"token">>, Req, undefined) of
     {undefined, Req1} ->
       case cowboy_req:header(<<"x-playback-session-id">>, Req1) of
         {undefined, Req2} ->
           case cowboy_req:cookie(<<"flusession">>, Req2) of
             {undefined, Req3} ->
-              Token = uuid:gen(),
-              Req4 = cowboy_req:set_resp_cookie(<<"flusession">>, Token, [{max_age,300},{path, <<"/", Name/binary>>}], Req3),
-              {uuid, Token, Req4};
+              {uuid, uuid:gen(), Req3};
             {Token, Req3} ->
               {cookie, Token, Req3}
           end;    
@@ -105,15 +104,28 @@ retrieve_token(Req, Opts) ->
         {Token, Req2} ->
           {token, Token, Req2};
         {_, Req2} ->
-          Req3 = cowboy_req:set_resp_cookie(<<"flusession">>, Token, [{max_age,300},{path, <<"/", Name/binary>>}], Req2),
-          {token, Token, Req3}
+          {token, Token, Req2}
       end
+  end.
+
+setcookie(Token, Req) when is_binary(Token) ->
+  {Name, Req1} = cowboy_req:meta(name, Req),
+  cowboy_req:set_resp_cookie(<<"flusession">>, Token, [{max_age,flu_session:cookie_age()},{path, <<"/", Name/binary>>}], Req1).
+
+updatecookie(Token, Req) when is_binary(Token) ->
+  {SessionId, _} = cowboy_req:meta(session_id, Req),
+  case flu_session:is_refreshing(SessionId) of
+    true -> setcookie(Token, Req);
+    false -> Req
   end.
 
 
 
+
+
+
 prepare_session_options(Req, Token, Opts) ->
-  {name,Name} = lists:keyfind(name,1,Opts),
+  {Name, _} = cowboy_req:meta(name, Req),
   {PeerAddr, Req1} = cowboy_req:peer_addr(Req),
   Ip = list_to_binary(inet_parse:ntoa(PeerAddr)),
   Identity = [{token,Token},{name,Name},{ip,Ip}],

@@ -67,7 +67,7 @@ clients0() ->
 
 play_url(Name, URL, Options) ->
   RTMPOptions = proplists:get_value(rtmp_play, Options, []),
-  {ok, Proxy} = flussonic_sup:start_stream_helper(Name, publish_proxy, {flu_publish_proxy, start_link, [URL, self(), RTMPOptions]}),
+  {ok, Proxy} = flu_stream:start_helper(Name, publish_proxy, {flu_publish_proxy, start_link, [URL, self(), RTMPOptions]}),
   {ok, Proxy}.
   
 
@@ -137,6 +137,21 @@ handle_info({read_burst, StreamId, Fragment, BurstCount}, Session) ->
     {error, no_segment} ->
       rtmp_session:handle_info({ems_stream, StreamId, play_complete, 0}, Session)
   end;
+
+handle_info({recording, StreamId, #video_frame{} = Frame}, Session) ->
+  self() ! Frame#video_frame{stream_id = StreamId},
+  StartAt = rtmp_session:get(Session, start_at),
+  F = rtmp_session:get(Session, f),
+  case flv:read(F) of
+    eof ->
+      self() ! {ems_stream, StreamId, play_complete, 0};
+    #video_frame{dts = DTS} = Frame1 ->
+      Delay = lists:max([round(DTS) - timer:now_diff(os:timestamp(), StartAt) div 1000, 0]),
+      erlang:send_after(Delay, self(), {recording, StreamId, Frame1}),
+      {noreply, Session}
+  end;
+
+
 
 handle_info({'DOWN', _, _, _, _}, State) ->
   {stop, normal, State};
@@ -275,18 +290,13 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
   App = rtmp_session:get_field(Session, app),
 
 
-  {Type, Args, Options} = case lookup_config(flu_config:get_config(), App, iolist_to_binary(StreamName0)) of
+  {StreamName, Type, Args, Options} = case lookup_config(flu_config:get_config(), App, iolist_to_binary(StreamName0)) of
     {error, _} ->
       throw({fail, [404, fmt("failed to find in config ~s/~s", [App, StreamName0])]});
     {ok, Spec} -> Spec
   end,
-  StreamName = case Type of
-    file -> iolist_to_binary([App, "/", StreamName0]);
-    stream -> iolist_to_binary(StreamName0);
-    live -> iolist_to_binary([App, "/", StreamName0])
-  end,
 
-  lager:info("RTMP play ~s", [StreamName]),
+  lager:info("RTMP play ~s ~s", [Type, StreamName]),
 
   Session1 = case proplists:get_value(sessions, Options, true) of
     false -> Session;
@@ -313,6 +323,8 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
   case find_or_open_media(Type, StreamName, Args, Options) of
     {ok, Media} when Type == file ->
       play_file(Session1, AMF, StreamName, Media);
+    {ok, F} when Type == recording ->
+      play_recording(Session1, AMF, StreamName, F);
     {ok, Media} ->
       play_stream(Session1, AMF, StreamName, Media);
     undefined ->
@@ -324,13 +336,30 @@ play0(Session, #rtmp_funcall{args = [null, Path1 | _]} = AMF) ->
   end.
 
 lookup_config([{file,App,Root,Options}|_], App, Path) ->
-  {ok, {file, iolist_to_binary([Root, "/", Path]), Options}};
+  {ok, {iolist_to_binary([App, "/", Path]), file, iolist_to_binary([Root, "/", Path]), Options}};
 
 lookup_config([{live,App,Options}|_], App, Path) ->
-  {ok, {live, iolist_to_binary([App,"/",Path]), Options}};
+  StreamName = iolist_to_binary([App, "/", Path]),
+  RecordedPath = case proplists:get_value(path,Options) of
+    undefined -> undefined;
+    FlvPath -> iolist_to_binary([FlvPath, "/", Path, ".flv"])
+  end,
+  IsRecording = case flu_stream:find(StreamName) of
+    undefined when RecordedPath =/= undefined ->
+      case file:read_file_info(RecordedPath) of
+        {error, _} -> false;
+        {ok, _} -> true
+      end;
+    _ -> false
+  end,
+  lager:info("~s is_record:~p ~s", [StreamName, IsRecording, RecordedPath]),
+  case IsRecording of
+    true -> {ok, {RecordedPath, recording, RecordedPath, Options}};
+    false -> {ok, {StreamName, live, StreamName, Options}}
+  end;
 
 lookup_config([{stream,Path,URL,Options}|_], _App, Path) ->
-  {ok, {stream, URL, Options}};
+  {ok, {Path, stream, URL, Options}};
 
 lookup_config([_|Config], App, Path) ->
   lookup_config(Config, App, Path);
@@ -343,15 +372,30 @@ find_or_open_media(file, Name, Path, _Options) ->
   flu_file:autostart(Path, Name);
 
 find_or_open_media(stream, Path, URL, Options) ->
-  % ?debugFmt("autostart ~p ~p ~p", [Path, URL, Options]),
   flu_stream:autostart(Path, [{url,URL}|Options]);
-  % flu_stream:find(Path);
+
+find_or_open_media(recording, Path, _, _Options) ->
+  flv:open(Path);
 
 find_or_open_media(live, Path, _, _Options) ->
   % flu_stream:autostart(Path, Options).
   flu_stream:find(Path).
 
   
+play_recording(Session, #rtmp_funcall{stream_id = StreamId}, StreamName, F) ->
+  case flv:read(F) of
+    eof ->
+      throw({fail, [404, fmt("empty recording ~s", [StreamName])]});
+    #video_frame{} = Frame ->
+      self() ! {recording, StreamId, Frame}
+  end,
+
+  RTMP = rtmp_session:get(Session, socket),
+  rtmp_lib:play_start(RTMP, StreamId, 0, file),
+  Session1 = rtmp_session:set(Session, f, F),
+  StartAt = os:timestamp(),
+  Session2 = rtmp_session:set(Session1, start_at, StartAt),
+  Session2.
 
 
 play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media) ->
@@ -364,6 +408,10 @@ play_file(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, Media
       RTMP = rtmp_session:get(Session1, socket),
       rtmp_lib:play_start(RTMP, StreamId, 0, file),
       
+      SessionId = rtmp_session:get(Session, session_id),
+      rtmp_socket:send(RTMP, #rtmp_message{type = metadata, channel_id = rtmp_lib:channel_id(metadata, StreamId), stream_id = StreamId,
+        body = [<<"|SessionId">>, SessionId], timestamp = 0, ts_type = delta}),
+
       Session2 = lists:foldl(fun(F, Sess) ->
         rtmp_session:send_frame(F#video_frame{stream_id = StreamId}, Sess)
       end, Session1, Configs),
@@ -384,11 +432,13 @@ play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _St
     1 ->
       RTMP = rtmp_session:get(Session, socket),
       Socket = rtmp_session:get(Session, tcp_socket),
-      #media_info{streams = Streams} = case flu_stream:media_info(StreamName) of
-        undefined -> timer:sleep(300), flu_stream:media_info(StreamName);
-        MI -> MI
-      end,
+      #media_info{streams = Streams} = media_info(StreamName),
       rtmp_lib:play_start(RTMP, StreamId, 0, live),
+
+      SessionId = rtmp_session:get(Session, session_id),
+      rtmp_socket:send(RTMP, #rtmp_message{type = metadata, channel_id = rtmp_lib:channel_id(metadata, StreamId), stream_id = StreamId,
+        body = [<<"|SessionId">>, SessionId], timestamp = 0, ts_type = delta}),
+
       case lists:keyfind(audio, #stream_info.content, Streams) of
         false -> ok;
         _ -> rtmp_socket:notify_audio(RTMP, StreamId, 0)
@@ -411,6 +461,21 @@ play_stream(Session, #rtmp_funcall{stream_id = StreamId} = _AMF, StreamName, _St
   Session1.
 
 
+media_info(StreamName) ->
+  media_info(StreamName, 50).
+
+
+
+media_info(StreamName, 0) ->
+  throw({fail,[404, StreamName]});
+
+media_info(StreamName, Count) ->
+  case flu_stream:media_info(StreamName) of
+    undefined -> timer:sleep(100), media_info(StreamName, Count - 1);
+    MI -> MI
+  end.
+
+
 
 publish(Session, #rtmp_funcall{stream_id = StreamId, args = [null, false|_]} = _AMF) ->
   Stream = rtmp_session:get_stream(StreamId, Session),
@@ -428,7 +493,7 @@ publish(Session, AMF) ->
   end.
 
 
-publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = _AMF) ->
+publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |PublishArgs]} = _AMF) ->
   Prefix = rtmp_session:get_field(Session, app),
   Env = flu_config:get_config(),
 
@@ -443,7 +508,7 @@ publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = 
   StreamName = <<Prefix/binary, "/", StreamName1/binary>>,
   Env = flu_config:get_config(),
 
-  {_RawName, Args} = http_uri2:parse_path_query(Name),
+  {RawName, Args} = http_uri2:parse_path_query(Name),
   
   case proplists:get_value(password, Options) of
     RequiredPassword when RequiredPassword =/= undefined ->
@@ -474,18 +539,40 @@ publish0(Session, #rtmp_funcall{stream_id = StreamId, args = [null, Name |_]} = 
 
 
   {ok, Recorder} = flu_stream:autostart(StreamName, [{clients_timeout,false},{static,false}|Options]),
+
+  RecordDir = proplists:get_value(path,Options),
+  RecordPath = case PublishArgs of
+    [<<"record">>|_] when RecordDir =/= undefined ->
+      RawName1 = case re:run(RawName, ".flv$") of
+        nomatch -> [RawName, ".flv"];
+        _ -> RawName
+      end,
+      iolist_to_binary([RecordDir, "/", RawName1]);
+    _ ->
+      undefined
+  end,
+
+
   gen_tracker:setattr(flu_streams, StreamName, []),
   flu_stream:set_source(Recorder, self()),
+
+  lager:info("start recording with flvpath: ~p", [RecordPath]),
   
-  {ok, Proxy} = flussonic_sup:start_stream_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder]}),
+  {ok, Proxy} = flu_stream:start_helper(StreamName, publish_proxy, {flu_publish_proxy, start_link, [self(), Recorder, [{flv,RecordPath}]]}),
   
   Ref = erlang:monitor(process, Recorder),
   Socket = rtmp_session:get(Session, socket),
-  ?D({publish,StreamName,Name,StreamId}),
+  case RecordPath of
+    undefined -> lager:info("RTMP publish ~s", [StreamName]);
+    _ -> lager:info("RTMP publish ~s record to ~s", [StreamName, RecordPath])
+  end,
   
   rtmp_lib:notify_publish_start(Socket, StreamId, 0, Name),
   rtmp_session:set_stream(rtmp_stream:construct([{pid,Proxy},{recording_ref,Ref},{stream_id,StreamId},{started, true}, {recording, true}, {name, Name}]), Session).
-  
+
+
+
+
 
 no_function(_Session, _AMF) ->
   ?D({unhandled, _AMF}),

@@ -45,8 +45,14 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 -export([after_terminate/2]).
 
--export([autostart/1, restart/1]).
--export([autostart/2, start_sup/2, list/0, json_list/0]).
+
+% Helpers callbacks
+-export([start_helper/3, stop_helper/2, find_helper/2]).
+
+
+
+-export([autostart/1, restart/1, stop/1]).
+-export([autostart/2, list/0, json_list/0]).
 
 -export([pass_message/2, find/1]).
 -export([non_static/1, static/1, update_options/2]).
@@ -58,6 +64,13 @@
 -define(TIMEOUT, 70000).
 -define(SOURCE_TIMEOUT, 20000).
 
+
+
+-record(helper, {
+  id,
+  pid,
+  mfa
+}).
 
 
 
@@ -87,22 +100,14 @@ parse_attr(Attr) ->
 
 
 stream_info(_Name, Attrs) ->
-  {pid,Sup} = lists:keyfind(pid,1,Attrs),
-  {stream, Pid, _, _} = lists:keyfind(stream, 1, supervisor:which_children(Sup)),
-  add_ts_delay(filter_list(lists:keystore(pid,1,Attrs,{pid,Pid}))).
+  filter_list(add_ts_delay(Attrs)).
 
 filter_list(Attrs) ->
-  [{K,V} || {K,V} <- Attrs, is_atom(K)].
+  [{K,V} || {K,V} <- Attrs, lists:member(K,white_keys())].
 
 find(Pid) when is_pid(Pid) -> {ok, Pid};
 find(Name) when is_list(Name) -> find(list_to_binary(Name));
-find(Name) -> 
-  case gen_tracker:find(flu_streams, Name) of
-    undefined -> undefined;
-    {ok, Sup} ->
-      {stream, Pid, _, _} = lists:keyfind(stream, 1, supervisor:which_children(Sup)),
-      {ok, Pid}
-  end.
+find(Name) -> gen_tracker:find(flu_streams, Name).
 
   
 add_ts_delay(Attrs) ->
@@ -116,6 +121,87 @@ add_ts_delay(Attrs) ->
     LastAccessAt -> [{client_delay,timer:now_diff(Now, LastAccessAt) div 1000}|Attr1]
   end,
   Attr2.
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%  Helpers API
+
+
+start_helper(Stream, Id, {M,F,A} = MFA) when is_binary(Stream) ->
+  Self = self(),
+  case gen_tracker:find(flu_streams, Stream) of
+    {ok, Self} ->
+      case lists:keyfind(Id,#helper.id,get(helpers)) of
+        #helper{pid = Pid} -> {ok, Pid};
+        false ->
+          {ok, Pid} = erlang:apply(M,F,A),
+          Helper = #helper{id = Id, pid = Pid, mfa = MFA},
+          put(helpers, [Helper|get(helpers)]),
+          {ok, Pid}
+      end;
+    {ok, Pid} ->
+      case gen_server:call(Pid, {find_helper, Id}) of
+        {ok, Helper} -> {ok, Helper};
+        undefined -> gen_server:call(Pid, {start_helper, Id, {M,F,A}})
+      end;
+    undefined ->
+      {error, no_stream}
+  end.
+
+
+
+
+
+stop_helper(Stream, Id) when is_binary(Stream) ->
+  Self = self(),
+  case gen_tracker:find(flu_streams, Stream) of
+    {ok, Self} ->      
+      case lists:keytake(Id, #helper.id, get(helpers)) of
+        {value, #helper{pid = Pid}, Helpers1} ->
+          erlang:exit(Pid, shutdown),
+          unlink(Pid),
+          receive {'EXIT', Pid, _} -> ok after 0 -> ok end,
+          erlang:monitor(process, Pid),
+          receive
+            {'DOWN', _, _, Pid, _} -> ok
+          after
+            500 -> 
+              erlang:exit(Pid,kill),
+              receive
+                {'DOWN', _, _, Pid, _} -> ok
+              end
+          end,
+          put(helpers, Helpers1),
+          ok;
+        false ->
+          {error, no_helper}
+      end;
+    {ok, Pid} -> gen_server:call(Pid, {delete_child, Id});
+    undefined -> {error, no_stream}
+  end.
+
+
+
+
+find_helper(Stream, Id) ->
+  Self = self(),
+  case gen_tracker:find(flu_streams, Stream) of
+    {ok, Self} ->
+      case lists:keyfind(Id, #helper.id, get(helpers)) of
+        #helper{pid = Pid} -> {ok, Pid};
+        false -> undefined
+      end;
+    {ok, Pid} ->
+      gen_server:call(Pid, {find_helper, Id});
+    undefined ->
+      {error, no_stream}
+  end.
+
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -146,6 +232,10 @@ restart(Name) ->
   end.
 
 
+stop(Name) ->
+  supervisor:delete_child(flu_streams, Name).
+
+
 lookup_in_config(Path, [{live, Prefix, Options}|Config]) ->
   PrefixLen = size(Prefix),
   case Path of
@@ -164,13 +254,10 @@ lookup_in_config(_, []) ->
 
 
 autostart(Name, Options) when is_binary(Name) ->
-  StreamSup = {Name, {flu_stream, start_sup, [Name, Options]}, temporary, infinity, supervisor, []},
-  {ok, Sup} = gen_tracker:find_or_open(flu_streams, StreamSup),
-  {stream, Pid, _, _} = lists:keyfind(stream, 1, supervisor:which_children(Sup)),
-  {ok, Pid}.
+  StreamSup = {Name, {flu_stream, start_link, [Name, Options]}, temporary, infinity, supervisor, []},
+  gen_tracker:find_or_open(flu_streams, StreamSup).
 
-start_sup(Name, Options) ->
-  supervisor:start_link(flussonic_sup, [flu_stream, Name, Options]).
+
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -346,6 +433,8 @@ start_link(Name,Options) ->
 
 init([Name,Options1]) ->
   put(status, booting),
+  put(helpers, []),
+  process_flag(trap_exit, true),
   Options = lists:umerge(lists:usort(Options1), [{name,Name}]),
   erlang:put(name, Name),
   Source = proplists:get_value(source, Options1),
@@ -363,7 +452,8 @@ init([Name,Options1]) ->
   Stream2 = set_options(Stream1),
   
   lager:notice("Start stream \"~s\" with url ~p and options: ~p", [Name, Stream2#stream.url, Options]),
-  flu_event:stream_started(Name, Options),
+
+  flu_event:stream_started(Name, [{K,V} || {K,V} <- gen_tracker:info(flu_streams, Name), lists:member(K,white_keys())]),
 
   {noreply, Stream3} = ?MODULE:handle_info(reconnect_source, Stream2),
   GopFlush = erlang:send_after(4*?SEGMENT_DURATION*1000, self(), gop_flush),
@@ -456,14 +546,14 @@ configure_push(#stream{push = Push1, options = Options, name = Name} = Stream) -
   LeavingOld = lists:flatmap(fun(URL) ->
     case lists:member(URL, NewPush) of
       true -> [URL];
-      false -> flussonic_sup:stop_stream_helper(Name, {push,URL}),[]
+      false -> stop_helper(Name, {push, URL}),[]
     end
   end, Push1),
 
   StartingNew = lists:flatmap(fun(URL) ->
     case lists:member(URL, LeavingOld) of
       true -> [];
-      false -> flussonic_sup:start_stream_helper(Name, {push, URL}, {flu_pusher, start_link, [Name,URL]}), [URL]
+      false -> start_helper(Name, {push, URL}, {flu_pusher, start_link, [Name,URL]}), [URL]
     end
   end, NewPush),
 
@@ -472,6 +562,20 @@ configure_push(#stream{push = Push1, options = Options, name = Name} = Stream) -
 
 
 
+%% Helpers
+
+handle_call({find_helper, Id}, _From, #stream{name = Name} = Stream) ->
+  {reply, find_helper(Name, Id), Stream};
+
+handle_call({delete_child, Id}, _From, #stream{name = Name} = Stream) ->
+  {reply, stop_helper(Name, Id), Stream};
+
+handle_call({start_helper, Id, MFA}, _From, #stream{name = Name} = Stream) ->
+  {reply, start_helper(Name, Id, MFA), Stream};
+
+handle_call(which_children, _From, #stream{} = Stream) ->
+  Children = [{Id, Pid, worker, []} || #helper{id = Id, pid = Pid} <- get(helpers)],
+  {reply, Children, Stream};
 
 handle_call({update_options, NewOptions}, _From, #stream{name = Name} = Stream) ->
   NewOptions1 = lists:ukeymerge(1, lists:ukeysort(1, NewOptions), [{name,Name}]),
@@ -578,8 +682,8 @@ handle_info(reconnect_source, #stream{url = undefined} = Stream) ->
 handle_info(reconnect_source, #stream{source = Source} = Stream) when is_pid(Source) ->
   {noreply, Stream};
 
-handle_info(reconnect_source, #stream{retry_count = Count, retry_limit = Limit, static = false} = Stream) when Count*1 >= Limit*1 ->
-  ?D({Stream#stream.name, exits_due_retry_limit, Count}),
+handle_info(reconnect_source, #stream{retry_count = Count, name = Name, retry_limit = Limit, static = false} = Stream) when Count*1 >= Limit*1 ->
+  lager:info("Stream ~s exits due to retry limit ~B", [Name, Count]),
   {stop, normal, Stream};
 
 
@@ -632,6 +736,16 @@ handle_info(#media_info{} = MediaInfo, #stream{name = Name, monotone = Monotone}
   Stream1 = pass_message(MediaInfo, Stream#stream{media_info = MediaInfo}),
   flu_monotone:send_media_info(Monotone, MediaInfo),
   {noreply, Stream1};
+
+handle_info({'EXIT', Pid, _Reason}, #stream{name = Name} = Stream) ->
+  case lists:keytake(Pid, #helper.pid, get(helpers)) of
+    {value, #helper{id = Id, mfa = MFA}, Helpers1} ->
+      put(helpers, Helpers1),
+      start_helper(Name, Id, MFA);
+    false ->
+      ok
+  end,
+  {noreply, Stream};
 
 handle_info({'DOWN', _, process, Monotone, _Reason}, #stream{monotone = Monotone, url = URL} = Stream) ->
   lager:error("Mototone crashed for stream \"~s\" with reason: ~p", [URL, _Reason]),
@@ -779,11 +893,11 @@ feed_gop(#video_frame{} = F, #stream{gop = Gop, monotone = M} = Stream) ->
 
 start_monotone_if_need(#stream{name = Name, last_dts = DTS, monotone = undefined, media_info = MediaInfo, options = Options} = Stream) ->
   put(status, start_monotone),
-  case flussonic_sup:find_stream_helper(Name, monotone) of
+  case find_helper(Name, monotone) of
     {ok, M} ->
       {ok, M, Stream#stream{monotone = M}};
-    {error, _} ->
-      {ok, M} = flussonic_sup:start_stream_helper(Name, monotone, {flu_monotone, start_link, [Name, Options]}),
+    undefined ->
+      {ok, M} = start_helper(Name, monotone, {flu_monotone, start_link, [Name,Options]}),
       flu_monotone:send_media_info(M, MediaInfo),
       flu_monotone:set_current_dts(M, DTS),
       {ok, M, Stream#stream{monotone = M}}
@@ -835,12 +949,16 @@ detect_proto(URL) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
+terminate(_Reason, #stream{name = Name}) ->
+  [stop_helper(Name,Id) || #helper{id = Id} <- get(helpers)],
   ok.
 
 
 % TODO send stream.stopped event
-after_terminate(_Name, _Attrs) ->
+after_terminate(Name, Attrs) ->
+  Keys = [hls,hds,rtmp,bytes_in,bytes_out,client_count,last_dts,url,lifetime],
+  Stats = [{K,V} || {K,V} <- Attrs, lists:member(K,Keys)],
+  flu_event:stream_stopped(Name, Stats),
   ok.
 
 

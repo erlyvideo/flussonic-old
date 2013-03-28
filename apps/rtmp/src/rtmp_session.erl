@@ -172,7 +172,7 @@ handle_call({socket_ready, RTMP}, From, State) ->
   {address, {IP, Port}} = rtmp_socket:getopts(RTMP, address),
   Addr = case IP of
     undefined -> "0.0.0.0";
-    _ -> lists:flatten(io_lib:format("~p.~p.~p.~p", erlang:tuple_to_list(IP)))
+    _ -> iolist_to_binary(inet_parse:ntoa(IP))
   end,
   {noreply, State#rtmp_session{addr = Addr, port = Port, socket = RTMP, tcp_socket = Socket}};
 
@@ -216,8 +216,12 @@ handle_info({rtmp, Socket, #rtmp_message{} = Message}, State) ->
   State2 = flush_reply(State1),
   % [{message_queue_len, Messages}, {memory, Memory}] = process_info(self(), [message_queue_len, memory]),
   % io:format("messages=~p,memory=~p~n", [Messages, Memory]),
-  rtmp_socket:setopts(Socket, [{active, once}]),
-  {noreply, State2};
+  try rtmp_socket:setopts(Socket, [{active, once}]) of
+    _ -> {noreply, State2}
+  catch
+    exit:{normal,_} -> {stop, normal, State2}
+  end;
+
 
 handle_info({rtmp, _Socket, timeout}, #rtmp_session{module = M} = State) ->
   {ok, State1} = M:handle_control(timeout, State),

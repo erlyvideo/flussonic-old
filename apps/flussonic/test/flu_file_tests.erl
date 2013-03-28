@@ -92,8 +92,9 @@ test_mbr_hds_manifest() ->
   {<<"manifest">>, _, Content} = Result,
   Medias = [{<<"media">>, Attr,C} || {<<"media">>, Attr,C} <- Content],
   {<<"media">>, MediaAttrs, _Media} = hd(Medias),
-  ?assertEqual(<<"hds/tracks-1,4/">>, proplists:get_value(<<"url">>, MediaAttrs)),
-  % ?debugFmt("media: ~p / ~p", [MediaAttr, Media]),
+  <<"hds/tracks-1,4/">> = proplists:get_value(<<"url">>, MediaAttrs),
+  <<"1166">> = proplists:get_value(<<"bitrate">>, MediaAttrs),
+  % ?debugFmt("media: ~p / ~p", [MediaAttrs, _Media]),
   % 5 medias: 3 with video and 2 with alternate audio
   ?assertMatch(Len when Len == 5, length(Medias)).
 

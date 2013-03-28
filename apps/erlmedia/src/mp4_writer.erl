@@ -149,9 +149,14 @@ dump_media(Options) ->
   Reader = proplists:get_value(reader, Options),
   StartPos = proplists:get_value(start_pos, Options),
     
+
+  put(status, init_mp4_writer),
   {ok, Converter} = mp4_writer:init(Writer, [{method,two_pass}|Options]),
+  put(status, dump_pass_1),
   {ok, Converter1} = dump_media_2pass(Reader, Converter, StartPos),
+  put(status, write_moov),
   {ok, Converter2} = shift_and_write_moov(Converter1),
+  put(status, dump_pass_2),
   {ok, _Converter3} = dump_media_2pass(Reader, Converter2, StartPos),
   ok.
 

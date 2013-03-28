@@ -22,6 +22,7 @@ start_link(RTMP, Stream, Options) ->
   media_info,
   start_spec,
   delaying = true,
+  flv,
   options = [],
   delayed = []
 }).
@@ -35,6 +36,20 @@ start_link(RTMP, Stream, Options) ->
 -define(START_FRAMES, 25).
 
 init([StartSpec, Stream, Options]) ->
+  FLV = case proplists:get_value(flv, Options) of
+    undefined -> undefined;
+    RecordPath ->
+      filelib:ensure_dir(RecordPath),
+      case file:open(RecordPath, [binary,write,raw]) of
+        {ok, F} ->
+          file:write(F, flv:header()),
+          F;
+        {error, Reason} ->
+          lager:info("Failed to open ~s for writing: ~p", [RecordPath, Reason]),
+          undefined
+      end
+  end,
+
   proc_lib:init_ack({ok, self()}),
   put(flu_name, {publish_proxy, Stream}),
   erlang:monitor(process, Stream),
@@ -68,10 +83,13 @@ init([StartSpec, Stream, Options]) ->
     {error, _} = StartError ->
       StartError;
     _ ->
-      gen_server:enter_loop(?MODULE, [], #proxy{rtmp = RTMP, options = Options, stream = Stream})
+      gen_server:enter_loop(?MODULE, [], #proxy{rtmp = RTMP, options = Options, stream = Stream, flv = FLV})
   end.
 
 
+
+handle_call(sync, _From, #proxy{} = Proxy) ->
+  {reply, ok, Proxy};
 
 handle_call(#video_frame{} = Frame, _From, #proxy{} = Proxy) ->
   Proxy1 = handle_frame(Frame, Proxy),
@@ -99,7 +117,9 @@ handle_info(#media_info{streams = Streams} = MI1, #proxy{media_info = undefined,
 % handle_info({rtmp, _RTMP, #rtmp_message{type = video, body = <<23,2,0,0,0>>}}, Stream) ->
 %   {noreply, Stream};
 % 
-handle_info({rtmp, _RTMP, #rtmp_message{type = Type, timestamp = Timestamp, body = Body}}, Proxy) when (Type == audio orelse Type == video) andalso size(Body) > 0 ->
+handle_info({rtmp, _RTMP, #rtmp_message{type = Type, timestamp = Timestamp, body = Body}}, #proxy{} = Proxy) 
+  when (Type == audio orelse Type == video) andalso size(Body) > 0 ->
+
   case flv_video_frame:decode(#video_frame{dts = Timestamp, pts = Timestamp, content = Type}, Body) of
     #video_frame{flavor = Flavor} = Frame when Flavor == keyframe orelse Flavor == frame orelse Flavor == config ->
       handle_info(Frame, Proxy);
@@ -132,8 +152,18 @@ handle_info({'DOWN', _, _, _, _}, #proxy{} = Proxy) ->
   {stop, normal, Proxy}.
 
 
-handle_frame(#video_frame{} = Frame, #proxy{} = Proxy) ->
+handle_frame(#video_frame{} = Frame, #proxy{flv = FLV} = Proxy) ->
   Frame1 = rewrite_track_id(Frame),
+
+  case FLV of
+    undefined -> ok;
+    _ -> 
+      case flv_video_frame:is_good_flv(Frame) of
+        true -> file:write(FLV, flv_video_frame:to_tag(Frame1));
+        _ -> ok
+      end
+  end,
+
   Proxy1 = #proxy{delayed = Delayed} = handle_frame1(Frame1, Proxy),
   if length(Delayed) > ?LIMIT -> throw({stop, too_much_delayed_frames, Proxy1#proxy{delayed = length(Delayed)}});
     true -> Proxy1

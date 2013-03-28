@@ -48,6 +48,38 @@
 -export([content_offset/1, append_dts/2]).
 -export([frame_sorter/2, decode_list/1]).
 
+
+-export([open/1, read/1]).
+
+open(Path) ->
+  case file:open(Path, [binary,read,raw]) of
+    {ok, F} ->
+      case file:read(F, 13) of
+        {ok, <<"FLV", _/binary>>} -> {ok, F};
+        Else -> file:close(F), {error, {bad_flv,Else}}
+      end;
+    {error, _} = Error ->
+      Error
+  end.
+
+% <<Type, Size:24, _TS:32, _StreamId:24, _Tag:Size/binary, _PrevSize:32
+read(F) ->
+  % 1 + 3 + 4 + 3 = 11
+  case file:read(F, 11) of
+    {ok, <<_, Size:24, _:32, _:24>> = Header} ->
+      {ok, Body} = file:read(F, Size + 4),
+      {ok, Tag, <<_:32>>} = read_tag(<<Header/binary, Body/binary>>),
+      flv_video_frame:tag_to_video_frame(Tag);
+    eof ->
+      eof
+  end.
+
+
+
+
+
+
+
 content_offset(h264) -> ?FLV_TAG_HEADER_LENGTH + 5;
 content_offset(aac) -> ?FLV_TAG_HEADER_LENGTH + 2;
 content_offset(_) -> ?FLV_TAG_HEADER_LENGTH + 1.
@@ -73,6 +105,9 @@ read_all_frames(<<Size:32, "mdat", FLV/binary>> = Bin) when Size == size(Bin) ->
 
 read_all_frames(<<Size:32, "mdat", _/binary>> = Bin) ->
   error({invalid_hds, Size, size(Bin)});
+
+read_all_frames(<<"FLV", _:10/binary, FLV/binary>>) ->
+  read_all_frames(FLV);
 
 read_all_frames(Binary) ->
   try read_frame(Binary) of

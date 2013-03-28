@@ -25,6 +25,15 @@ reply(<<"500">>,_) -> {500, [], "backend error"};
 reply(<<"user15_600">>,_) -> {200,[{<<"X-AuthDuration">>, <<"600">>},{<<"X-UserId">>,<<"15">>}], <<"">>};
 reply(<<"user15">>,_) -> {200,[{<<"X-UserId">>,<<"15">>}], <<"">>};
 reply(<<"user15_unique">>,_) -> {200,[{<<"X-UserId">>,<<"15">>},{<<"X-Unique">>, <<"true">>}], <<"">>};
+reply(<<"user_unique">>,Req) ->
+  case cowboy_req:qs_val(<<"token">>,Req) of
+    {<<Token/binary>>,_} -> 
+      case re:run(Token, "^\\d+$") of
+        nomatch -> {403, [], <<>>};
+        _ -> {200,[{<<"X-UserId">>,Token},{<<"X-Unique">>, <<"true">>}], <<"">>}
+      end;
+    _ -> {403,[],<<>>}
+  end;
 reply(<<"token_a">>,Req) ->
   case cowboy_req:qs_val(<<"token">>,Req) of
     {<<"a">>,_} -> {200,[], <<"">>};

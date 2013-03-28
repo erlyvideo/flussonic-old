@@ -176,7 +176,7 @@ handle(Req, {mainpage, Api}) ->
   {ok, R1} = case check_auth(Req, Api, auth_level(mainpage)) of
     true ->
       {ok, Bin} = mainpage(),
-      cowboy_req:reply(200, [{<<"Content-Type">>, <<"text/html">>}], Bin, Req);
+      cowboy_req:reply(200, [{<<"content-type">>, <<"text/html">>}], Bin, Req);
     false ->
       cowboy_req:reply(401, [{<<"Www-Authenticate">>, <<"Basic realm=Flussonic">>}], "401 Forbidden\n", Req)
   end,
@@ -188,16 +188,18 @@ handle(Req, {events, Api}) ->
       {ok, R1} = cowboy_req:reply(401, [{<<"Www-Authenticate">>, <<"Basic realm=Flussonic">>}], "401 Forbidden\n", Req),
       {ok, R1, undefined};
     true ->      
-  {Accept, _Req1} = cowboy_req:header(<<"accept">>, Req),
+  {Accept, Req1} = cowboy_req:header(<<"accept">>, Req),
   case Accept of
     <<"text/event-stream">> ->
       % FIXME: migrate to loop handler
       [Transport, Socket] = cowboy_req:get([transport, socket], Req),
       is_port(Socket) andalso inet:setopts(Socket, [{send_timeout,10000}]),
       Transport:send(Socket, "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\n"
-        "Cache-Control: no-cache\r\nContent-Type: text/event-stream\r\n\r\n"),
+        "Cache-Control: no-cache\r\ncontent-type: text/event-stream\r\n\r\n"),
       flu_event:subscribe_to_events(self()),
-      events_sse_loop(Transport,Socket);
+      events_sse_loop(Transport,Socket),
+      Transport:close(Socket),
+      {ok, cowboy_req:set([{connection,close},{resp_state,done}], Req1), undefined};
     _ ->
     {ok, R1} = cowboy_req:reply(400, [], "Should use SSE or WebSockets\n", Req),
     {ok, R1, undefined}
@@ -253,7 +255,7 @@ files() ->
 stream_restart(Name) ->
   case flu_stream:restart(Name) of
     ok -> {json, true};
-    _ -> {json, false}
+    _ -> {ok, {500, [{<<"content-type">>, <<"application/json">>}], <<"false\n">>}}
   end.
 
 media_info(Name) ->
@@ -305,13 +307,14 @@ events_sse_loop(Transport, Socket) ->
     #flu_event{event = Evt} = Event ->
       Cmd = io_lib:format("event: ~s\ndata: ~s\n\n", [Evt, flu_event:to_json(Event)]),
       case Transport:send(Socket, Cmd) of
-        ok -> ok;
-        {error, _} -> exit(normal)
+        ok -> events_sse_loop(Transport,Socket);
+        {error, _} -> done
       end;
     Else ->
-      ?D({unknown_message, Else})
-  end,
-  events_sse_loop(Transport,Socket).
+      ?D({unknown_message, Else}),
+      done
+  end.
+  
 
 
 websocket_init(_TransportName, Req, [events, Api]) ->

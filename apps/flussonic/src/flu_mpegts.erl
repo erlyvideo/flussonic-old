@@ -4,7 +4,7 @@
 
 read(Name, URL, Options) ->
   Opts = [{url,URL}|Options] ++ [{consumer,self()}],
-  {ok, Reader} = flussonic_sup:start_stream_helper(Name, mpegts_reader, {mpegts_reader, start_link, [Opts]}),
+  {ok, Reader} = flu_stream:start_helper(Name, mpegts_reader, {mpegts_reader, start_link, [Opts]}),
   case (catch gen_server:call(Reader, connect)) of
     ok -> {ok, Reader};
     {error, _} = Error -> Error;

@@ -11,7 +11,7 @@
 
 read(Stream, <<"mixer://", URL/binary>>, _Options) ->
   [Video, Audio] = binary:split(URL, <<",">>),
-  {ok, Proxy} = flussonic_sup:start_stream_helper(Stream, mixer, {flu_mixer, start_link, [Video, Audio, self()]}),
+  {ok, Proxy} = flu_stream:start_helper(Stream, mixer, {flu_mixer, start_link, [Video, Audio, self()]}),
   {ok, MediaInfo} = gen_server:call(Proxy, start),
   {ok, Proxy, MediaInfo}.
 

@@ -50,8 +50,10 @@ verify(URL, Identity, Options) when is_binary(URL) ->
     (_) -> []
   end, Identity ++ Options),
   RequestURL = binary_to_list(iolist_to_binary([URL, "?", Query])),
+  T1 = os:timestamp(),
   case ?MODULE:http_get(RequestURL) of
     {ok, {Code, Headers}} ->
+      ResponseTime = timer:now_diff(os:timestamp(),T1) div 1000,
       AuthDuration = to_i(proplists:get_value("x-authduration", Headers, 30))*1000,
       DeleteTime = lists:max([AuthDuration, 10000]),
       UniqueUid = case proplists:get_value("x-unique", Headers) of
@@ -61,8 +63,12 @@ verify(URL, Identity, Options) when is_binary(URL) ->
       UserId = to_i(proplists:get_value("x-userid", Headers)),
       Opts0_ = [{auth_time,AuthDuration},{delete_time,DeleteTime},
         {user_id,UserId}] ++ UniqueUid,
-      lager:info("Backend auth request \"~s\": ~B code, duration: ~B, user_id: ~p, unique: ~p", 
-        [RequestURL, Code, AuthDuration, UserId, proplists:get_value(unique,UniqueUid, false)]),
+      LogLevel = case proplists:get_value(request_type, Options) of
+        update_session -> debug;
+        _ -> info
+      end,
+      lager:log(LogLevel, [{pid,self()},{module,?MODULE},{line,?LINE}], "Backend auth request \"~s\": ~B code, duration: ~B, user_id: ~p, unique: ~p, time: ~Bms", 
+        [RequestURL, Code, AuthDuration, UserId, proplists:get_value(unique,UniqueUid, false), ResponseTime]),
       Opts0 = merge([{K,V} || {K,V} <- Opts0_, V =/= undefined], Options),
       % Name = to_b(proplists:get_value("x-name", Headers, proplists:get_value(name, Identity))),
       case Code of

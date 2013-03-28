@@ -102,7 +102,7 @@ init([Name, Options]) ->
 
 
 handle_call({add_client, Pid, Proto, Socket}, _From, #monotone{waiting = W, prepush = Prepush, 
-  raw = Raw, rtmp = RTMP, media_info = MI} = Monotone) ->
+  raw = Raw, rtmp = RTMP, send_mpegts = TCP, media_info = MI, mpegts = Mpegts1} = Monotone) ->
   Ref = erlang:monitor(process, Pid),
   Client = #client{pid = Pid, ref = Ref, proto = Proto, socket = Socket},
 
@@ -130,6 +130,11 @@ handle_call({add_client, Pid, Proto, Socket}, _From, #monotone{waiting = W, prep
         catch port_command(Socket, RTMPFrame(DTS,1), [nosuspend])
       end || Frame <- lists:reverse(Prepush)],
       {reply, ok, Monotone#monotone{rtmp = [Client#client{start_dts = DTS}|RTMP]}};
+    _ when (Proto == tcp_mpegts orelse Proto == chunked_mpegts) andalso length(Prepush) >= 0 ->
+      Mpegts2 = lists:foldl(fun(Frame, Mpeg) ->
+        send_mpegts(MI, Frame, Mpeg, [Client])
+      end, Mpegts1, Prepush),
+      {reply, ok, Monotone#monotone{send_mpegts = [Client|TCP], mpegts = Mpegts2}};
     _ ->
       % ?D({add_client,Proto}),
       {reply, ok, Monotone#monotone{waiting = [Client|W]}}
