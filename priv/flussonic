@@ -73,7 +73,7 @@ case $1 in
   fi
   COOKIE=`cat $COOKIEFILE`
   if [ "$ASYNC_THREADS" == "" ] ; then
-    ASYNC_THREADS=16
+    ASYNC_THREADS=100
   fi
   CMD="erl +K true +A ${ASYNC_THREADS} +a 1024 ${SBT} -name flussonic@127.0.0.1 -setcookie $COOKIE -pa apps/*/ebin -pa deps/*/ebin -boot start_sasl -s flussonic -sasl errlog_type error"
   exec $CMD

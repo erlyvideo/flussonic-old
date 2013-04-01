@@ -1,3 +1,16 @@
+flussonic (3.69.16)
+
+  * thumbnailer uses hardcoded framerate for mjpeg
+  * hls_dvr_writer now has queue, not dropping segments
+  * hls_reader now splits incoming frames into gops
+  * hls_reader marks gop opened_at as a time from start in stream
+  * now static stream is stopped immediately if removed from config
+
+flussonic (3.69.15)
+
+  * flussonic-ffmpeg as a package
+  * fixed broken long mp4 exporter: process was died by refresh_auth message
+
 flussonic (3.69.14)
 
   * flussonic refreshes expiring cookies 
@@ -8,7 +21,6 @@ flussonic (3.69.13)
 
   * fix stale cache in dvr2 when segments were deleted
   * mp4 exporters are now launched under supervisor and can be monitored
-  * fixed broken long mp4 exporter: process was died by refresh_auth message
   * updated mpegts_handler: stop on dying stream and better publish
   * changed flu_event format for files and streams
   * now dvr2 is storage by default. Need to write dvr1 for old streams

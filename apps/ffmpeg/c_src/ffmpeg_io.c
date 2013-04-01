@@ -2,6 +2,8 @@
 #include <libavcodec/avcodec.h>
 #include <stdarg.h>
 #include <unistd.h>
+#define _GNU_SOURCE
+#include <stdio.h>
 #include "reader.h"
 #include "compat.h"
 

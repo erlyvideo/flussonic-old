@@ -128,8 +128,8 @@ int main(int argc, char *argv[]) {
         venc_ctx->width = decoded_frame->width;
         venc_ctx->height = decoded_frame->height;
         venc_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
-        venc_ctx->time_base.num = vdec_ctx->time_base.num;
-        venc_ctx->time_base.den = vdec_ctx->time_base.den;
+        venc_ctx->time_base.num = 1;
+        venc_ctx->time_base.den = 50;
 
         if(avcodec_open2(venc_ctx, venc, NULL) < 0) error("failed to open jpeg encoder");        
       }

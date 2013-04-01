@@ -701,7 +701,7 @@ handle_info(reconnect_source, #stream{source = undefined, name = Name, url = URL
     rtsp -> flu_rtsp:read2(Name, URL, [{log_error,LogError}|Options]);
     rtsp2 -> flu_rtsp:read2(Name, URL, [{log_error,LogError}|Options]);
     rtsp1 -> flu_rtsp:read(Name, URL, Options);
-    hls -> hls:read(Name, URL, Options);
+    hls -> hls:read(Name, URL, [{log_error,LogError}|Options]);
     file -> file_source:read(URL, Options);
     rtmp -> flu_rtmp:play_url(Name, URL, Options);
     playlist -> playlist:read(Name, URL, Options);

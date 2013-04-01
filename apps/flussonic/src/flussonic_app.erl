@@ -88,6 +88,7 @@ read_config() ->
   end.
 
 load_config() ->
+  OldConfig = flu_config:get_config(),
   Env = read_config(),
   LogLevel = proplists:get_value(loglevel, Env, info),
   lager:set_loglevel(lager_console_backend, LogLevel),
@@ -121,7 +122,10 @@ load_config() ->
 
   [catch flu_stream:update_options(Stream, [{url,URL}|StreamOpts]) || {stream, Stream, URL, StreamOpts} <- Env],
   ConfigStreams = [Stream || {stream, Stream, _URL, _StreamOpts} <- Env],
-  [catch flu_stream:non_static(Name) || {Name, _} <- flu_stream:list(), not lists:member(Name, ConfigStreams)],  
+  OldStreams = [Stream || {stream, Stream, _, _} <- OldConfig, not lists:member(Stream, ConfigStreams)],
+  [catch flu_stream:non_static(Name) || {Name, _} <- flu_stream:list(), not lists:member(Name, ConfigStreams)],
+  [catch flu_stream:stop(Name) || {Name, _} <- flu_stream:list(), lists:member(Name, OldStreams)],
+
 
   ok.
 

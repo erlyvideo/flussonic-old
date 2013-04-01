@@ -34,6 +34,7 @@ deps/lager/ebin/lager_transform.beam:
 
 clean:
 	./rebar clean
+	rm -f apps/*/test/*.beam
 	rm -f erl_crash.dump
 
 compile_public:

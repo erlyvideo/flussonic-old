@@ -26,16 +26,26 @@ setup(Opts, Fun) ->
     {error, {already_started,App}} -> ok
   end || App <- Apps],
   log(proplists:get_value(log,Opts)),
+
   Mods = proplists:get_value(meck, Opts, []),
-  case Mods of
-    [] -> ok;
-    _ -> meck:new(Mods, [{passthrough,true}])
+  Meck = case Mods of
+    [] -> undefined;
+    _ -> 
+      Self = self(),
+      Meck_ = spawn(fun() ->
+        meck:new(Mods, [{passthrough,true}]),
+        Self ! go,
+        receive _ -> ok end,
+        meck:unload(Mods)
+      end),
+      receive go -> ok end,
+      Meck_
   end,
 
   set_config([]),
 
   R = Fun(),
-  {Apps, Mods, Opts, R}.
+  {Apps, Meck, Opts, R}.
 
 
 log() ->
@@ -51,7 +61,7 @@ log(Level) ->
 
 
 
-teardown({Apps, Mods, Opts, R}, Fun) ->
+teardown({Apps, Meck, Opts, R}, Fun) ->
   error_logger:delete_report_handler(error_logger_tty_h),
   [application:stop(App) || App <- lists:reverse(Apps ++ proplists:get_value(apps,Opts,[]))],
   case proplists:get_value(log,Opts) of
@@ -60,9 +70,9 @@ teardown({Apps, Mods, Opts, R}, Fun) ->
       code:soft_purge(lager_console_backend);
     _ -> ok
   end,
-  case Mods of
-    [] -> ok;
-    _ -> meck:unload(Mods)
+  case Meck of
+    undefined -> ok;
+    _ -> Meck ! done
   end,
   case proplists:get_value(arity, erlang:fun_info(Fun)) of
     1 -> Fun(R);

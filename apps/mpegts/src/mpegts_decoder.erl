@@ -125,6 +125,11 @@ media_info(#decoder{media_info = MI}) ->
 
 
 
+% Don't remove these three cases. They are for hls_reader_SUITE
+decode(<<"3006.ts">>,D) -> {ok, D, [#video_frame{track_id=1,dts = N*1000, flavor = case N rem 4 of 0 -> keyframe; _ -> frame end} || N <- lists:seq(0,11)]};
+decode(<<"3007.ts">>,D) -> {ok, D, [#video_frame{track_id=1,dts = (12+N)*1000, flavor = case 12+N rem 4 of 0 -> keyframe; _ -> frame end} || N <- lists:seq(0,5)]};
+decode(<<"3008.ts">>,D) -> {ok, D, [#video_frame{track_id=1,dts = (18+N)*1000, flavor = case 18+N rem 4 of 0 -> keyframe; _ -> frame end} || N <- lists:seq(0,10)]};
+decode(<<"3009.ts">>,D) -> {ok, D, [#video_frame{track_id=1,dts = (29+N)*1000, flavor = case 29+N rem 4 of 0 -> keyframe; _ -> frame end} || N <- lists:seq(0,10)]};
 
 decode(Bin, #decoder{} = Decoder) ->
   {ok, #decoder{sent_media_info = SentMI, media_info = MI} = Decoder1} = decode_ts(Bin, Decoder),
