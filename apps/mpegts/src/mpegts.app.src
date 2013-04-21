@@ -1,7 +1,0 @@
-{application, mpegts,
-[{description, "MPEG-TS handling library"},
- {vsn, "3.1"},
- {registered,[mpegts]},
- {applications, [kernel,stdlib]},
- {mod, {mpegts_app,[]}}
-]}.

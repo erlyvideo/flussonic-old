@@ -1,5 +1,0 @@
-#!/usr/bin/env escript
-%%! -smp enable +K true
-
-main(Args) ->
-  http_bench:main(Args).

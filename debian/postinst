@@ -1,6 +1,0 @@
-#!/bin/sh
-
-update-rc.d flussonic defaults 20 80 >/dev/null
-
-
-
